@@ -7,27 +7,24 @@
 
 #include "logging.h"
 
-#include "communicationHandler.h"
+#include "communication/communicator.h"
+#include "communication/exception.h"
 #include "helpers/storageHelperFactory.h"
 
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/chrono/duration.hpp>
 
 #include <google/protobuf/descriptor.h>
 
-#include <unistd.h>
-
 #include <ctime>
+#include <chrono>
 #include <numeric>
 #include <sstream>
 
-static const boost::chrono::seconds AFTER_FAIL_DELAY(2);
-static const boost::posix_time::seconds MAX_FLUSH_DELAY(10);
-static const std::string CENTRAL_LOG_MODULE_NAME("central_logger");
-static const std::string LOGGING_DECODER("logging");
+static constexpr std::chrono::seconds AFTER_FAIL_DELAY(2);
+static constexpr std::chrono::seconds MAX_FLUSH_DELAY{10};
 
-namespace veil
+namespace one
 {
 namespace logging
 {
@@ -36,36 +33,43 @@ static RemoteLogLevel glogToLevel(google::LogSeverity glevel)
 {
     switch(glevel)
     {
-        case google::INFO: return protocol::logging::INFO;
-        case google::WARNING: return protocol::logging::WARNING;
-        case google::ERROR: return protocol::logging::ERROR;
-        case google::FATAL: return protocol::logging::FATAL;
-        default: return protocol::logging::NONE;
+        case google::INFO: return clproto::logging::INFO;
+        case google::WARNING: return clproto::logging::WARNING;
+        case google::ERROR: return clproto::logging::ERROR;
+        case google::FATAL: return clproto::logging::FATAL;
+        default: return clproto::logging::NONE;
     }
 }
 
 RemoteLogWriter::RemoteLogWriter(const RemoteLogLevel initialThreshold,
                                  const BufferSize maxBufferSize,
                                  const BufferSize bufferTrimSize)
-    : m_pid(getpid())
-    , m_maxBufferSize(maxBufferSize)
-    , m_bufferTrimSize(bufferTrimSize)
-    , m_thresholdLevel(initialThreshold)
+    : m_pid{getpid()}
+    , m_maxBufferSize{maxBufferSize}
+    , m_bufferTrimSize{bufferTrimSize}
+    , m_thresholdLevel{initialThreshold}
+    , m_stopWriteLoop{false}
 {
 }
 
-void RemoteLogWriter::run(boost::shared_ptr<SimpleConnectionPool> connectionPool)
+void RemoteLogWriter::run(std::shared_ptr<communication::Communicator> communicator)
 {
-    m_connectionPool = std::move(connectionPool);
-    if(m_thread.get_id() == Thread().get_id()) // Not-a-Thread
+    if(m_thread.joinable())
     {
-        Thread thread(boost::thread(&RemoteLogWriter::writeLoop, this));
-        m_thread.swap(thread);
+        LOG(WARNING) << "run called while a thread is already running";
+        return;
     }
+
+    m_communicator = std::move(communicator);
+    m_thread = std::thread(&RemoteLogWriter::writeLoop, this);
 }
 
 RemoteLogWriter::~RemoteLogWriter()
 {
+    m_stopWriteLoop = true;
+    m_bufferChanged.notify_all();
+    if(m_thread.joinable())
+        m_thread.join();
 }
 
 void RemoteLogWriter::buffer(const RemoteLogLevel level,
@@ -75,7 +79,7 @@ void RemoteLogWriter::buffer(const RemoteLogLevel level,
     if(m_thresholdLevel > level) // nothing to log
         return;
 
-    protocol::logging::LogMessage log;
+    clproto::logging::LogMessage log;
     log.set_level(level);
     log.set_pid(m_pid);
     log.set_file_name(fileName);
@@ -86,12 +90,12 @@ void RemoteLogWriter::buffer(const RemoteLogLevel level,
     pushMessage(log);
 }
 
-bool RemoteLogWriter::handleThresholdChange(const protocol::communication_protocol::Answer &answer)
+bool RemoteLogWriter::handleThresholdChange(const clproto::communication_protocol::Answer &answer)
 {
     if(!boost::algorithm::iequals(answer.message_type(), "ChangeRemoteLogLevel"))
         return true;
 
-    protocol::logging::ChangeRemoteLogLevel req;
+    clproto::logging::ChangeRemoteLogLevel req;
     req.ParseFromString(answer.worker_answer());
     m_thresholdLevel = req.level();
 
@@ -101,9 +105,9 @@ bool RemoteLogWriter::handleThresholdChange(const protocol::communication_protoc
     return true;
 }
 
-void RemoteLogWriter::pushMessage(const protocol::logging::LogMessage &msg)
+void RemoteLogWriter::pushMessage(const clproto::logging::LogMessage &msg)
 {
-    boost::lock_guard<boost::mutex> guard(m_bufferMutex);
+    std::lock_guard<std::mutex> guard(m_bufferMutex);
 
     m_buffer.push(msg);
 
@@ -113,57 +117,48 @@ void RemoteLogWriter::pushMessage(const protocol::logging::LogMessage &msg)
     m_bufferChanged.notify_all();
 }
 
-protocol::logging::LogMessage RemoteLogWriter::popMessage()
+clproto::logging::LogMessage RemoteLogWriter::popMessage()
 {
-    boost::unique_lock<boost::mutex> lock(m_bufferMutex);
-    while(m_buffer.empty())
-        m_bufferChanged.timed_wait(lock, MAX_FLUSH_DELAY);
+    std::unique_lock<std::mutex> lock(m_bufferMutex);
+    while(m_buffer.empty() && !m_stopWriteLoop)
+        m_bufferChanged.wait_for(lock, MAX_FLUSH_DELAY);
 
-    const protocol::logging::LogMessage msg = m_buffer.front();
+    if(m_stopWriteLoop)
+        return clproto::logging::LogMessage{};
+
+    const clproto::logging::LogMessage msg = m_buffer.front();
     m_buffer.pop();
     return msg;
 }
 
 void RemoteLogWriter::writeLoop()
 {
-    while(true)
+    while(!m_stopWriteLoop)
     {
         if(!sendNextMessage())
-            boost::this_thread::sleep_for(AFTER_FAIL_DELAY);
+            std::this_thread::sleep_for(AFTER_FAIL_DELAY);
     }
 }
 
 bool RemoteLogWriter::sendNextMessage()
 {
-    const protocol::logging::LogMessage msg = popMessage();
+    const clproto::logging::LogMessage msg = popMessage();
+    if(m_stopWriteLoop)
+        return true;
 
-    boost::shared_ptr<SimpleConnectionPool> connectionPool = m_connectionPool;
-    if(!connectionPool)
+    if(!m_communicator)
         return false;
-
-    boost::shared_ptr<CommunicationHandler> connection = connectionPool->selectConnection();
-    if(!connection)
-        return false;
-
-    protocol::communication_protocol::ClusterMsg clm;
-    clm.set_protocol_version(PROTOCOL_VERSION);
-    clm.set_synch(false);
-    clm.set_module_name(CENTRAL_LOG_MODULE_NAME);
-    clm.set_message_decoder_name(LOGGING_DECODER);
-    clm.set_message_type(boost::algorithm::to_lower_copy(msg.GetDescriptor()->name()));
-    clm.set_answer_type(boost::algorithm::to_lower_copy(protocol::communication_protocol::Atom::descriptor()->name()));
-    clm.set_answer_decoder_name(COMMUNICATION_PROTOCOL);
-    msg.SerializeToString(clm.mutable_input());
 
     try
     {
-        connection->sendMessage(clm, IGNORE_ANSWER_MSG_ID);
-        return true;
+        m_communicator->send(communication::ServerModule::CENTRAL_LOGGER, msg);
     }
-    catch(CommunicationHandler::ConnectionStatus)
+    catch(communication::Exception&)
     {
         return false;
     }
+
+    return true;
 }
 
 void RemoteLogWriter::dropExcessMessages()
@@ -177,21 +172,21 @@ void RemoteLogWriter::dropExcessMessages()
            << " messages as the limit of " << m_maxBufferSize
            << " buffered messages has been exceeded";
 
-    protocol::logging::LogMessage log;
-    log.set_level(protocol::logging::WARNING);
+    clproto::logging::LogMessage log;
+    log.set_level(clproto::logging::WARNING);
     log.set_pid(m_pid);
     log.set_file_name("logging.cc");
     log.set_line(__LINE__),
-    log.set_timestamp(std::time(0));
+    log.set_timestamp(std::time(nullptr));
     log.set_message(message.str());
 
     m_buffer.push(log);
 }
 
-RemoteLogSink::RemoteLogSink(const boost::shared_ptr<RemoteLogWriter> &writer,
+RemoteLogSink::RemoteLogSink(std::shared_ptr<RemoteLogWriter> writer,
                              const RemoteLogLevel forcedLevel)
-    : m_forcedLevel(forcedLevel)
-    , m_writer(writer)
+    : m_forcedLevel{forcedLevel}
+    , m_writer{std::move(writer)}
 {
 }
 
@@ -201,7 +196,7 @@ void RemoteLogSink::send(google::LogSeverity severity,
                          const char *message, size_t message_len)
 {
     const time_t timestamp = std::mktime(const_cast<tm*>(tm_time));
-    const RemoteLogLevel level = m_forcedLevel != protocol::logging::NONE
+    const RemoteLogLevel level = m_forcedLevel != clproto::logging::NONE
             ? m_forcedLevel : glogToLevel(severity);
 
     m_writer->buffer(level, base_filename, line, timestamp,
@@ -219,4 +214,4 @@ void setLogSinks(const std::shared_ptr<RemoteLogSink> &logSink,
 }
 
 } // namespace logging
-} // namespace veil
+} // namespace one

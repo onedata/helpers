@@ -5,28 +5,27 @@
  * @copyright This software is released under the MIT license cited in 'LICENSE.txt'
  */
 
-#ifndef VEILHELPERS_LOGGING_H
-#define VEILHELPERS_LOGGING_H
+#ifndef HELPERS_LOGGING_H
+#define HELPERS_LOGGING_H
+
 
 #include "communication_protocol.pb.h"
 #include "logging.pb.h"
 
-#include <boost/atomic.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/thread.hpp>
-#include <boost/thread/scoped_thread.hpp>
-
 #include <glog/logging.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <queue>
 #include <string>
+#include <thread>
 
 
 #ifndef NDEBUG
 #   undef DLOG
-#   define DLOG(severity) LOG_TO_SINK(veil::logging::_debugLogSink.lock().get(), severity)
+#   define DLOG(severity) LOG_TO_SINK(one::logging::_debugLogSink.lock().get(), severity)
 #   define DLOG_TO_SINK(sink, severity) LOG_TO_SINK(sink, severity)
 #else
 #   define DLOG_TO_SINK(sink, severity) \
@@ -34,12 +33,12 @@
 #endif
 
 #undef LOG
-#define LOG(severity) LOG_TO_SINK(veil::logging::_logSink.lock().get(), severity)
+#define LOG(severity) LOG_TO_SINK(one::logging::_logSink.lock().get(), severity)
 
-namespace veil
+namespace one
 {
 
-class SimpleConnectionPool;
+namespace communication{ class Communicator; }
 
 namespace logging
 {
@@ -48,7 +47,7 @@ namespace logging
  * An enum describing log levels. Every message of threshold level and higher
  * are logged to a cluster. Log levels are compared by their int values.
  */
-typedef protocol::logging::LogLevel RemoteLogLevel;
+typedef clproto::logging::LogLevel RemoteLogLevel;
 
 class RemoteLogWriter;
 class RemoteLogSink;
@@ -70,10 +69,9 @@ extern void setLogSinks(const std::shared_ptr<RemoteLogSink> &logSink, const std
  */
 class RemoteLogWriter
 {
-    typedef boost::scoped_thread<boost::interrupt_and_join_if_joinable> Thread;
-    typedef std::queue<protocol::logging::LogMessage>::size_type BufferSize;
-    static const BufferSize DEFAULT_MAX_MESSAGE_BUFFER_SIZE = 1024;
-    static const BufferSize DEFAULT_MESSAGE_BUFFER_TRIM_SIZE = 850;
+    using BufferSize = std::queue<clproto::logging::LogMessage>::size_type;
+    static constexpr BufferSize DEFAULT_MAX_MESSAGE_BUFFER_SIZE = 1024;
+    static constexpr BufferSize DEFAULT_MESSAGE_BUFFER_TRIM_SIZE = 850;
 
 public:
     /**
@@ -86,16 +84,16 @@ public:
      * @param bufferTrimSize The size to which the buffer will be trimmed after
      * exceeding @p maxBufferSize .
      */
-    RemoteLogWriter(const RemoteLogLevel initialThreshold = protocol::logging::NONE,
+    RemoteLogWriter(const RemoteLogLevel initialThreshold = clproto::logging::NONE,
                     const BufferSize maxBufferSize = DEFAULT_MAX_MESSAGE_BUFFER_SIZE,
                     const BufferSize bufferTrimSize = DEFAULT_MESSAGE_BUFFER_TRIM_SIZE);
 
     /**
      * Runs the message write loop in a separate thread.
-     * Sets the connection pool used by the writer to send logs to a cluster.
+     * Sets the communicator used by the writer to send logs to a cluster.
      * @param connectionPool The pool to be used by the writer.
      */
-    virtual void run(boost::shared_ptr<SimpleConnectionPool> connectionPool);
+    virtual void run(std::shared_ptr<communication::Communicator> communicator);
 
     /**
      * Destructor.
@@ -121,24 +119,25 @@ public:
      * @param answer A push message from the cluster.
      * @return true.
      */
-    virtual bool handleThresholdChange(const protocol::communication_protocol::Answer &answer);
+    virtual bool handleThresholdChange(const clproto::communication_protocol::Answer &answer);
 
 private:
-    void pushMessage(const protocol::logging::LogMessage &msg);
-    protocol::logging::LogMessage popMessage();
+    void pushMessage(const clproto::logging::LogMessage &msg);
+    clproto::logging::LogMessage popMessage();
     void writeLoop();
     bool sendNextMessage();
     void dropExcessMessages();
 
-    boost::shared_ptr<SimpleConnectionPool> m_connectionPool;
+    std::shared_ptr<communication::Communicator> m_communicator;
     const pid_t m_pid;
     const BufferSize m_maxBufferSize;
     const BufferSize m_bufferTrimSize;
-    boost::condition_variable m_bufferChanged;
-    boost::mutex m_bufferMutex;
-    Thread m_thread;
-    boost::atomic<RemoteLogLevel> m_thresholdLevel;
-    std::queue<protocol::logging::LogMessage> m_buffer;
+    std::condition_variable m_bufferChanged;
+    std::mutex m_bufferMutex;
+    std::thread m_thread;
+    std::atomic<RemoteLogLevel> m_thresholdLevel;
+    std::atomic<bool> m_stopWriteLoop;
+    std::queue<clproto::logging::LogMessage> m_buffer;
 };
 
 /**
@@ -152,11 +151,11 @@ public:
      * Constructor.
      * @param writer An instance of RemoteLogWriter which will consume messages.
      * @param forcedLevel A log message severity level to report to the writer.
-     * If set to protocol::logging::NONE, the messages are reported with their
+     * If set to clproto::logging::NONE, the messages are reported with their
      * original severity level.
      */
-    RemoteLogSink(const boost::shared_ptr<RemoteLogWriter> &writer,
-                  const RemoteLogLevel forcedLevel = protocol::logging::NONE);
+    RemoteLogSink(std::shared_ptr<RemoteLogWriter> writer,
+                  const RemoteLogLevel forcedLevel = clproto::logging::NONE);
 
     /**
      * Queues the message to an instance of RemoteLogWriter. Called by glog.
@@ -169,10 +168,11 @@ public:
 
 private:
     const RemoteLogLevel m_forcedLevel;
-    boost::shared_ptr<RemoteLogWriter> m_writer;
+    std::shared_ptr<RemoteLogWriter> m_writer;
 };
 
 }
 }
 
-#endif // VEILHELPERS_LOGGING_H
+
+#endif // HELPERS_LOGGING_H
