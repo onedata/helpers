@@ -2,62 +2,69 @@
  * @file storageHelperFactory.cc
  * @author Rafal Slota
  * @copyright (C) 2013 ACK CYFRONET AGH
- * @copyright This software is released under the MIT license cited in 'LICENSE.txt'
+ * @copyright This software is released under the MIT license cited in
+ * 'LICENSE.txt'
  */
 
 #include "helpers/storageHelperFactory.h"
 
-#include "clusterProxyHelper.h"
-#include "communication/communicator.h"
+#include "cephHelper.h"
 #include "directIOHelper.h"
+#include "s3Helper.h"
 
-#include <boost/algorithm/string/case_conv.hpp>
+#ifdef BUILD_PROXY_IO
+#include "proxyIOHelper.h"
+#endif
 
-namespace one
-{
-namespace helpers
-{
+namespace one {
+namespace helpers {
 
-BufferLimits::BufferLimits(const size_t wgl, const size_t rgl, const size_t wfl,
-                           const size_t rfl, const size_t pbs)
-    : writeBufferGlobalSizeLimit{wgl}
-    , readBufferGlobalSizeLimit{rgl}
-    , writeBufferPerFileSizeLimit{wfl}
-    , readBufferPerFileSizeLimit{rfl}
-    , preferedBlockSize{pbs}
+#ifdef BUILD_PROXY_IO
+StorageHelperFactory::StorageHelperFactory(asio::io_service &cephService,
+    asio::io_service &dioService, asio::io_service &s3Service,
+    communication::Communicator &communicator)
+    : m_cephService{cephService}
+    , m_dioService{dioService}
+    , m_s3Service{s3Service}
+    , m_communicator{communicator}
 {
 }
+#else
+StorageHelperFactory::StorageHelperFactory(asio::io_service &ceph_service,
+    asio::io_service &dio_service, asio::io_service &s3Service)
+    : m_cephService{ceph_service}
+    , m_dioService{dio_service}
+    , m_s3Service{s3Service}
+{
+}
+#endif
 
-namespace utils {
+std::shared_ptr<IStorageHelper> StorageHelperFactory::getStorageHelper(
+    const std::string &sh_name,
+    const std::unordered_map<std::string, std::string> &args)
+{
+    if (sh_name == "Ceph")
+        return std::make_shared<CephHelper>(args, m_cephService);
 
-    std::string tolower(std::string input) {
-        boost::algorithm::to_lower(input);
-        return input;
+#ifdef BUILD_PROXY_IO
+    if (sh_name == "ProxyIO")
+        return std::make_shared<ProxyIOHelper>(args, m_communicator);
+#endif
+
+    if (sh_name == "DirectIO") {
+#ifdef __linux__
+        auto userCTXFactory = DirectIOHelper::linuxUserCTXFactory;
+#else
+        auto userCTXFactory = DirectIOHelper::noopUserCTXFactory;
+#endif
+        return std::make_shared<DirectIOHelper>(
+            args, m_dioService, userCTXFactory);
     }
 
-} // namespace utils
-
-StorageHelperFactory::StorageHelperFactory(std::shared_ptr<communication::Communicator> communicator,
-                                           const BufferLimits &limits)
-    : m_communicator{std::move(communicator)}
-    , m_limits{limits}
-{
-}
-
-std::shared_ptr<IStorageHelper> StorageHelperFactory::getStorageHelper(const std::string &sh_name,
-                                                                       const IStorageHelper::ArgsMap &args) {
-    if(sh_name == "DirectIO")
-        return std::make_shared<DirectIOHelper>(args);
-
-    if(sh_name == "ClusterProxy")
-        return std::make_shared<ClusterProxyHelper>(m_communicator, m_limits, args);
+    if (sh_name == "AmazonS3")
+        return std::make_shared<S3Helper>(args, m_s3Service);
 
     return {};
-}
-
-std::string srvArg(const int argno)
-{
-    return "srv_arg" + std::to_string(argno);
 }
 
 } // namespace helpers

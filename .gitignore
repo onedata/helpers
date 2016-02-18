@@ -1,5 +1,6 @@
 src/proto
-build
+/release
+/debug
 
 # Compiled Object files
 *.slo
@@ -23,6 +24,9 @@ build
 *.out
 *.app
 
+# Compiled Python files
+*.pyc
+
 # CMake
 CMakeCache.txt
 CMakeFiles
@@ -39,3 +43,6 @@ install_manifest.txt
 
 # XCode project files
 *.xcodeproj
+
+# Clion project files
+.idea

@@ -1,39 +1,44 @@
-RELEASE_DIR = release
-DEBUG_DIR = debug
+.PHONY: cmake release debug clean test cunit install coverage all
+all: test
 
-CMAKE = $(shell which cmake || which cmake28)
-CPACK = $(shell which cpack || which cpack28)
+INSTALL_PREFIX ?= ${HOME}/.local/helpers
+BUILD_PROXY_IO ?= ON
 
-.PHONY: build release debug clean all
-all: release test
+cmake: BUILD_DIR = $$(echo $(BUILD_TYPE) | tr '[:upper:]' '[:lower:]')
+cmake:
+	mkdir -p ${BUILD_DIR}
+	cd ${BUILD_DIR} && cmake -GNinja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+	                                 -DCODE_COVERAGE=${WITH_COVERAGE} \
+	                                 -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
+	                                 -DBUILD_PROXY_IO=${BUILD_PROXY_IO} ..
 
-## Obsolete target, use 'make release' instead
-build: release 
-	@echo "*****************************************************"
-	@echo "'build' target is obsolete, use 'release' instead !"
-	@echo "*****************************************************"
-	@ln -sfn ${RELEASE_DIR} build
+release: BUILD_TYPE = Release
+release: cmake
+	cmake --build release --target helpersStatic
+	cmake --build release --target helpersShared
 
-release: 
-	mkdir -p ${RELEASE_DIR}
-	cd ${RELEASE_DIR} && ${CMAKE} -GNinja -DCMAKE_BUILD_TYPE=Release `if [[ "$$PREFER_STATIC_LINK" != ""  ]]; then echo "-DPREFER_STATIC_LINK=1"; fi` ..
-	(cd ${RELEASE_DIR} && ninja)
-	ln -sfn release build
+debug: BUILD_TYPE = Debug
+debug: cmake
+	cmake --build debug --target helpersStatic
+	cmake --build debug --target helpersShared
 
-debug: 
-	@mkdir -p ${DEBUG_DIR}
-	@cd ${DEBUG_DIR} && ${CMAKE} -GNinja -DCMAKE_BUILD_TYPE=Debug `if [[ "$$PREFER_STATIC_LINK" != ""  ]]; then echo "-DPREFER_STATIC_LINK=1"; fi` ..
-	@(cd ${DEBUG_DIR} && ninja)
-	ln -sfn debug build
+test: debug
+	cmake --build debug
+	cmake --build debug --target test
 
-test: release
-	@cd ${RELEASE_DIR} && ninja test
-
-cunit: release
-	@cd ${RELEASE_DIR} && ninja cunit
+cunit: debug
+	cmake --build debug
+	cmake --build debug --target cunit
 
 install: release
-	@cd ${RELEASE_DIR} && ninja install
+	cmake --build release --target install
 
-clean: 
-	@rm -rf ${DEBUG_DIR} ${RELEASE_DIR} build
+coverage:
+	lcov --directory debug --capture --output-file helpers.info
+	lcov --remove helpers.info 'test/*' '/usr/*' 'asio/*' '**/messages/*' 'relwithdebinfo/*' 'debug/*' 'release/*' 'erlang-tls/*' --output-file helpers.info.cleaned
+	genhtml -o coverage helpers.info.cleaned
+	echo "Coverage written to `pwd`/coverage/index.html"
+
+clean:
+	rm -rf debug release
+
