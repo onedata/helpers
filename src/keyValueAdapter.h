@@ -14,7 +14,9 @@
 #include <asio.hpp>
 #include <tbb/concurrent_hash_map.h>
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 
 namespace one {
 namespace helpers {
@@ -81,16 +83,59 @@ public:
     }
 
 private:
+    struct TaskCtx {
+        TaskCtx(std::string fileId_)
+            : prefix{std::move(fileId_)}
+            , parts{0} {};
+
+        std::string prefix;
+        std::atomic<std::size_t> parts;
+        std::error_code code = SUCCESS_CODE;
+        std::mutex mutex;
+    };
+
+    struct ReadCtx : public TaskCtx {
+        ReadCtx(std::string fileId_,
+            GeneralCallback<asio::mutable_buffer> _callback)
+            : TaskCtx(std::move(fileId_))
+            , callback{std::move(_callback)}
+        {
+        }
+
+        GeneralCallback<asio::mutable_buffer> callback;
+    };
+
+    struct WriteCtx : public TaskCtx {
+        WriteCtx(std::string fileId_, GeneralCallback<std::size_t> _callback)
+            : TaskCtx(std::move(fileId_))
+            , callback{std::move(_callback)}
+        {
+        }
+
+        GeneralCallback<std::size_t> callback;
+    };
+
     uint64_t getBlockId(off_t offset);
+
     off_t getBlockOffset(off_t offset);
-    asio::mutable_buffer getBlock(
+
+    std::size_t readBlock(CTXPtr ctx, const std::string &prefix,
+        asio::mutable_buffer buf, std::size_t bufOffset, uint64_t blockId,
+        off_t blockOffset);
+
+    asio::mutable_buffer readBlock(
         CTXPtr ctx, std::string key, asio::mutable_buffer buf, off_t offset);
+
+    void writeBlock(CTXPtr ctx, const std::string &prefix,
+        asio::const_buffer buf, std::size_t bufOffset, uint64_t blockId,
+        off_t blockOffset, std::size_t blockSize);
+
     void logError(std::string operation, const std::system_error &error);
 
     std::unique_ptr<KeyValueHelper> m_helper;
     asio::io_service &m_service;
     Locks &m_locks;
-    std::size_t m_blockSize;
+    const std::size_t m_blockSize;
 };
 
 } // namespace helpers

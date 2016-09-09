@@ -49,92 +49,87 @@ void KeyValueAdapter::ash_read(CTXPtr ctx, const boost::filesystem::path &p,
     asio::mutable_buffer buf, off_t offset,
     GeneralCallback<asio::mutable_buffer> callback)
 {
-    asio::post(m_service,
-        [ =, ctx = std::move(ctx), callback = std::move(callback) ]() mutable {
+    auto prefix = p.string();
+    auto fileSize = m_helper->getObjectsSize(ctx, prefix, m_blockSize);
+
+    if (offset >= fileSize)
+        return callback(asio::buffer(buf, 0), SUCCESS_CODE);
+
+    buf = asio::buffer(buf, fileSize - offset);
+    auto size = asio::buffer_size(buf);
+
+    if (size == 0)
+        return callback(asio::buffer(buf, 0), SUCCESS_CODE);
+
+    auto blockId = getBlockId(offset);
+    auto blockOffset = getBlockOffset(offset);
+    auto blocksToRead = (size + blockOffset + m_blockSize - 1) / m_blockSize;
+    auto readCtx =
+        std::make_shared<ReadCtx>(std::move(prefix), std::move(callback));
+
+    for (std::size_t bufOffset = 0; bufOffset < size;
+         blockOffset = 0, ++blockId) {
+
+        asio::post(m_service, [=]() mutable {
             try {
-                auto fileSize =
-                    m_helper->getObjectsSize(ctx, p.string(), m_blockSize);
-
-                if (offset >= fileSize)
-                    return callback(asio::buffer(buf, 0), SUCCESS_CODE);
-
-                buf = asio::buffer(buf, fileSize - offset);
-                auto size = asio::buffer_size(buf);
-                auto blockId = getBlockId(offset);
-                auto blockOffset = getBlockOffset(offset);
-
-                for (std::size_t bufOffset = 0; bufOffset < size;
-                     blockOffset = 0, ++blockId) {
-
-                    auto blockBuf = asio::buffer(buf + bufOffset, m_blockSize);
-                    auto key = m_helper->getKey(p.string(), blockId);
-
-                    Locks::accessor acc;
-                    m_locks.insert(acc, key);
-                    getBlock(ctx, std::move(key), blockBuf, blockOffset);
-                    m_locks.erase(key);
-
-                    bufOffset += m_blockSize - blockOffset;
-                }
-
-                callback(asio::buffer(buf, size), SUCCESS_CODE);
+                readBlock(std::move(ctx), readCtx->prefix, buf, bufOffset,
+                    blockId, blockOffset);
             }
             catch (const std::system_error &e) {
-                logError("read", e);
-                callback(asio::mutable_buffer{}, e.code());
+                std::lock_guard<std::mutex> guard{readCtx->mutex};
+                if (!readCtx->code) {
+                    logError("read", e);
+                    readCtx->code = e.code();
+                }
+            }
+            if (++readCtx->parts == blocksToRead) {
+                readCtx->callback(buf, readCtx->code);
             }
         });
+
+        bufOffset += m_blockSize - blockOffset;
+    }
 }
 
 void KeyValueAdapter::ash_write(CTXPtr ctx, const boost::filesystem::path &p,
     asio::const_buffer buf, off_t offset, GeneralCallback<std::size_t> callback)
 {
-    asio::post(m_service, [
-        =, ctx = std::move(ctx), callback = std::move(callback)
-    ] {
-        try {
-            auto size = asio::buffer_size(buf);
-            auto blockId = getBlockId(offset);
-            auto blockOffset = getBlockOffset(offset);
+    auto size = asio::buffer_size(buf);
 
-            for (std::size_t bufOffset = 0; bufOffset < size;
-                 blockOffset = 0, ++blockId) {
-                auto blockSize = std::min<std::size_t>(
-                    m_blockSize - blockOffset, size - bufOffset);
+    if (size == 0)
+        return callback(0, SUCCESS_CODE);
 
-                auto key = m_helper->getKey(p.string(), blockId);
-                Locks::accessor acc;
-                m_locks.insert(acc, key);
+    auto prefix = p.string();
+    auto blockId = getBlockId(offset);
+    auto blockOffset = getBlockOffset(offset);
+    auto blocksToWrite = (size + blockOffset + m_blockSize - 1) / m_blockSize;
+    auto writeCtx =
+        std::make_shared<WriteCtx>(std::move(prefix), std::move(callback));
 
-                if (blockSize != m_blockSize) {
-                    std::vector<char> data(m_blockSize, '\0');
-                    auto blockBuf = asio::buffer(data);
-                    auto fetchedBuf = getBlock(ctx, key, blockBuf, 0);
+    for (std::size_t bufOffset = 0; bufOffset < size;
+         blockOffset = 0, ++blockId) {
+        auto blockSize =
+            std::min<std::size_t>(m_blockSize - blockOffset, size - bufOffset);
 
-                    auto targetBlockSize = std::max(
-                        asio::buffer_size(fetchedBuf), blockOffset + blockSize);
-
-                    blockBuf = asio::buffer(blockBuf, targetBlockSize);
-                    asio::buffer_copy(blockBuf + blockOffset, buf + bufOffset);
-
-                    m_helper->putObject(ctx, std::move(key), blockBuf);
-                }
-                else {
-                    auto blockBuf = asio::buffer(buf + bufOffset, blockSize);
-                    m_helper->putObject(ctx, std::move(key), blockBuf);
-                }
-
-                m_locks.erase(acc);
-
-                bufOffset += blockSize;
+        asio::post(m_service, [=]() mutable {
+            try {
+                writeBlock(std::move(ctx), writeCtx->prefix, buf, bufOffset,
+                    blockId, blockOffset, blockSize);
             }
-            callback(size, SUCCESS_CODE);
-        }
-        catch (const std::system_error &e) {
-            logError("write", e);
-            callback(0, e.code());
-        }
-    });
+            catch (const std::system_error &e) {
+                std::lock_guard<std::mutex> guard{writeCtx->mutex};
+                if (!writeCtx->code) {
+                    logError("write", e);
+                    writeCtx->code = e.code();
+                }
+            }
+            if (++writeCtx->parts == blocksToWrite) {
+                writeCtx->callback(size, writeCtx->code);
+            }
+        });
+
+        bufOffset += blockSize;
+    }
 }
 
 void KeyValueAdapter::ash_truncate(CTXPtr ctx, const boost::filesystem::path &p,
@@ -143,6 +138,7 @@ void KeyValueAdapter::ash_truncate(CTXPtr ctx, const boost::filesystem::path &p,
     asio::post(
         m_service, [ =, ctx = std::move(ctx), callback = std::move(callback) ] {
             try {
+                auto prefix = p.string();
                 auto blockId = getBlockId(size);
                 auto blockOffset = getBlockOffset(size);
 
@@ -158,11 +154,11 @@ void KeyValueAdapter::ash_truncate(CTXPtr ctx, const boost::filesystem::path &p,
                     }
                 }
 
-                auto key = m_helper->getKey(p.string(), blockId);
+                auto key = m_helper->getKey(prefix, blockId);
                 auto blockSize = static_cast<std::size_t>(blockOffset);
 
                 if (blockSize == 0 && blockId > 0) {
-                    key = m_helper->getKey(p.string(), blockId - 1);
+                    key = m_helper->getKey(prefix, blockId - 1);
                     blockSize = m_blockSize;
                 }
 
@@ -172,7 +168,7 @@ void KeyValueAdapter::ash_truncate(CTXPtr ctx, const boost::filesystem::path &p,
 
                     Locks::accessor acc;
                     m_locks.insert(acc, key);
-                    getBlock(ctx, key, blockBuf, 0);
+                    readBlock(ctx, key, blockBuf, 0);
                     m_helper->putObject(ctx, std::move(key), blockBuf);
                     m_locks.erase(acc);
                 }
@@ -199,7 +195,20 @@ off_t KeyValueAdapter::getBlockOffset(off_t offset)
     return offset - getBlockId(offset) * m_blockSize;
 }
 
-asio::mutable_buffer KeyValueAdapter::getBlock(
+std::size_t KeyValueAdapter::readBlock(CTXPtr ctx, const std::string &prefix,
+    asio::mutable_buffer buf, std::size_t bufOffset, uint64_t blockId,
+    off_t blockOffset)
+{
+    auto blockBuf = asio::buffer(buf + bufOffset, m_blockSize);
+    auto key = m_helper->getKey(prefix, blockId);
+    Locks::accessor acc;
+    m_locks.insert(acc, key);
+    readBlock(ctx, std::move(key), blockBuf, blockOffset);
+    m_locks.erase(key);
+    return asio::buffer_size(blockBuf);
+}
+
+asio::mutable_buffer KeyValueAdapter::readBlock(
     CTXPtr ctx, std::string key, asio::mutable_buffer buf, off_t offset)
 {
     try {
@@ -213,6 +222,35 @@ asio::mutable_buffer KeyValueAdapter::getBlock(
             throw;
         }
     }
+}
+
+void KeyValueAdapter::writeBlock(CTXPtr ctx, const std::string &prefix,
+    asio::const_buffer buf, std::size_t bufOffset, uint64_t blockId,
+    off_t blockOffset, std::size_t blockSize)
+{
+    auto key = m_helper->getKey(prefix, blockId);
+    Locks::accessor acc;
+    m_locks.insert(acc, key);
+
+    if (blockSize != m_blockSize) {
+        std::vector<char> data(m_blockSize, '\0');
+        auto blockBuf = asio::buffer(data);
+        auto fetchedBuf = readBlock(ctx, key, blockBuf, 0);
+
+        auto targetBlockSize =
+            std::max(asio::buffer_size(fetchedBuf), blockOffset + blockSize);
+
+        blockBuf = asio::buffer(blockBuf, targetBlockSize);
+        asio::buffer_copy(blockBuf + blockOffset, buf + bufOffset);
+
+        m_helper->putObject(ctx, std::move(key), blockBuf);
+    }
+    else {
+        auto blockBuf = asio::buffer(buf + bufOffset, blockSize);
+        m_helper->putObject(ctx, std::move(key), blockBuf);
+    }
+
+    m_locks.erase(acc);
 }
 
 void KeyValueAdapter::logError(

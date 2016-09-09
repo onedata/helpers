@@ -11,11 +11,12 @@
 
 #include "keyValueHelper.h"
 
-#include "Swift/HTTPIO.h"
 #include "Swift/Account.h"
 #include "Swift/Container.h"
+#include "Swift/HTTPIO.h"
 #include "Swift/Object.h"
 
+#include <mutex>
 #include <vector>
 
 namespace one {
@@ -78,7 +79,7 @@ public:
         asio::mutable_buffer buf, off_t offset) override;
 
     off_t getObjectsSize(
-        CTXPtr ctx, std::string prefix, std::size_t objectSize) override;
+        CTXPtr ctx, const std::string &prefix, std::size_t objectSize) override;
 
     std::size_t putObject(
         CTXPtr ctx, std::string key, asio::const_buffer buf) override;
@@ -92,6 +93,7 @@ private:
     std::shared_ptr<SwiftHelperCTX> getCTX(CTXPtr rawCTX) const;
 
     std::unordered_map<std::string, std::string> m_args;
+    std::mutex m_mutex;
 };
 
 } // namespace helpers
