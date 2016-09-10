@@ -66,6 +66,7 @@ public:
 private:
     std::unique_ptr<Swift::Account> m_account;
     std::unordered_map<std::string, std::string> m_args;
+    std::mutex m_mutex;
 };
 
 class SwiftHelper : public KeyValueHelper {
@@ -93,7 +94,6 @@ private:
     std::shared_ptr<SwiftHelperCTX> getCTX(CTXPtr rawCTX) const;
 
     std::unordered_map<std::string, std::string> m_args;
-    std::mutex m_mutex;
 };
 
 } // namespace helpers

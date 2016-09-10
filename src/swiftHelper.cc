@@ -80,7 +80,6 @@ CTXPtr SwiftHelper::createCTX(
 asio::mutable_buffer SwiftHelper::getObject(
     CTXPtr rawCTX, std::string key, asio::mutable_buffer buf, off_t offset)
 {
-    std::lock_guard<std::mutex> guard{m_mutex};
     auto ctx = getCTX(std::move(rawCTX));
     auto &account = ctx->authenticate();
     auto size = asio::buffer_size(buf);
@@ -104,7 +103,6 @@ asio::mutable_buffer SwiftHelper::getObject(
 off_t SwiftHelper::getObjectsSize(
     CTXPtr rawCTX, const std::string &prefix, std::size_t objectSize)
 {
-    std::lock_guard<std::mutex> guard{m_mutex};
     auto ctx = getCTX(std::move(rawCTX));
     auto &account = ctx->authenticate();
 
@@ -132,7 +130,6 @@ off_t SwiftHelper::getObjectsSize(
 std::size_t SwiftHelper::putObject(
     CTXPtr rawCTX, std::string key, asio::const_buffer buf)
 {
-    std::lock_guard<std::mutex> guard{m_mutex};
     auto ctx = getCTX(std::move(rawCTX));
     auto &account = ctx->authenticate();
     auto size = asio::buffer_size(buf);
@@ -150,7 +147,6 @@ std::size_t SwiftHelper::putObject(
 
 void SwiftHelper::deleteObjects(CTXPtr rawCTX, std::vector<std::string> keys)
 {
-    std::lock_guard<std::mutex> guard{m_mutex};
     auto ctx = getCTX(std::move(rawCTX));
     auto &account = ctx->authenticate();
 
@@ -170,7 +166,6 @@ void SwiftHelper::deleteObjects(CTXPtr rawCTX, std::vector<std::string> keys)
 std::vector<std::string> SwiftHelper::listObjects(
     CTXPtr rawCTX, std::string prefix)
 {
-    std::lock_guard<std::mutex> guard{m_mutex};
     auto ctx = getCTX(std::move(rawCTX));
     auto &account = ctx->authenticate();
 
@@ -239,6 +234,8 @@ std::unordered_map<std::string, std::string> SwiftHelperCTX::getUserCTX()
 
 const std::unique_ptr<Swift::Account> &SwiftHelperCTX::authenticate()
 {
+    std::lock_guard<std::mutex> guard{m_mutex};
+
     if (m_account)
         return m_account;
 
