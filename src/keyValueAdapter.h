@@ -83,38 +83,6 @@ public:
     }
 
 private:
-    struct TaskCtx {
-        TaskCtx(std::string fileId_)
-            : prefix{std::move(fileId_)}
-            , parts{0} {};
-
-        std::string prefix;
-        std::atomic<std::size_t> parts;
-        std::error_code code = SUCCESS_CODE;
-        std::mutex mutex;
-    };
-
-    struct ReadCtx : public TaskCtx {
-        ReadCtx(std::string fileId_,
-            GeneralCallback<asio::mutable_buffer> _callback)
-            : TaskCtx(std::move(fileId_))
-            , callback{std::move(_callback)}
-        {
-        }
-
-        GeneralCallback<asio::mutable_buffer> callback;
-    };
-
-    struct WriteCtx : public TaskCtx {
-        WriteCtx(std::string fileId_, GeneralCallback<std::size_t> _callback)
-            : TaskCtx(std::move(fileId_))
-            , callback{std::move(_callback)}
-        {
-        }
-
-        GeneralCallback<std::size_t> callback;
-    };
-
     uint64_t getBlockId(off_t offset);
 
     off_t getBlockOffset(off_t offset);

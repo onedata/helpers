@@ -13,6 +13,21 @@
 namespace one {
 namespace helpers {
 
+namespace {
+template <typename CbValue> struct TaskCtx {
+    TaskCtx(std::string fileId_, GeneralCallback<CbValue> _callback)
+        : prefix{std::move(fileId_)}
+        , parts{0}
+        , callback{std::move(_callback)} {};
+
+    std::string prefix;
+    std::atomic<std::size_t> parts;
+    std::error_code code = SUCCESS_CODE;
+    std::mutex mutex;
+    GeneralCallback<CbValue> callback;
+};
+}
+
 KeyValueAdapter::KeyValueAdapter(std::unique_ptr<KeyValueHelper> helper,
     asio::io_service &service, Locks &locks, std::size_t blockSize)
     : m_helper{std::move(helper)}
@@ -78,8 +93,8 @@ void KeyValueAdapter::ash_write(CTXPtr ctx, const boost::filesystem::path &p,
     auto blockId = getBlockId(offset);
     auto blockOffset = getBlockOffset(offset);
     auto blocksToWrite = (size + blockOffset + m_blockSize - 1) / m_blockSize;
-    auto writeCtx =
-        std::make_shared<WriteCtx>(std::move(prefix), std::move(callback));
+    auto writeCtx = std::make_shared<TaskCtx<std::size_t>>(
+        std::move(prefix), std::move(callback));
 
     for (std::size_t bufOffset = 0; bufOffset < size;
          blockOffset = 0, ++blockId) {
@@ -183,8 +198,8 @@ void KeyValueAdapter::readBlocks(CTXPtr ctx, std::string prefix,
     auto blockId = getBlockId(offset);
     auto blockOffset = getBlockOffset(offset);
     auto blocksToRead = (size + blockOffset + m_blockSize - 1) / m_blockSize;
-    auto readCtx =
-        std::make_shared<ReadCtx>(std::move(prefix), std::move(callback));
+    auto readCtx = std::make_shared<TaskCtx<asio::mutable_buffer>>(
+        std::move(prefix), std::move(callback));
 
     for (std::size_t bufOffset = 0; bufOffset < size;
          blockOffset = 0, ++blockId) {
