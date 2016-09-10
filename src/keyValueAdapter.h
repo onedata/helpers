@@ -119,6 +119,10 @@ private:
 
     off_t getBlockOffset(off_t offset);
 
+    void readBlocks(CTXPtr ctx, std::string prefix, asio::mutable_buffer buf,
+        off_t offset, std::size_t fileSize,
+        GeneralCallback<asio::mutable_buffer> callback);
+
     std::size_t readBlock(CTXPtr ctx, const std::string &prefix,
         asio::mutable_buffer buf, std::size_t bufOffset, uint64_t blockId,
         off_t blockOffset);
