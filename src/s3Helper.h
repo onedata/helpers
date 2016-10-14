@@ -11,6 +11,7 @@
 
 #include "keyValueHelper.h"
 
+#include <aws/core/Aws.h>
 #include <aws/s3/S3Errors.h>
 
 #include <map>
@@ -32,9 +33,23 @@ constexpr auto S3_HELPER_ACCESS_KEY_ARG = "access_key";
 constexpr auto S3_HELPER_SECRET_KEY_ARG = "secret_key";
 
 /**
-* The S3HelperCTX class represents context for S3 helpers and its object is
-* passed to all helper functions.
-*/
+ * The S3HelperApiInit class is responsible for initialization and cleanup of
+ * AWS SDK C++ library. It should be instantiated prior to any library call.
+ */
+class S3HelperApiInit {
+public:
+    S3HelperApiInit() { Aws::InitAPI(m_options); }
+
+    ~S3HelperApiInit() { Aws::ShutdownAPI(m_options); }
+
+private:
+    Aws::SDKOptions m_options;
+};
+
+/**
+ * The S3HelperCTX class represents context for S3 helpers and its object is
+ * passed to all helper functions.
+ */
 class S3HelperCTX : public IStorageHelperCTX {
 public:
     /**
@@ -68,8 +83,9 @@ private:
 };
 
 /**
-* The S3Helper class provides access to Simple Storage Service (S3) via AWS SDK.
-*/
+ * The S3Helper class provides access to Simple Storage Service (S3)
+ * via AWS SDK C++ library.
+ */
 class S3Helper : public KeyValueHelper {
 public:
     S3Helper(std::unordered_map<std::string, std::string> args);
