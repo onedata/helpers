@@ -18,6 +18,7 @@ import "handshake_messages.proto";
 import "diagnostic_messages.proto";
 import "proxyio_messages.proto";
 import "dbsync_messages.proto";
+import "provider_messages.proto";
 import "gwproto.proto";
 
 // Messages that can be sent by the client to the server.
@@ -45,29 +46,33 @@ message ClientMessage {
         Events                   events                    = 10;
         Subscription             subscription              = 11;
         SubscriptionCancellation subscription_cancellation = 12;
+        FlushEvents              flush_events              = 13;
 
         // diagnostic_messages.proto
-        Ping                     ping                      = 13;
-        GetProtocolVersion       get_protocol_version      = 14;
-        GetConfiguration         get_configuration         = 15;
+        Ping                     ping                      = 14;
+        GetProtocolVersion       get_protocol_version      = 15;
+        GetConfiguration         get_configuration         = 16;
 
         // fuse_messages.proto
-        FuseRequest              fuse_request              = 16;
+        FuseRequest              fuse_request              = 17;
 
         // proxyio_messages.proto
-        ProxyIORequest           proxyio_request           = 17;
+        ProxyIORequest           proxyio_request           = 18;
 
         // dbsync_messages.proto
-        DBSyncRequest            dbsync_request            = 18;
+        DBSyncRequest            dbsync_request            = 19;
+
+        // provider_messages.proto
+        ProviderRequest          provider_request          = 20;
     }
     
-    optional bytes proxy_session_id = 19;
-    optional Token proxy_session_token = 20;
+    optional bytes proxy_session_id = 21;
+    optional Token proxy_session_token = 22;
 }
 
 // Messages that can be sent by the server to the client.
 message ServerMessage {
-    optional bytes         message_id     = 1; // should be set when respons is
+    optional bytes         message_id     = 1; // should be set when response is
                                                // expected
     optional MessageStream message_stream = 2; // identifies message as part of
                                                // a stream
@@ -100,7 +105,10 @@ message ServerMessage {
 
         // proxyio_messages.proto
         ProxyIOResponse          proxyio_response          = 16;
+
+        // provider_messages.proto
+        ProviderResponse         provider_response         = 17;
     }
     
-    optional bytes proxy_session_id = 17;
+    optional bytes proxy_session_id = 18;
 }

@@ -12,10 +12,6 @@ import os
 from . import common, docker, riak, couchbase, dns, cluster_manager
 from timeouts import *
 
-# mounting point for op-worker-node docker
-DOCKER_BINDIR_PATH = '/root/build'
-
-
 def cluster_domain(instance, uid):
     """Formats domain for a cluster."""
     return common.format_hostname(instance, uid)
@@ -73,20 +69,23 @@ def _node_up(image, bindir, dns_servers, config, db_node_mappings, logdir,
     (name, sep, hostname) = node_name.partition('@')
     (_, _, domain) = hostname.partition('.')
 
+    bindir = os.path.abspath(bindir)
+
     command = '''set -e
 mkdir -p /root/bin/node/log/
-echo 'while ((1)); do chown -R {uid}:{gid} /root/bin/node/log; sleep 1; done' > /root/bin/chown_logs.sh
-bash /root/bin/chown_logs.sh &
+bindfs --create-for-user={uid} --create-for-group={gid} /root/bin/node/log /root/bin/node/log
 cat <<"EOF" > /tmp/gen_dev_args.json
 {gen_dev_args}
 EOF
 {mount_commands}
 {pre_start_commands}
+ln -s {bindir} /root/build
 /root/bin/node/bin/{executable} console'''
 
     mount_commands = common.mount_nfs_command(config, storages_dockers)
     pre_start_commands = configurator.pre_start_commands(domain)
     command = command.format(
+        bindir=bindir,
         gen_dev_args=json.dumps({configurator.app_name(): config}),
         mount_commands=mount_commands,
         pre_start_commands=pre_start_commands,
@@ -95,11 +94,13 @@ EOF
         executable=configurator.app_name()
     )
 
-    volumes = [(bindir, DOCKER_BINDIR_PATH, 'ro')]
-    volumes += configurator.extra_volumes(config, bindir, domain)
+    volumes = ['/root/bin', (bindir, bindir, 'ro')]
+    volumes += configurator.extra_volumes(config, bindir, domain,
+                                          storages_dockers)
 
     if logdir:
         logdir = os.path.join(os.path.abspath(logdir), hostname)
+        os.makedirs(logdir)
         volumes.extend([(logdir, '/root/bin/node/log', 'rw')])
 
     container = docker.run(
@@ -109,10 +110,10 @@ EOF
         detach=True,
         interactive=True,
         tty=True,
-        workdir=DOCKER_BINDIR_PATH,
+        workdir=bindir,
         volumes=volumes,
         dns_list=dns_servers,
-        privileged=True if mount_commands else False,
+        privileged=True,
         command=command)
 
     # create system users and groups (if specified)
@@ -151,7 +152,7 @@ def _riak_up(cluster_name, db_nodes, dns_servers, uid):
     return db_node_mappings, riak_output
 
 
-def _couchbase_up(cluster_name, db_nodes, dns_servers, uid):
+def _couchbase_up(cluster_name, db_nodes, dns_servers, uid, configurator):
     db_node_mappings = {}
     for node in db_nodes:
         db_node_mappings[node] = ''
@@ -163,8 +164,10 @@ def _couchbase_up(cluster_name, db_nodes, dns_servers, uid):
         return db_node_mappings, {}
 
     [dns] = dns_servers
-    couchbase_output = couchbase.up('couchbase/server:community-4.0.0', dns,
-                                    uid, cluster_name, len(db_node_mappings))
+    couchbase_output = couchbase.up('couchbase/server:community-4.1.0', dns,
+                                    uid, cluster_name, len(db_node_mappings),
+                                    configurator.couchbase_buckets(),
+                                    configurator.couchbase_ramsize())
 
     return db_node_mappings, couchbase_output
 
@@ -230,7 +233,8 @@ def up(image, bindir, dns_server, uid, config_path, configurator, logdir=None,
                                                 dns_servers, uid)
         elif db_driver in ['couchbase', 'couchdb']:
             db_node_mappings, db_out = _couchbase_up(instance, all_db_nodes,
-                                                     dns_servers, uid)
+                                                     dns_servers, uid,
+                                                     configurator)
         else:
             raise ValueError("Invalid db_driver: {0}".format(db_driver))
 
@@ -262,6 +266,9 @@ def up(image, bindir, dns_server, uid, config_path, configurator, logdir=None,
                     'ns': worker_ips,
                     'a': []
                 }
+            },
+            'domain_mappings': {
+                instance: instance_domain
             }
         }
         common.merge(current_output, domains)

@@ -54,7 +54,7 @@ parser.add_argument(
     '--no-cache',
     action='store_false',
     default=True,
-    help='disable mounting /var/cache/ccache and /var/cache/beamcache',
+    help='disable mounting /var/cache/ccache and /var/cache/rebar3',
     dest='mount_cache')
 
 parser.add_argument(
@@ -106,6 +106,13 @@ parser.add_argument(
     help='run the container with --privileged=true',
     dest='privileged')
 
+parser.add_argument(
+    '--cpuset-cpus',
+    action='store',
+    default=None,
+    help='CPUs in which to allow execution (0-3, 0,1)',
+    dest='cpuset_cpus')
+
 [args, pass_args] = parser.parse_known_args()
 
 command = '''
@@ -138,14 +145,18 @@ for root, dirs, files in os.walk(ssh_home):
     for file in files:
         os.chmod(os.path.join(root, file), 0o600)
 
+# Try to copy config.json, continue if it fails (might not exist on host).
 try:
     os.makedirs(docker_home)
 except:
     pass
-shutil.copyfile(
-    '/tmp/docker_config/config.json',
-    os.path.join(docker_home, 'config.json'
-))
+try:
+    shutil.copyfile(
+        '/tmp/docker_config/config.json',
+        os.path.join(docker_home, 'config.json'
+    ))
+except:
+    pass
 
 sh_command = 'eval $(ssh-agent) > /dev/null; ssh-add 2>&1; {command} {params}'
 ret = subprocess.call(['sh', '-c', sh_command])
@@ -165,17 +176,18 @@ reflect = [(args.src, 'rw'), ('/var/run/docker.sock', 'rw')]
 reflect.extend(zip(args.reflect, ['rw'] * len(args.reflect)))
 if args.mount_cache:
     reflect.extend([
-        ('/var/cache/ccache', 'rw'), ('/var/cache/beamcache', 'rw')
+        ('/var/cache/ccache', 'rw'), ('/var/cache/rebar3', 'rw')
     ])
 
 # Mount keys required for git and docker config that holds auth to
 # docker.onedata.org, so the docker can pull images from there.
-# It cannot be mounted under ~/.docker/config.json because docker uses
-# it during start. Mount it in /root/docker_config and then cp the json.
+# Mount it in /tmp/docker_config and then cp the json.
+# If .docker is not existent on host, just skip the volume and config copying.
 volumes = [
-    (args.keys, '/tmp/keys', 'ro'),
-    (expanduser('~/.docker'), '/tmp/docker_config', 'ro')
+    (args.keys, '/tmp/keys', 'ro')
 ]
+if os.path.isdir(expanduser('~/.docker')):
+    volumes += [(expanduser('~/.docker'), '/tmp/docker_config', 'ro')]
 
 split_envs = [e.split('=') for e in args.envs]
 envs = {kv[0]: kv[1] for kv in split_envs}
@@ -189,5 +201,6 @@ ret = docker.run(tty=True,
                  workdir=args.workdir if args.workdir else args.src,
                  image=args.image,
                  privileged=args.privileged,
+                 cpuset_cpus=args.cpuset_cpus,
                  command=['python', '-c', command])
 sys.exit(ret)
