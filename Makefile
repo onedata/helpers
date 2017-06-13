@@ -16,7 +16,7 @@ WITH_S3      ?= ON
 	mkdir -p $*
 	cd $* && cmake -GNinja -DCMAKE_BUILD_TYPE=$* \
 	                       -DCODE_COVERAGE=${WITH_COVERAGE} \
-	                       -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} .. \
+	                       -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
 	                       -DBUILD_PROXY_IO=${BUILD_PROXY_IO} \
 	                       -DWITH_CEPH=${WITH_CEPH} \
 	                       -DWITH_SWIFT=${WITH_SWIFT} \

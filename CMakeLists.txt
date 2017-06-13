@@ -37,6 +37,14 @@ find_package(CURL REQUIRED)
 message(STATUS "Checking for NSS...")
 find_package(NSS REQUIRED)
 
+# Setup Thread
+message(STATUS "Checking for Threads...")
+find_package(Threads REQUIRED)
+
+# Setup OpenSSL
+message(STATUS "Checking for OpenSSL...")
+find_package(OpenSSL REQUIRED)
+
 # Setup Folly
 message(STATUS "Checking for Folly...")
 find_package(Folly REQUIRED)
@@ -59,7 +67,8 @@ find_package(Boost COMPONENTS atomic chrono context date_time filesystem
                               system thread REQUIRED)
 
 # Setup Asio
-set(ASIO_INCLUDE_DIRS ${ETLS_DIR}/deps/asio/asio/include)
+set(ASIO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/asio/asio/include)
+add_definitions(-DASIO_STANDALONE)
 
 # Utility libs
 find_library(LTDL_LIBRARY ltdl)
