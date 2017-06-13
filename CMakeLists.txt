@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.0.0)
 project(helpers C CXX)
 
-option(WITH_OPENSSL "Use OpenSSL instead of BoringSSL" OFF)
 option(WITH_CEPH "Include Ceph direct IO support" ON)
 option(WITH_S3 "Include S3 direct IO support" ON)
 option(WITH_SWIFT "Include Swift direct IO support" ON)
@@ -58,15 +57,6 @@ set(Boost_USE_STATIC_RUNTIME    OFF)
 find_package(Boost COMPONENTS atomic chrono context date_time filesystem
                               iostreams log log_setup program_options regex
                               system thread REQUIRED)
-
-set(ETLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/etls/c_src)
-
-# Setup BoringSSL
-if(NOT WITH_OPENSSL)
-    add_subdirectory(${ETLS_DIR}/deps/boringssl)
-    set(BORINGSSL_LIBRARIES ssl crypto)
-    set(BORINGSSL_INCLUDE_DIRS ${ETLS_DIR}/deps/boringssl/include)
-endif(NOT WITH_OPENSSL)
 
 # Setup Asio
 set(ASIO_INCLUDE_DIRS ${ETLS_DIR}/deps/asio/asio/include)
@@ -168,7 +158,6 @@ else(APPLE)
 endif(APPLE)
 
 add_subdirectory(clproto)
-add_subdirectory(${ETLS_DIR}/src)
 add_subdirectory(src)
 
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/dummy.cc "")
