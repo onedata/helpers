@@ -11,6 +11,7 @@
 #include "tlsApplication.h"
 
 namespace one {
+namespace communication {
 namespace etls {
 
 TLSAcceptor::TLSAcceptor(TLSApplication &app, const unsigned short port,
@@ -59,4 +60,5 @@ void TLSAcceptor::localEndpointAsync(
 }
 
 } // namespace etls
+} // namespace communication
 } // namespace one

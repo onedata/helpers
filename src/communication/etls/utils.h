@@ -6,8 +6,8 @@
  * 'LICENSE.md'
  */
 
-#ifndef ONE_ETLS_UTILS_HPP
-#define ONE_ETLS_UTILS_HPP
+#ifndef ONE_COMMUNICATION_ETLS_UTILS_HPP
+#define ONE_COMMUNICATION_ETLS_UTILS_HPP
 
 #ifdef _GNU_SOURCE
 #include <pthread.h>
@@ -17,6 +17,7 @@
 #include <thread>
 
 namespace one {
+namespace communication {
 namespace etls {
 namespace utils {
 
@@ -32,6 +33,7 @@ inline void nameThread(std::string name)
 
 } // namespace utils
 } // namespace etls
+} // namespace communication
 } // namespace one
 
-#endif // ONE_ETLS_UTILS_HPP
+#endif // ONE_COMMUNICATION_ETLS_UTILS_HPP

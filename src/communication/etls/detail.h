@@ -6,8 +6,8 @@
  * 'LICENSE.md'
  */
 
-#ifndef ONE_ETLS_DETAIL_HPP
-#define ONE_ETLS_DETAIL_HPP
+#ifndef ONE_COMMUNICATION_ETLS_DETAIL_HPP
+#define ONE_COMMUNICATION_ETLS_DETAIL_HPP
 
 #include <asio/buffer.hpp>
 #include <asio/ssl/context.hpp>
@@ -15,6 +15,7 @@
 #include <memory>
 
 namespace one {
+namespace communication {
 namespace etls {
 namespace detail {
 
@@ -73,6 +74,7 @@ protected:
 
 } // namespace detail
 } // namespace etls
+} // namespace communication
 } // namespace one
 
-#endif // ONE_ETLS_DETAIL_HPP
+#endif // ONE_COMMUNICATION_ETLS_DETAIL_HPP

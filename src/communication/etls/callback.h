@@ -6,8 +6,8 @@
  * 'LICENSE.md'
  */
 
-#ifndef ONE_ETLS_COMMON_DEFS_HPP
-#define ONE_ETLS_COMMON_DEFS_HPP
+#ifndef ONE_COMMUNICATION_ETLS_COMMON_DEFS_HPP
+#define ONE_COMMUNICATION_ETLS_COMMON_DEFS_HPP
 
 #include <functional>
 #include <string>
@@ -15,6 +15,7 @@
 #include <system_error>
 
 namespace one {
+namespace communication {
 namespace etls {
 
 /**
@@ -52,6 +53,7 @@ private:
 };
 
 } // namespace etls
+} // namespace communication
 } // namespace one
 
-#endif // ONE_ETLS_COMMON_DEFS_HPP
+#endif // ONE_COMMUNICATION_ETLS_COMMON_DEFS_HPP

@@ -13,6 +13,7 @@
 #include <functional>
 
 namespace one {
+namespace communication {
 namespace etls {
 
 TLSApplication::TLSApplication(std::size_t n)
@@ -45,4 +46,5 @@ asio::io_service &TLSApplication::ioService()
 }
 
 } // namespace etls
+} // namespace communication
 } // namespace one

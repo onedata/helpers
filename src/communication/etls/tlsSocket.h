@@ -6,8 +6,8 @@
  * 'LICENSE.md'
  */
 
-#ifndef ONE_ETLS_TLS_SOCKET_HPP
-#define ONE_ETLS_TLS_SOCKET_HPP
+#ifndef ONE_COMMUNICATION_ETLS_TLS_SOCKET_HPP
+#define ONE_COMMUNICATION_ETLS_TLS_SOCKET_HPP
 
 #include "callback.h"
 #include "detail.h"
@@ -22,6 +22,7 @@
 #include <vector>
 
 namespace one {
+namespace communication {
 namespace etls {
 
 class TLSApplication;
@@ -192,6 +193,7 @@ void TLSSocket::sendAsync(
 }
 
 } // namespace etls
+} // namespace communication
 } // namespace one
 
-#endif // ONE_ETLS_TLS_SOCKET_HPP
+#endif // ONE_COMMUNICATION_ETLS_TLS_SOCKET_HPP

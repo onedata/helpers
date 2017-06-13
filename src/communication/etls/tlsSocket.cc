@@ -40,6 +40,7 @@ std::vector<unsigned char> certToDer(X509 *cert)
 } // namespace
 
 namespace one {
+namespace communication {
 namespace etls {
 
 TLSSocket::TLSSocket(TLSApplication &app, const std::string &keyPath,
@@ -263,4 +264,5 @@ TLSSocket::shuffleEndpoints(asio::ip::tcp::resolver::iterator iterator)
 }
 
 } // namespace etls
+} // namespace communication
 } // namespace one

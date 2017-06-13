@@ -6,8 +6,8 @@
  * 'LICENSE.md'
  */
 
-#ifndef ONE_ETLS_TLS_ACCEPTOR_HPP
-#define ONE_ETLS_TLS_ACCEPTOR_HPP
+#ifndef ONE_COMMUNICATION_ETLS_TLS_ACCEPTOR_HPP
+#define ONE_COMMUNICATION_ETLS_TLS_ACCEPTOR_HPP
 
 #include "callback.h"
 #include "detail.h"
@@ -21,6 +21,7 @@
 #include <string>
 
 namespace one {
+namespace communication {
 namespace etls {
 
 class TLSApplication;
@@ -77,6 +78,7 @@ private:
 };
 
 } // namespace etls
+} // namespace communication
 } // namespace one
 
-#endif // ONE_ETLS_TLS_ACCEPTOR_HPP
+#endif // ONE_COMMUNICATION_ETLS_TLS_ACCEPTOR_HPP

@@ -27,6 +27,7 @@ std::unique_ptr<BIO, decltype(&BIO_free)> bufferToBIO(asio::const_buffer buffer)
 } // namespace
 
 namespace one {
+namespace communication {
 namespace etls {
 namespace detail {
 
@@ -136,4 +137,5 @@ void WithSSLContext::setVerifyMode(const asio::ssl::verify_mode mode)
 
 } // namespace detail
 } // namespace etls
+} // namespace communication
 } // namespace one

@@ -6,8 +6,8 @@
  * 'LICENSE.md'
  */
 
-#ifndef ONE_ETLS_TLS_APPLICATION_HPP
-#define ONE_ETLS_TLS_APPLICATION_HPP
+#ifndef ONE_COMMUNICATION_ETLS_TLS_APPLICATION_HPP
+#define ONE_COMMUNICATION_ETLS_TLS_APPLICATION_HPP
 
 #include <asio/executor_work.hpp>
 #include <asio/io_service.hpp>
@@ -20,6 +20,7 @@
 #include <vector>
 
 namespace one {
+namespace communication {
 namespace etls {
 
 /**
@@ -55,6 +56,7 @@ private:
 };
 
 } // namespace etls
+} // namespace communication
 } // namespace one
 
-#endif // ONE_ETLS_TLS_APPLICATION_HPP
+#endif // ONE_COMMUNICATION_ETLS_TLS_APPLICATION_HPP
