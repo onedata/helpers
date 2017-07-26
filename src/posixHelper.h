@@ -142,17 +142,17 @@ public:
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    virtual folly::Future<folly::fbstring> getxattr(
+    folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;
 
-    virtual folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
+    folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
         bool replace) override;
 
-    virtual folly::Future<folly::Unit> removexattr(
+    folly::Future<folly::Unit> removexattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;
 
-    virtual folly::Future<folly::fbvector<folly::fbstring>> listxattr(
+    folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
     const Timeout &timeout() override { return m_timeout; }

@@ -15,6 +15,7 @@
 
 #include <iostream>
 #include <map>
+#include <sys/xattr.h>
 
 namespace boost {
 namespace filesystem {
@@ -360,8 +361,7 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
 
         auto linkedPath = buf->moveToFbString();
         auto relativePath = relative(linkedPath.toStdString());
-        return folly::makeFuture(
-            folly::fbstring(relativePath.c_str()));
+        return folly::makeFuture(folly::fbstring(relativePath.c_str()));
     });
 }
 
@@ -451,6 +451,105 @@ folly::Future<folly::Unit> GlusterFSHelper::truncate(
     return connect().then([ this, filePath = root(fileId), size ] {
         return setContextResult(
             glfs_truncate, m_glfsCtx.get(), filePath.c_str(), size);
+    });
+}
+
+folly::Future<folly::fbstring> GlusterFSHelper::getxattr(
+    const folly::fbstring &fileId, const folly::fbstring &name)
+{
+    return connect().then([ this, filePath = root(fileId), name ] {
+        constexpr std::size_t initialMaxSize = 1024;
+        auto buf = folly::IOBuf::create(initialMaxSize);
+
+        int res = glfs_getxattr(m_glfsCtx.get(), filePath.c_str(), name.c_str(),
+            reinterpret_cast<char *>(buf->writableData()), initialMaxSize - 1);
+
+        // If the initial buffer for xattr value was too small, try again
+        // with maximum allowed value
+        if (res == -1 && errno == ERANGE) {
+            buf = folly::IOBuf::create(XATTR_MAXSIZE);
+            res = glfs_getxattr(m_glfsCtx.get(), filePath.c_str(), name.c_str(),
+                reinterpret_cast<char *>(buf->writableData()),
+                XATTR_MAXSIZE - 1);
+        }
+
+        if (res == -1)
+            return makeFuturePosixException<folly::fbstring>(errno);
+
+        buf->append(res);
+        return folly::makeFuture(buf->moveToFbString());
+    });
+}
+
+folly::Future<folly::Unit> GlusterFSHelper::setxattr(
+    const folly::fbstring &fileId, const folly::fbstring &name,
+    const folly::fbstring &value, bool create, bool replace)
+{
+    return connect().then(
+        [ this, filePath = root(fileId), name, value, create, replace ] {
+            int flags = 0;
+
+            if (create && replace) {
+                return makeFuturePosixException<folly::Unit>(EINVAL);
+            }
+            else {
+                if (create) {
+                    flags = XATTR_CREATE;
+                }
+                else if (replace) {
+                    flags = XATTR_REPLACE;
+                }
+            }
+
+            return setContextResult(glfs_setxattr, m_glfsCtx.get(),
+                filePath.c_str(), name.c_str(), value.c_str(), value.size(),
+                flags);
+        });
+}
+
+folly::Future<folly::Unit> GlusterFSHelper::removexattr(
+    const folly::fbstring &fileId, const folly::fbstring &name)
+{
+    return connect().then([ this, filePath = root(fileId), name ] {
+        return setContextResult(
+            glfs_removexattr, m_glfsCtx.get(), filePath.c_str(), name.c_str());
+    });
+}
+
+folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
+    const folly::fbstring &fileId)
+{
+    return connect().then([ this, filePath = root(fileId) ] {
+
+        folly::fbvector<folly::fbstring> ret;
+
+        ssize_t buflen =
+            glfs_listxattr(m_glfsCtx.get(), filePath.c_str(), NULL, 0);
+        if (buflen == -1)
+            return makeFuturePosixException<folly::fbvector<folly::fbstring>>(
+                errno);
+
+        if (buflen == 0)
+            return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+                std::move(ret));
+
+        auto buf = std::unique_ptr<char[]>(new char[buflen]);
+        buflen = glfs_listxattr(
+            m_glfsCtx.get(), filePath.c_str(), buf.get(), buflen);
+
+        if (buflen == -1)
+            return makeFuturePosixException<folly::fbvector<folly::fbstring>>(
+                errno);
+
+        char *xattrNamePtr = buf.get();
+        while (xattrNamePtr < buf.get() + buflen) {
+            ret.emplace_back(xattrNamePtr);
+            xattrNamePtr +=
+                strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) + 1;
+        }
+
+        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+            std::move(ret));
     });
 }
 

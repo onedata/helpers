@@ -182,6 +182,35 @@ public:
         m_helper->truncate(fileId, offset).get();
     }
 
+    std::string getxattr(std::string fileId, std::string name)
+    {
+        ReleaseGIL guard;
+        return m_helper->getxattr(fileId, name).get().toStdString();
+    }
+
+    void setxattr(std::string fileId, std::string name, std::string value,
+        bool create, bool replace)
+    {
+        ReleaseGIL guard;
+        m_helper->setxattr(fileId, name, value, create, replace).get();
+    }
+
+    void removexattr(std::string fileId, std::string name)
+    {
+        ReleaseGIL guard;
+        m_helper->removexattr(fileId, name).get();
+    }
+
+    std::vector<std::string> listxattr(std::string fileId)
+    {
+        ReleaseGIL guard;
+        std::vector<std::string> res;
+        for (auto &xattr: m_helper->listxattr(fileId).get()) {
+            res.emplace_back(xattr.toStdString());
+        }
+        return res;
+    }
+
 private:
     asio::io_service m_service;
     asio::executor_work<asio::io_service::executor_type> m_idleWork;
@@ -220,5 +249,9 @@ BOOST_PYTHON_MODULE(glusterfs_helper)
         .def("link", &GlusterFSHelperProxy::link)
         .def("chmod", &GlusterFSHelperProxy::chmod)
         .def("chown", &GlusterFSHelperProxy::chown)
-        .def("truncate", &GlusterFSHelperProxy::truncate);
+        .def("truncate", &GlusterFSHelperProxy::truncate)
+        .def("getxattr", &GlusterFSHelperProxy::getxattr)
+        .def("setxattr", &GlusterFSHelperProxy::setxattr)
+        .def("removexattr", &GlusterFSHelperProxy::removexattr)
+        .def("listxattr", &GlusterFSHelperProxy::listxattr);
 }
