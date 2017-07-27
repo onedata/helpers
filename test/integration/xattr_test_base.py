@@ -17,7 +17,7 @@ def test_setxattr_should_set_extended_attribute(helper):
     xattr_name = generate_xattr_name()
     xattr_value = random_str()
 
-    helper.mknod(file_id, 0654, FlagsSet())
+    helper.write(file_id, '', 0)
 
     helper.setxattr(file_id, xattr_name, xattr_value, False, False)
 
@@ -30,7 +30,7 @@ def test_setxattr_should_set_extended_attribute_with_empty_value(helper):
     xattr_name = generate_xattr_name()
     xattr_value = ""
 
-    helper.mknod(file_id, 0644, FlagsSet())
+    helper.write(file_id, '', 0)
 
     helper.setxattr(file_id, xattr_name, xattr_value, False, False)
 
@@ -44,7 +44,7 @@ def test_setxattr_should_handle_create_replace_flags(helper):
     xattr_value = random_str()
     xattr_value_replaced = random_str()
 
-    helper.mknod(file_id, 0644, FlagsSet())
+    helper.write(file_id, '', 0)
 
     # Create and Replace cannot be true at the same time
     with pytest.raises(RuntimeError) as excinfo:
@@ -80,7 +80,7 @@ def test_getxattr_should_return_extended_attribute(helper):
     xattr_name = generate_xattr_name()
     xattr_value = random_str()
 
-    helper.mknod(file_id, 0644, FlagsSet())
+    helper.write(file_id, '', 0)
 
     with pytest.raises(RuntimeError) as excinfo:
         helper.getxattr(file_id, xattr_name)
@@ -98,7 +98,7 @@ def test_removexattr_should_remove_extended_attribute(helper):
     xattr_name = generate_xattr_name()
     xattr_value = random_str()
 
-    helper.mknod(file_id, 0644, FlagsSet())
+    helper.write(file_id, '', 0)
 
     helper.setxattr(file_id, xattr_name, xattr_value, False, False)
 
@@ -119,7 +119,7 @@ def test_removexattr_should_remove_extended_attribute(helper):
     xattr_values = [random_str() for i in xrange(10)]
     xattrs = zip(xattr_names, xattr_values)
 
-    helper.mknod(file_id, 0644, FlagsSet())
+    helper.write(file_id, '', 0)
 
     for xattr in xattrs:
         helper.setxattr(file_id, xattr[0], xattr[1], False, False)
