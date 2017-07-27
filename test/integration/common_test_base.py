@@ -1,4 +1,4 @@
-"""This module contains test for KeyValue helpers."""
+"""This module contains common test cases for storage helpers."""
 
 __author__ = "Krzysztof Trzepla"
 __copyright__ = """(C) 2016 ACK CYFRONET AGH,
@@ -10,6 +10,7 @@ import pytest
 @pytest.fixture
 def file_id():
     return random_str(32)
+
 
 def test_write_should_write_empty_data(helper, file_id):
     data = ''

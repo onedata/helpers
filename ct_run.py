@@ -43,6 +43,14 @@ parser.add_argument(
     help='name of the test suite',
     dest='suites')
 
+parser.add_argument(
+    '--shed-privileges',
+    action='store_true',
+    default=False,
+    help='Shed privileges in container to the UID/GID of current user',
+    dest='shed_privileges')
+
+
 [args, pass_args] = parser.parse_known_args()
 script_dir = os.path.dirname(os.path.realpath(__file__))
 base_test_dir = os.path.join(os.path.realpath(args.release), 'test',
@@ -77,7 +85,7 @@ command = command.format(
     uid=os.geteuid(),
     gid=os.getegid(),
     test_dirs="', '".join(test_dirs),
-    shed_privileges=(platform.system() == 'Linux'),
+    shed_privileges=(platform.system() == 'Linux' and args.shed_privileges),
     gdb=args.gdb)
 
 ret = docker.run(tty=True,
@@ -88,6 +96,6 @@ ret = docker.run(tty=True,
                           ('/var/run/docker.sock', 'rw')],
                  image=args.image,
                  envs={'BASE_TEST_DIR': base_test_dir},
-                 run_params=['--privileged'] if args.gdb else [],
+                 run_params=['--privileged'],
                  command=['python', '-c', command])
 sys.exit(ret)

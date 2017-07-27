@@ -359,9 +359,7 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
 
         buf->append(res);
 
-        auto linkedPath = buf->moveToFbString();
-        auto relativePath = relative(linkedPath.toStdString());
-        return folly::makeFuture(folly::fbstring(relativePath.c_str()));
+        return folly::makeFuture(folly::fbstring(buf->moveToFbString().c_str()));
     });
 }
 
