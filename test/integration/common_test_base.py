@@ -11,7 +11,6 @@ import pytest
 def file_id():
     return random_str(32)
 
-
 def test_write_should_write_empty_data(helper, file_id):
     data = ''
     offset = 0

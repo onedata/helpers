@@ -185,8 +185,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
             if (xattrExists >= 0)
                 return makeFuturePosixException<folly::Unit>(EEXIST);
         }
-
-        if (replace) {
+        else if (replace) {
             int xattrExists =
                 m_ioCTX.getxattr(fileId.toStdString(), name.c_str(), bl);
             if (xattrExists < 0)

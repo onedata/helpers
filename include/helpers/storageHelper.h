@@ -12,6 +12,11 @@
 #include <fuse.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#if defined(__linux__)
+#include <linux/limits.h>
+#else
+#define XATTR_SIZE_MAX (64 * 1024)
+#endif
 
 #include <asio/buffer.hpp>
 #include <asio/io_service.hpp>
@@ -31,10 +36,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#if !defined(XATTR_MAXSIZE)
-#define XATTR_MAXSIZE (64 * 1024 * 1024)
-#endif
 
 namespace one {
 namespace helpers {

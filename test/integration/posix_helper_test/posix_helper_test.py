@@ -1,4 +1,4 @@
-"""This module tests GlusterFS helper."""
+"""This module tests POSIX helper."""
 
 __author__ = "Bartek Kryza"
 __copyright__ = """(C) 2017 ACK CYFRONET AGH,
@@ -7,6 +7,7 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 import os
 import sys
 import subprocess
+from os.path import expanduser
 
 import pytest
 
@@ -28,10 +29,8 @@ def server(request):
             self.uid = uid
             self.gid = gid
 
-    uid = 0
-    gid = 0
-
-    mountpoint = '/opt/posix_helper_test'
+    home = expanduser("~")
+    mountpoint = os.path.join(home, 'posix_helper_test')
 
     assert os.system("mkdir -p %s"%(mountpoint)) == 0
 
@@ -40,7 +39,7 @@ def server(request):
 
     request.addfinalizer(fin)
 
-    return Server(mountpoint, uid, gid)
+    return Server(mountpoint, os.geteuid(), os.getegid())
 
 @pytest.fixture
 def helper(server):

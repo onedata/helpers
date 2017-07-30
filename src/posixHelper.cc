@@ -15,7 +15,6 @@
 #include "logging.h"
 
 #include <boost/any.hpp>
-#include <folly/String.h>
 
 #include <dirent.h>
 #include <errno.h>
@@ -149,49 +148,56 @@ PosixFileHandle::~PosixFileHandle()
 folly::Future<folly::IOBufQueue> PosixFileHandle::read(
     const off_t offset, const std::size_t size)
 {
-    UserCtxSetter userCTX{m_uid, m_gid};
-    if (!userCTX.valid())
-        return makeFuturePosixException<folly::IOBufQueue>(EDOM);
+    return folly::via(m_executor.get(),
+        [ offset, size, uid = m_uid, gid = m_gid, fh = m_fh ] {
+            UserCtxSetter userCTX{uid, gid};
+            if (!userCTX.valid())
+                return makeFuturePosixException<folly::IOBufQueue>(EDOM);
 
-    folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-    void *data = buf.preallocate(size, size).first;
+            folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+            void *data = buf.preallocate(size, size).first;
 
-    auto res = ::pread(m_fh, data, size, offset);
+            auto res = ::pread(fh, data, size, offset);
 
-    if (res == -1)
-        return makeFuturePosixException<folly::IOBufQueue>(errno);
+            if (res == -1)
+                return makeFuturePosixException<folly::IOBufQueue>(errno);
 
-    buf.postallocate(res);
-    return folly::makeFuture(std::move(buf));
+            buf.postallocate(res);
+            return folly::makeFuture(std::move(buf));
+        });
 }
 
 folly::Future<std::size_t> PosixFileHandle::write(
     const off_t offset, folly::IOBufQueue buf)
 {
-    UserCtxSetter userCTX{m_uid, m_gid};
-    if (!userCTX.valid())
-        return makeFuturePosixException<std::size_t>(EDOM);
+    return folly::via(m_executor.get(),
+        [ offset, buf = std::move(buf), uid = m_uid, gid = m_gid, fh = m_fh ] {
+            UserCtxSetter userCTX{uid, gid};
+            if (!userCTX.valid())
+                return makeFuturePosixException<std::size_t>(EDOM);
 
-    auto res = ::lseek(m_fh, offset, SEEK_SET);
-    if (res == -1)
-        return makeFuturePosixException<std::size_t>(errno);
+            auto res = ::lseek(fh, offset, SEEK_SET);
+            if (res == -1)
+                return makeFuturePosixException<std::size_t>(errno);
 
-    if (buf.empty())
-        return folly::makeFuture<std::size_t>(0);
+            if (buf.empty())
+                return folly::makeFuture<std::size_t>(0);
 
-    auto iov = buf.front()->getIov();
-    auto iov_size = iov.size();
-    auto size = 0;
+            auto iov = buf.front()->getIov();
+            auto iov_size = iov.size();
+            auto size = 0;
 
-    for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
-        res = ::writev(m_fh, iov.data() + iov_off,
-            std::min<std::size_t>(IOV_MAX, iov_size - iov_off));
-        if (res == -1)
-            return makeFuturePosixException<std::size_t>(errno);
-        size += res;
-    }
+            for (std::size_t iov_off = 0; iov_off < iov_size;
+                 iov_off += IOV_MAX) {
+                res = ::writev(fh, iov.data() + iov_off,
+                    std::min<std::size_t>(IOV_MAX, iov_size - iov_off));
+                if (res == -1)
+                    return makeFuturePosixException<std::size_t>(errno);
+                size += res;
+            }
 
-    return folly::makeFuture<std::size_t>(size);
+            return folly::makeFuture<std::size_t>(size);
+        });
 }
 
 folly::Future<folly::Unit> PosixFileHandle::release()
@@ -199,11 +205,14 @@ folly::Future<folly::Unit> PosixFileHandle::release()
     if (!m_needsRelease.exchange(false))
         return folly::makeFuture();
 
-    UserCtxSetter userCTX{m_uid, m_gid};
-    if (!userCTX.valid())
-        return makeFuturePosixException(EDOM);
+    return folly::via(
+        m_executor.get(), [ uid = m_uid, gid = m_gid, fh = m_fh ] {
+            UserCtxSetter userCTX{uid, gid};
+            if (!userCTX.valid())
+                return makeFuturePosixException(EDOM);
 
-    return setResult(close, m_fh);
+            return setResult(close, fh);
+        });
 }
 
 folly::Future<folly::Unit> PosixFileHandle::flush()
@@ -220,11 +229,14 @@ folly::Future<folly::Unit> PosixFileHandle::flush()
 
 folly::Future<folly::Unit> PosixFileHandle::fsync(bool /*isDataSync*/)
 {
-    UserCtxSetter userCTX{m_uid, m_gid};
-    if (!userCTX.valid())
-        return makeFuturePosixException(EDOM);
+    return folly::via(
+        m_executor.get(), [ uid = m_uid, gid = m_gid, fh = m_fh ] {
+            UserCtxSetter userCTX{uid, gid};
+            if (!userCTX.valid())
+                return makeFuturePosixException(EDOM);
 
-    return setResult(::fsync, m_fh);
+            return setResult(::fsync, fh);
+        });
 }
 
 PosixHelper::PosixHelper(boost::filesystem::path mountPoint, const uid_t uid,
@@ -512,7 +524,7 @@ folly::Future<folly::fbstring> PosixHelper::getxattr(
             if (!userCTX.valid())
                 return makeFuturePosixException<folly::fbstring>(EDOM);
 
-            constexpr std::size_t initialMaxSize = 1024;
+            constexpr std::size_t initialMaxSize = 256;
             auto buf = folly::IOBuf::create(initialMaxSize);
             int res = ::getxattr(filePath.c_str(), name.c_str(),
                 reinterpret_cast<char *>(buf->writableData()),
@@ -526,10 +538,10 @@ folly::Future<folly::fbstring> PosixHelper::getxattr(
             // If the initial buffer for xattr value was too small, try again
             // with maximum allowed value
             if (res == -1 && errno == ERANGE) {
-                buf = folly::IOBuf::create(XATTR_MAXSIZE);
+                buf = folly::IOBuf::create(XATTR_SIZE_MAX);
                 res = ::getxattr(filePath.c_str(), name.c_str(),
                     reinterpret_cast<char *>(buf->writableData()),
-                    XATTR_MAXSIZE - 1
+                    XATTR_SIZE_MAX - 1
 #if defined(__APPLE__)
                     ,
                     0, 0
@@ -562,13 +574,12 @@ folly::Future<folly::Unit> PosixHelper::setxattr(const folly::fbstring &fileId,
         if (create && replace) {
             return makeFuturePosixException<folly::Unit>(EINVAL);
         }
-        else {
-            if (create) {
-                flags = XATTR_CREATE;
-            }
-            else if (replace) {
-                flags = XATTR_REPLACE;
-            }
+
+        if (create) {
+            flags = XATTR_CREATE;
+        }
+        else if (replace) {
+            flags = XATTR_REPLACE;
         }
 
         return setResult(::setxattr, filePath.c_str(), name.c_str(),

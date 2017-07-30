@@ -29,6 +29,11 @@ using ReadDirResult = std::vector<std::string>;
 using namespace boost::python;
 using namespace one::helpers;
 
+/*
+ * Minimum 4 threads are required to run this helper proxy.
+ */
+constexpr int POSIX_HELPER_WORKER_THREADS = 4;
+
 class ReleaseGIL {
 public:
     ReleaseGIL()
@@ -43,18 +48,22 @@ private:
 class PosixHelperProxy {
 public:
     PosixHelperProxy(std::string mountPoint, uid_t uid, gid_t gid)
-        : m_service{1}
+        : m_service{POSIX_HELPER_WORKER_THREADS}
         , m_idleWork{asio::make_work(m_service)}
-        , m_worker{[=] { m_service.run(); }}
         , m_helper{std::make_shared<one::helpers::PosixHelper>(mountPoint, uid,
               gid, std::make_shared<one::AsioExecutor>(m_service))}
     {
+        for (int i = 0; i < POSIX_HELPER_WORKER_THREADS; i++) {
+            m_workers.push_back(std::thread([=]() { m_service.run(); }));
+        }
     }
 
     ~PosixHelperProxy()
     {
         m_service.stop();
-        m_worker.join();
+        for (auto &worker : m_workers) {
+            worker.join();
+        }
     }
 
     void open(std::string fileId, int flags)
@@ -81,11 +90,33 @@ public:
     int write(std::string fileId, std::string data, int offset)
     {
         ReleaseGIL guard;
-        return m_helper->open(fileId, O_WRONLY | O_CREAT, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
-                folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-                buf.append(data);
-                return handle->write(offset, std::move(buf)).get();
+
+        // PosixHelper does not support creating file with approriate mode,
+        // so in case it doesn't exist we have to create it first to be
+        // compatible with other helpers' test cases.
+        auto mknodLambda = [&] {
+            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0).get();
+        };
+        auto writeLambda = [&] {
+            return m_helper->open(fileId, O_WRONLY, {})
+                .then([&](one::helpers::FileHandlePtr handle) {
+                    folly::IOBufQueue buf{
+                        folly::IOBufQueue::cacheChainLength()};
+                    buf.append(data);
+                    return handle->write(offset, std::move(buf)).get();
+                })
+                .get();
+        };
+
+        return m_helper->access(fileId, 0)
+            .then(writeLambda)
+            .onError([
+                mknodLambda = mknodLambda, writeLambda = writeLambda,
+                executor = std::make_shared<one::AsioExecutor>(m_service)
+            ](std::exception const &e) {
+                return folly::via(executor.get(), mknodLambda)
+                    .then(writeLambda)
+                    .get();
             })
             .get();
     }
@@ -128,7 +159,7 @@ public:
     void mkdir(std::string fileId, mode_t mode)
     {
         ReleaseGIL guard;
-        m_helper->mkdir(fileId, mode);
+        m_helper->mkdir(fileId, mode).get();
     }
 
     void unlink(std::string fileId)
@@ -211,7 +242,7 @@ public:
 private:
     asio::io_service m_service;
     asio::executor_work<asio::io_service::executor_type> m_idleWork;
-    std::thread m_worker;
+    std::vector<std::thread> m_workers;
     std::shared_ptr<one::helpers::PosixHelper> m_helper;
 };
 

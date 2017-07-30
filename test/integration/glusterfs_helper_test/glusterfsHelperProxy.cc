@@ -29,6 +29,11 @@ using ReadDirResult = std::vector<std::string>;
 using namespace boost::python;
 using namespace one::helpers;
 
+/*
+ * Minimum 2 threads are required to run helper.
+ */
+constexpr int GLUSTERFS_HELPER_WORKER_THREADS = 2;
+
 class ReleaseGIL {
 public:
     ReleaseGIL()
@@ -45,19 +50,23 @@ public:
     GlusterFSHelperProxy(std::string mountPoint, uid_t uid, gid_t gid,
         std::string hostname, int port, std::string volume,
         std::string transport, std::string xlatorOptions)
-        : m_service{1}
+        : m_service{GLUSTERFS_HELPER_WORKER_THREADS}
         , m_idleWork{asio::make_work(m_service)}
-        , m_worker{[=] { m_service.run(); }}
         , m_helper{std::make_shared<one::helpers::GlusterFSHelper>(mountPoint,
               uid, gid, hostname, port, volume, transport, xlatorOptions,
               std::make_shared<one::AsioExecutor>(m_service))}
     {
+        for (int i = 0; i < GLUSTERFS_HELPER_WORKER_THREADS; i++) {
+            m_workers.push_back(std::thread([=]() { m_service.run(); }));
+        }
     }
 
     ~GlusterFSHelperProxy()
     {
         m_service.stop();
-        m_worker.join();
+        for (auto &worker : m_workers) {
+            worker.join();
+        }
     }
 
     void open(std::string fileId, int flags)
@@ -131,7 +140,7 @@ public:
     void mkdir(std::string fileId, mode_t mode)
     {
         ReleaseGIL guard;
-        m_helper->mkdir(fileId, mode);
+        m_helper->mkdir(fileId, mode).get();
     }
 
     void unlink(std::string fileId)
@@ -214,7 +223,7 @@ public:
 private:
     asio::io_service m_service;
     asio::executor_work<asio::io_service::executor_type> m_idleWork;
-    std::thread m_worker;
+    std::vector<std::thread> m_workers;
     std::shared_ptr<one::helpers::GlusterFSHelper> m_helper;
 };
 

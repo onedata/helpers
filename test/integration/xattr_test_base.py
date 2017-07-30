@@ -25,6 +25,19 @@ def test_setxattr_should_set_extended_attribute(helper):
 
 
 @pytest.mark.xattr_tests
+def test_setxattr_should_set_large_extended_attribute(helper):
+    file_id = random_str(32)
+    xattr_name = generate_xattr_name()
+    xattr_value = 'A'*(3*1024)
+
+    helper.write(file_id, '', 0)
+
+    helper.setxattr(file_id, xattr_name, xattr_value, False, False)
+
+    assert helper.getxattr(file_id, xattr_name) == xattr_value
+
+
+@pytest.mark.xattr_tests
 def test_setxattr_should_set_extended_attribute_with_empty_value(helper):
     file_id = random_str(32)
     xattr_name = generate_xattr_name()

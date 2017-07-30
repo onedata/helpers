@@ -224,15 +224,19 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
 @pytest.mark.ownership_operations_tests
 def test_chown_should_change_user_and_group(helper, file_id):
-    data = random_str()
+    #
+    # This test case can only be executed in root context
+    #
+    if(os.geteuid() == 0):
+        data = random_str()
 
-    helper.write(file_id, data, 0)
+        helper.write(file_id, data, 0)
 
-    flags = FlagsSet()
+        flags = FlagsSet()
 
-    helper.chown(file_id, 1001, 2002)
-    assert helper.getattr(file_id).st_uid == 1001
-    assert helper.getattr(file_id).st_gid == 2002
+        helper.chown(file_id, 1001, 2002)
+        assert helper.getattr(file_id).st_uid == 1001
+        assert helper.getattr(file_id).st_gid == 2002
 
 
 @pytest.mark.truncate_operations_tests
