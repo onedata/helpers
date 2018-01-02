@@ -1,138 +1,122 @@
-# Release notes for project helpers
+# Release notes for project clproto
 
 
 CHANGELOG
 ---------
 
-### 2.0.1
-
-* VFS-1525 Refactor for loop
-* VFS-1525 Remove openFile method from helpers
-* VFS-1525 Make flag translation public for use in open.
-* VFS-1525 Update sh_open with FlagsSet
-* VFS-1525 Synchronous version of open and release methods
-
-
 ### 2.0.0
 
 
-
-* VFS-1527 Add flags to mknod and open operations.
+* VFS-1405 remove unused import
+* VFS-1522 Add SynchronizeBlock message.
+* VFS-1405: add dbsync proto
+* VFS-1484 Add configuration message.
 * VFS-1450 Add permission_changed_event.
-* VFS-1472 Add Amazon S3 helper to storage helper factory.
-* VFS-1472 Add Amazon S3 storage helper with integration tests.
-* VFS-1450 Add fileUuid argument to read and write operations in IStorageHelper.
 * VFS-1450 Remove storage_id from get_helper_args message
-* VFS-1398 Change ProxyIORequest.space_id to ProxyIORequest.file_uuid.
-* VFS-1428 Ceph helper return 0 from open method. Enclose SUCCESS_CODE in anonymous namespace.
-* VFS-1428 Add auto-connect mechanism to Ceph storage helper. Pass -1 as default file handle in Direct IO storage helper.
-* VFS-1428 Add proxy helper context.
-* VFS-1428 Pass arguments from Ceph helper to Ceph helper context.
-* VFS-1428 Passing key content instead of keyring path in Ceph helper.
-* VFS-1428 Extend IStorageHelper interface.
-* VFS-1428 Add option that disables proxy IO helper build.
-* VFS-1428 Add abstract storage helper context layer.
-* VFS-1407 Change handshake response message behaviour.
-* VFS-1376 Change subscriptions processing on handshake. Add subscription container wrapper.
-* VFS-1411 Add Ceph storage helper.
-* VFS-1371 Add SpaceID to proxyio requests.
-* VFS-1363 Use CamelCase for class members' names
-* VFS-1363 Use auto type for user's context object
+* VFS-1426 Add gwproto.
 * VFS-1371 Add SpaceId to GetHelperParams and FileLocation.
 * VFS-1371 Add space_id to ProxyIORequest.
-* VFS-1398 Add xattr messages.
+* VFS-1398 Rename xattr.key to xattr.name.
+* VFS-1398 Add xattr messages to possible fuse messages.
 * VFS-1407 Getting subscriptions on handshake response.
+* VFS-1371 Remove SpaceID from ProxyIO arguments.
+* VFS-1371 Add POSIX error codes.
 * VFS-1371 Add protocol messages for ProxyIO helper.
-* VFS-1371 Add ProxyIO helper.
-* VFS-1371 Add protocol messages for ProxyIO helper.
-* VFS-1371 Provide default implementations for IStorageHelper methods.
-* VFS-1371 Change ClientMessage::serialize to serializeAndDestroy.
 * VFS-1289 Add message that can carry multiple events of the same type.
-* VFS-1363 handle user context in DirectIO
+* VFS-1289 Make stream ID optional in MessageStreamReset message.
 * VFS-1289 Change type of subscription ID from unsigned to signed integer.
 * VFS-1289 Add stream ID to stream reset message.
+* VFS-1289 Change name of 'oneof' constructions in event messages.
+* VFS-1289 Enable NIF library build.
 * VFS-1289 New events multilayer architecture. Unit and integration tests extension.
-* VFS-1235 Change protocol to support file operations.
-* VFS-1222 update StorageHelperCTX
-* VFS-1222 change promises to callbacks
-* VFS-1153 Fix handshake logic.
-* VFS-1153 Add Rename and ChangeMode messages.
-* VFS-1160 Wait for handshake message before replying.
-* VFS-1153 Catch constructor exceptions in communication translator.
-* VFS-1153 Add new FUSE messages domain objects.
+* VFS-1289 Implement sequencer behaviour.
+* VFS-1235 Implement truncate.
+* VFS-1217 Generate clproto erl files only if not yet generated.
+* VFS-1217 Clear environment compilation flags.
+* VFS-1223 Add a refreshing macaroons capability.
+* VFS-1235 Add protocol for operations on regular files.
+* add ChangeMode and Rename messages
 * VFS-1147 Add name to FileAttr message.
-* VFS-1147 Change FileChildren message format.
 * VFS-1147 Add UUID to file attr.
 * VFS-1147 Using parent UUID for directory creation.
-* Fix oneclient compilation on OS X.
 * VFS-1147 Add communication protocol between FUSE client and the server.
-* VFS-1111 Implement BinaryTranslator layer unit tests.
-* VFS-1111 Implement Inbox layer unit tests.
-* VFS-1111 Implement Replier layer unit tests.
+* VFS-1145 Remove oneproxy messages.
 * VFS-1111 Implement Translator layer tests.
-* VFS-1110 Propagate errors on first connection in client.
-* VFS-1072 Move some messages back to the client.
-* VFS-1072 More asynchronous events.
-* VFS-1093 Implement a future wrapper for communication layer.
-* VFS-1093 Implement asio::io_service based Executor.
-* switch to async blocking I/O
-* implement async DirectIO
-* VFS-1034 Add stream messages.
-* VFS-1034 Add end of stream message.
-* VFS-1034 Add get protocol version message.
-* VFS-1034 Add protocol version message.
-* VFS-1034 Add status message.
-* VFS-1016 Add new communication stack to oneclient.
-* VFS-1016 Add accessor to returned SessionId.
-* VFS-1034 Set token as optional in handshake request message.
-* VFS-1034 Add constructor to handshake request message.
-* VFS-1016 Translate handshake message and response.
-* VFS-1034 Add ping and pong messages.
-* VFS-1034 Add handshake response message.
-* VFS-1034 Add handshake request message.
-* VFS-1016 Rewrite CommunicationHandler for new protocol.
-* VFS-1035 Introduce integration test framework for C++ code.
-* VFS-997 Extend protocol messages.
-* VFS-967 Add daemonize-related methods for Scheduler.
-* GetFileBlockMap change uuid to logical name
+* VFS-1098 Generating Erlang NIFs.
+* VFS-1098 Add oneproxy messages.
+* VFS-1098 Change Protocol Buffers compiler.
+* VFS-1098 Create rebar application.
+* VFS-1037 protocol version messages added as oneof client/server message
+* VFS-1037 rename ping_messages to diagnostic_messages,add 'GetProtocolVersion' message
+* VFS-1037 Data message
+* ping messages
+* VFS-997 Add stream message and descriptions + refactoring.
+* change type of message_id from uint64 to bytes
+* certificate msg extended
+* VFS-997 Add communication messages.
+* VFS-1005 Change wrapping message structure.
+* VFs-1005 Add partial message mechanism.
+* VFS-1005 New protocol first implementation.
 * GetFileBlockMap and FileBlockMap messages
+* VFS-936 add uuid field to file attributes
 * VFS-931 Update BlocksAvailable message.
 * VFS-931 Add UpdateFileBlockMap message.
-* VFS-932 Change event message.
-* VFS-818 Add alias support.
+* VFS-932 Add block properties to event message.
+* add size_relative flag to FileTruncated message
+* FileTruncated message
+* FileBlockModified message
+* SynchronizeFileBlock message
+* VFS-888 Set 'blocks' as a repeated field.
 * VFS-888 Change identification fields of RequestFileBlock.
 * VFS-888 Add block-related messages and message fields.
-* Add Scheduler overloads accepting shared_ptrs.
-* Add templated overloads for non-owning scheduling on objects.
-* Change Scheduler back so that it can be mocked.
-* Allow to post tasks to Scheduler for immediate execution.
-* Allow Scheduler to work with any kind of duration.
-* Return a function cancelling the task in Scheduler.
+* add acl flag
 * VFS-837 Change from 'veil' to 'onedata'.
-* VFS-679 Read connections on recreating communicator.
 * children count messages
-* VFS-679 Manually set CFLAGS for Glog build.
 * new acl messages
-* VFS-679 Use Scheduler to delayed-close connections.
-* VFS-679 Move Scheduler class from client to helpers.
-* VFS-679 Return additional headers by value.
-* VFS-679 Allow for connection recreation and read websocket HTTP headers from a function.
-* VFS-828 Allow to set HTTP headers for websocket connection.
+* VFS-828 Remove identity field in HandshakeRequest.
 * VFS-829: add DirEntry to protocol
-
-
-
-### 1.6.0
-
-* RPATH fixed
-
+* VFS-820, change message name
+* VFS-820, add CheckPerms message
+* VFS-781 Add an identity field for handshake request.
+* GetFileUuid and FileUuid messages added
+* VFS-754: add cluster proxy getattr
+* VFS-754: add cluster proxy getattr
+* VFS-754: add message decoder to answer message
 
 
 ### 1.0.0
 
 
-* provide storage helper for direct operations on storage systems mounted locally (e.g. Lustre, GPFS).
-* provide storage helper for remote operations on data (provider works as proxy).
+* VFS-754: add global user id to cluster message
+* VFS-754: add ProviderMsg
+* VFS-754: add access tokent to cluster message
+* VFS-754: make space_id optional
+* VFS-749: add ClusterProxy context info
+* VFS-754: add space_id to RFM
+* add mode to CreateFile message
+* default open_mode msg changed from "none" to ""
+* open_mode optional parameter added to GetFileLocation msg
+* VFS-489 Direct IO storage message added.
+* VFS-489 Storage test messages added.
+* Generic event message added
+* VFS-443 Add logging protocol.
+* [VFS-441] EventTransformer added
+* [VFS-441] pushmessage message removed
+* [VFS-441] Comments for EventStreamConfig
+* [VFS-441] eventaggregatorconfig message extended
+* [VFS-441] client fetch event producer configuration on startup
+* [VFS-413] messages for events subscription added
+* VFS-442 Add answer field to StatFSInfo message.
+* VFS-442 GetFilesSize and FilesSizeInfo messages added.
+* VFS-442 GetQuota and QuotaInfo messages added.
+* size type changed from int32 to int64
+* [VFS-240] Message CreateFileAck changed
+* [VFS-240] CreateFileAck message added
+* ChangePermsAtStorage message added
+* VFS-211 Links field to files attribute added.
+
+* Added decoder_name and messages for directory creation and location validity info
+* fuse messages
 
 
 ________
