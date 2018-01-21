@@ -259,6 +259,8 @@ public:
 
     virtual bool needsDataConsistencyCheck() { return false; }
 
+    virtual folly::fbstring fileId() const { return m_fileId; }
+
 protected:
     folly::fbstring m_fileId;
     Params m_openParams;

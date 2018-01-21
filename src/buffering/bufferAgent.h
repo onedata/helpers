@@ -36,7 +36,7 @@ public:
         , m_scheduler{scheduler}
         , m_readCache{std::make_shared<ReadCache>(bl.readBufferMinSize,
               bl.readBufferMaxSize, bl.readBufferPrefetchDuration,
-              *m_wrappedHandle)}
+              bl.prefetchPowerBase, bl.targetLatency, *m_wrappedHandle)}
         , m_writeBuffer{std::make_shared<WriteBuffer>(bl.writeBufferMinSize,
               bl.writeBufferMaxSize, bl.writeBufferFlushDelay, *m_wrappedHandle,
               m_scheduler, m_readCache)}
