@@ -36,6 +36,9 @@
 #include "webDAVHelper.h"
 #include <folly/executors/IOExecutor.h>
 #endif
+#if WITH_DHUSODATA
+#include "dhusodataHelper.h"
+#endif
 
 namespace one {
 namespace helpers {
@@ -58,6 +61,9 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
+#if WITH_DHUSODATA
+    asio::io_service &dhusodataService,
 #endif
     asio::io_service &nullDeviceService,
     communication::Communicator &communicator,
@@ -84,6 +90,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_WEBDAV
     m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_DHUSODATA
+    m_dhusodataService(dhusodataService)
     ,
 #endif
     m_nullDeviceService{nullDeviceService}
@@ -113,6 +123,9 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
+#if WITH_DHUSODATA
+    asio::io_service &dhusodataService,
+#endif
     asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
     buffering::BufferLimits bufferLimits)
     :
@@ -137,6 +150,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_WEBDAV
     m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_DHUSODATA
+    m_dhusodataService(dhusodataService)
     ,
 #endif
     m_nullDeviceService{nullDeviceService}
@@ -197,6 +214,11 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     if (name == WEBDAV_HELPER_NAME)
         helper =
             WebDAVHelperFactory{m_webDAVExecutor}.createStorageHelper(args);
+#endif
+#if WITH_DHUSODATA
+    if (name == DHUSODATA_HELPER_NAME)
+        helper = DHUSODataHelperFactory{m_dhusodataService}.createStorageHelper(
+            args);
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)
