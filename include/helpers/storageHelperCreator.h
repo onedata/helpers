@@ -48,6 +48,10 @@ constexpr auto SWIFT_HELPER_NAME = "swift";
 constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
 #endif
 
+#if WITH_ODATA
+constexpr auto ODATA_HELPER_NAME = "odata";
+#endif
+
 namespace buffering {
 
 struct BufferLimits {
@@ -97,6 +101,9 @@ public:
 #if WITH_GLUSTERFS
         asio::io_service &glusterfsService,
 #endif
+#if WITH_ODATA
+        asio::io_service &odataService,
+#endif
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{});
@@ -114,6 +121,9 @@ public:
 #endif
 #if WITH_GLUSTERFS
         asio::io_service &glusterfsService,
+#endif
+#if WITH_ODATA
+        asio::io_service &odataService,
 #endif
         std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{});
@@ -147,7 +157,10 @@ private:
 #if WITH_GLUSTERFS
     asio::io_service &m_glusterfsService;
 #endif
-    std::unique_ptr<Scheduler> m_scheduler;
+#if WITH_ODATA
+    asio::io_service &m_odataService,
+#endif
+        std::unique_ptr<Scheduler> m_scheduler;
     buffering::BufferLimits m_bufferLimits;
 
 #ifdef BUILD_PROXY_IO

@@ -59,6 +59,10 @@ if(NOT WITH_GLUSTERFS)
     list(REMOVE_ITEM TEST_DIRS  glusterfs_helper_test)
 endif(NOT WITH_GLUSTERFS)
 
+if(NOT WITH_ODATA)
+    list(REMOVE_ITEM TEST_DIRS  odata_helper_test)
+endif(NOT WITH_ODATA)
+
 foreach(TEST_DIR ${TEST_DIRS})
     string(REGEX REPLACE "(.*)_test" "\\1" TEST_NAME ${TEST_DIR})
     file(COPY ${TEST_DIR} DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

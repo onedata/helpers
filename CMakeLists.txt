@@ -5,6 +5,7 @@ option(WITH_CEPH "Include Ceph direct IO support" ON)
 option(WITH_S3 "Include S3 direct IO support" ON)
 option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
+option(WITH_ODATA "Include Copernicus Data Hub support" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
 
 # CMake config
@@ -140,6 +141,14 @@ else(WITH_GLUSTERFS)
     add_definitions(-DWITH_GLUSTERFS=0)
 endif(WITH_GLUSTERFS)
 
+# Copernicus Data hub support
+if(WITH_ODATA)
+    find_package(odata REQUIRED)
+    set(ODATA_LIBRARIES ${ODATA_LIBRARIES})
+else(WITH_ODATA)
+    add_definitions(-DWITH_ODATA=0)
+endif(WITH_ODATA)
+
 # Setup compile flags
 set(PLATFORM_EXTRA_LIBS
     ${CMAKE_THREAD_LIBS_INIT}
@@ -211,6 +220,10 @@ endif(WITH_SWIFT)
 if(WITH_GLUSTERFS)
     list(APPEND HELPERS_LIBRARIES ${GLUSTERFSAPI_LIBRARIES})
 endif(WITH_GLUSTERFS)
+
+if(WITH_ODATA)
+    list(APPEND HELPERS_LIBRARIES ${ODATA_LIBRARIES})
+endif(WITH_ODATA)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
 target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})
