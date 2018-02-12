@@ -14,6 +14,7 @@
 #include "logging.h"
 #include "messages/proxyio/remoteData.h"
 #include "messages/proxyio/remoteRead.h"
+#include "monitoring/monitoring.h"
 #include "scheduler.h"
 
 #include <folly/CallOnce.h>
@@ -26,7 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <queue>
+#include <deque>
 
 namespace one {
 namespace helpers {
@@ -67,6 +68,8 @@ public:
         LOG_FCALL() << LOG_FARG(readBufferMinSize)
                     << LOG_FARG(readBufferMaxSize)
                     << LOG_FARG(readBufferPrefetchDuration.count());
+
+        resetBlockSize();
     }
 
     folly::Future<folly::IOBufQueue> read(
@@ -79,7 +82,7 @@ public:
             LOG_DBG(2) << "Prefetch cache stalled for file "
                        << m_handle.fileId();
             while (!m_cache.empty()) {
-                m_cache.pop();
+                m_cache.pop_front();
             }
             m_clear = false;
         }
@@ -90,7 +93,7 @@ public:
         m_lastCacheRefresh = std::chrono::steady_clock::now();
 
         while (!m_cache.empty() && !isCurrentRead(offset))
-            m_cache.pop();
+            m_cache.pop_front();
 
         if (m_cache.empty()) {
             resetBlockSize();
@@ -150,7 +153,8 @@ private:
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
                     << LOG_FARG(isPrefetch);
 
-        m_cache.emplace(std::make_shared<ReadData>(offset, size, isPrefetch));
+        m_cache.emplace_back(
+            std::make_shared<ReadData>(offset, size, isPrefetch));
         m_handle.read(offset, size)
             .then([readData = m_cache.back()](folly::IOBufQueue buf) {
                 readData->size = buf.chainLength();
@@ -168,6 +172,25 @@ private:
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
         assert(!m_cache.empty());
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".blockSize",
+            m_blockSize);
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".latency",
+            m_latency);
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".targetlatency",
+            m_targetLatency);
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".cachesize",
+            std::accumulate(m_cache.begin(), m_cache.end(), 0,
+                [](int acc, std::shared_ptr<ReadData> rd) {
+                    return acc + rd->size;
+                }));
 
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
@@ -240,7 +263,7 @@ private:
         LOG_FCALL();
 
         m_blockSize = 0;
-        m_prefetchCoeff = 1;
+        m_prefetchCoeff = 1.0;
     }
 
     void increaseBlockSize()
@@ -249,8 +272,9 @@ private:
 
         if (m_blockSize < m_readBufferMaxSize &&
             m_latency.load() > m_targetLatency) {
-            m_blockSize = std::min(
-                m_readBufferMaxSize, m_readBufferMinSize * m_prefetchCoeff);
+            m_blockSize = std::min(m_readBufferMaxSize,
+                m_readBufferMinSize *
+                    static_cast<std::size_t>(m_prefetchCoeff));
             m_prefetchCoeff *= m_prefetchPowerBase;
 
             LOG_DBG(2) << "Adjusted prefetch block size for file "
@@ -268,12 +292,12 @@ private:
     const std::size_t m_targetLatency;
     FileHandle &m_handle;
 
-    std::size_t m_prefetchCoeff{0};
+    double m_prefetchCoeff{0.0};
     std::size_t m_blockSize{0};
     std::atomic<std::size_t> m_latency{m_targetLatency};
 
     FiberMutex m_mutex;
-    std::queue<std::shared_ptr<ReadData>> m_cache;
+    std::deque<std::shared_ptr<ReadData>> m_cache;
     bool m_clear{false};
     std::chrono::steady_clock::time_point m_lastCacheRefresh{};
 };
