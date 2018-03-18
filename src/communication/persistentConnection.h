@@ -29,7 +29,16 @@
 namespace one {
 namespace communication {
 
-static constexpr std::chrono::seconds RECREATE_DELAY{2};
+/**
+ * These constants control the reconnection delay backoff. On first error
+ * the reconnection attempt is performed after RECREATE_DELAY_INITIAL ms
+ * then every consecutive reconnection delay is calculated as
+ * m_recreateBackoffDelay*RECREATE_DELAY_FACTOR until RECREATE_DELAY_MAX is
+ * reached.
+ */
+static constexpr float RECREATE_DELAY_FACTOR{1.5};
+static constexpr std::chrono::milliseconds RECREATE_DELAY_INITIAL{500};
+static constexpr std::chrono::milliseconds RECREATE_DELAY_MAX{5 * 60 * 1000};
 
 /**
  * @c PersistentConnection class represents a single TCP/TLS connection between
@@ -126,6 +135,8 @@ private:
     void notify(const std::error_code &ec = {});
     void start();
 
+    std::chrono::milliseconds nextReconnectionDelay();
+
     etls::TLSSocket::Ptr getSocket();
 
     template <typename... Args, typename SF>
@@ -158,6 +169,7 @@ private:
     std::string m_inData;
     std::uint32_t m_outHeader;
     std::string m_outData;
+    std::chrono::milliseconds m_recreateBackoffDelay;
 };
 
 std::unique_ptr<Connection> createConnection(std::string host,

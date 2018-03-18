@@ -43,6 +43,7 @@ PersistentConnection::PersistentConnection(std::string host,
     , m_getHandshake{std::move(getHandshake)}
     , m_onHandshakeResponse{std::move(onHandshakeResponse)}
     , m_callback{std::move(onHandshakeDone)}
+    , m_recreateBackoffDelay{RECREATE_DELAY_INITIAL}
 {
     LOG_FCALL() << LOG_FARG(host) << LOG_FARG(port);
 }
@@ -70,6 +71,8 @@ void PersistentConnection::onConnect()
     LOG_FCALL();
 
     LOG_DBG(2) << "Connected to " << m_host << ":" << m_port;
+
+    m_recreateBackoffDelay = RECREATE_DELAY_INITIAL;
 
     upgrade();
 }
@@ -131,6 +134,7 @@ void PersistentConnection::onUpgradeResponseReceived()
         }
 
         auto buffer = prepareOutBuffer(m_getHandshake());
+
         m_socket->sendAsync(
             m_socket, buffer, createCallback([=] { onHandshakeSent(); }));
     }
@@ -173,10 +177,14 @@ void PersistentConnection::onError(const std::error_code &ec1)
 {
     LOG_FCALL();
 
-    LOG(ERROR) << "Error during connection: " << ec1 << "\n";
+    LOG(ERROR) << "Error during connection: [" << ec1 << "] " << ec1.message();
+
+    auto recreateDelay = nextReconnectionDelay();
+
+    LOG(INFO) << "Reconnecting in " << recreateDelay.count() << " [ms]";
 
     m_recreateTimer.expires_at(
-        std::chrono::steady_clock::now() + RECREATE_DELAY);
+        std::chrono::steady_clock::now() + recreateDelay);
 
     m_recreateTimer.async_wait([this](auto ec2) {
         if (!ec2)
@@ -205,6 +213,7 @@ void PersistentConnection::send(std::string message, Callback callback)
 
         m_callback = std::move(callback);
         auto buffer = prepareOutBuffer(std::move(message));
+
         socket->sendAsync(socket, buffer, createCallback([=] { onSent(); }));
     });
 }
@@ -238,6 +247,7 @@ void PersistentConnection::readLoop()
         LOG_DBG(4) << "Received binary message: " << LOG_ERL_BIN(m_inData);
 
         m_onMessage(std::move(m_inData));
+        m_inData.clear();
         readLoop();
     });
 }
@@ -281,6 +291,17 @@ void PersistentConnection::start()
     m_connected = true;
     readLoop();
     m_onReady(*this);
+}
+
+std::chrono::milliseconds PersistentConnection::nextReconnectionDelay()
+{
+    LOG_FCALL();
+
+    m_recreateBackoffDelay = std::chrono::milliseconds(std::min<unsigned long>(
+        m_recreateBackoffDelay.count() * RECREATE_DELAY_FACTOR,
+        RECREATE_DELAY_MAX.count()));
+
+    return m_recreateBackoffDelay;
 }
 
 etls::TLSSocket::Ptr PersistentConnection::getSocket()
