@@ -68,14 +68,13 @@ public:
         LOG_FCALL() << LOG_FARG(readBufferMinSize)
                     << LOG_FARG(readBufferMaxSize)
                     << LOG_FARG(readBufferPrefetchDuration.count());
-
-        resetBlockSize();
     }
 
-    folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size)
+    folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const std::size_t continuousBlock)
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+        DCHECK(continuousBlock >= size);
 
         std::unique_lock<FiberMutex> lock{m_mutex};
         if (isStale()) {
@@ -90,22 +89,30 @@ public:
         if (isCurrentRead(offset))
             return readFromCache(offset, size);
 
+        std::tie(m_blockSize, m_prefetchCoeff) =
+            isSequential(offset) ? increaseBlockSize() : resetBlockSize();
+
         m_lastCacheRefresh = std::chrono::steady_clock::now();
 
         while (!m_cache.empty() && !isCurrentRead(offset))
             m_cache.pop_front();
 
-        if (m_cache.empty()) {
-            resetBlockSize();
+        if (m_cache.empty())
             fetch(offset, size);
-        }
-        else {
-            increaseBlockSize();
-        }
 
-        prefetchIfNeeded();
+        prefetchIfNeeded(continuousBlock - size);
 
         return readFromCache(offset, size);
+    }
+
+    std::size_t wouldPrefetch(const off_t offset, const std::size_t /*size*/)
+    {
+        std::size_t prefetchSize = 0;
+        if (!isCurrentRead(offset) && m_cache.size() < 2) {
+            std::tie(prefetchSize, std::ignore) =
+                isSequential(offset) ? increaseBlockSize() : resetBlockSize();
+        }
+        return prefetchSize;
     }
 
     void clear()
@@ -117,7 +124,22 @@ public:
     }
 
 private:
-    void prefetchIfNeeded()
+    bool isSequential(const off_t offset)
+    {
+        if (m_cache.empty())
+            return false; // no reference point
+
+        if (m_cache.size() == 1)
+            return offset ==
+                static_cast<off_t>(
+                    m_cache.front()->offset + m_cache.front()->size);
+
+        return offset >= m_cache.back()->offset &&
+            offset <
+            static_cast<off_t>(m_cache.back()->offset + m_cache.back()->size);
+    }
+
+    void prefetchIfNeeded(const std::size_t continuousBlock)
     {
         LOG_FCALL();
 
@@ -127,10 +149,13 @@ private:
             const auto nextOffset =
                 m_cache.back()->offset + m_cache.back()->size;
 
-            LOG_DBG(2) << "Prefetching " << m_blockSize << " bytes for file "
+            const std::size_t blockSize =
+                std::min(continuousBlock, m_blockSize);
+
+            LOG_DBG(2) << "Prefetching " << blockSize << " bytes for file "
                        << m_handle.fileId() << " at offset " << nextOffset;
 
-            prefetch(nextOffset, m_blockSize);
+            prefetch(nextOffset, blockSize);
         }
     }
 
@@ -194,7 +219,7 @@ private:
 
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([ =, s = weak_from_this() ] {
+        return readData->promise.getFuture().then([=, s = weak_from_this()] {
             folly::call_once(readData->measureLatencyFlag, [&] {
                 if (auto self = s.lock()) {
                     const auto latency =
@@ -258,29 +283,31 @@ private:
             std::chrono::steady_clock::now();
     }
 
-    void resetBlockSize()
+    std::pair<std::size_t, double> resetBlockSize()
     {
         LOG_FCALL();
-
-        m_blockSize = 0;
-        m_prefetchCoeff = 1.0;
+        return {0, 1.0};
     }
 
-    void increaseBlockSize()
+    std::pair<std::size_t, double> increaseBlockSize()
     {
         LOG_FCALL();
 
+        auto blockSize = m_blockSize;
+        auto prefetchCoeff = m_prefetchCoeff;
         if (m_blockSize < m_readBufferMaxSize &&
             m_latency.load() > m_targetLatency) {
-            m_blockSize = std::min(m_readBufferMaxSize,
+            blockSize = std::min(m_readBufferMaxSize,
                 m_readBufferMinSize *
                     static_cast<std::size_t>(m_prefetchCoeff));
-            m_prefetchCoeff *= m_prefetchPowerBase;
+            prefetchCoeff *= m_prefetchPowerBase;
 
             LOG_DBG(2) << "Adjusted prefetch block size for file "
-                       << m_handle.fileId() << " to: " << m_blockSize
-                       << " and prefetch coefficient to: " << m_prefetchCoeff;
+                       << m_handle.fileId() << " to: " << blockSize
+                       << " and prefetch coefficient to: " << prefetchCoeff;
         }
+
+        return {blockSize, prefetchCoeff};
     }
 
     std::weak_ptr<ReadCache> weak_from_this() { return {shared_from_this()}; }
@@ -292,9 +319,9 @@ private:
     const std::size_t m_targetLatency;
     FileHandle &m_handle;
 
-    double m_prefetchCoeff{0.0};
-    std::size_t m_blockSize{0};
-    std::atomic<std::size_t> m_latency{m_targetLatency};
+    double m_prefetchCoeff = 1.0;
+    std::size_t m_blockSize = 0;
+    std::atomic<std::size_t> m_latency{m_targetLatency * 2};
 
     FiberMutex m_mutex;
     std::deque<std::shared_ptr<ReadData>> m_cache;
