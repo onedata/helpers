@@ -10,6 +10,8 @@ import subprocess
 from os.path import expanduser
 
 import pytest
+import threading
+import time
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
@@ -20,6 +22,7 @@ from environment import common, docker, nfs
 from posix_helper import PosixHelperProxy
 from posix_test_base import *
 from xattr_test_base import *
+from io_perf_test_base import *
 
 @pytest.fixture(scope='module')
 def server(request):
