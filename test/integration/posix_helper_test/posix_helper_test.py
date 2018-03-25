@@ -10,8 +10,6 @@ import subprocess
 from os.path import expanduser
 
 import pytest
-import threading
-import time
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
