@@ -17,6 +17,7 @@
 #include "monitoring/monitoring.h"
 #include "scheduler.h"
 
+#include <boost/icl/discrete_interval.hpp>
 #include <folly/CallOnce.h>
 #include <folly/FBString.h>
 #include <folly/fibers/TimedMutex.h>
@@ -71,10 +72,10 @@ public:
     }
 
     folly::Future<folly::IOBufQueue> read(const off_t offset,
-        const std::size_t size, const std::size_t continuousBlock)
+        const std::size_t size, const std::size_t continuousSize)
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
-        DCHECK(continuousBlock >= size);
+        DCHECK(continuousSize >= size);
 
         std::unique_lock<FiberMutex> lock{m_mutex};
         if (isStale()) {
@@ -100,7 +101,7 @@ public:
         if (m_cache.empty())
             fetch(offset, size);
 
-        prefetchIfNeeded(continuousBlock - size);
+        prefetchIfNeeded(offset, continuousSize);
 
         return readFromCache(offset, size);
     }
@@ -139,23 +140,25 @@ private:
             static_cast<off_t>(m_cache.back()->offset + m_cache.back()->size);
     }
 
-    void prefetchIfNeeded(const std::size_t continuousBlock)
+    void prefetchIfNeeded(const off_t offset, const std::size_t continuousSize)
     {
         LOG_FCALL();
 
         assert(!m_cache.empty());
 
-        if (m_cache.size() < 2 && m_blockSize > 0) {
-            const auto nextOffset =
-                m_cache.back()->offset + m_cache.back()->size;
+        const off_t nextOffset = m_cache.back()->offset + m_cache.back()->size;
+        const auto prefetchBlock =
+            boost::icl::discrete_interval<off_t>::right_open(
+                nextOffset, nextOffset + m_blockSize) &
+            boost::icl::discrete_interval<off_t>::right_open(
+                offset, offset + continuousSize);
 
-            const std::size_t blockSize =
-                std::min(continuousBlock, m_blockSize);
+        if (m_cache.size() < 2 && boost::icl::size(prefetchBlock) > 0) {
+            LOG_DBG(2) << "Prefetching " << boost::icl::size(prefetchBlock)
+                       << " bytes for file " << m_handle.fileId()
+                       << " at offset " << nextOffset;
 
-            LOG_DBG(2) << "Prefetching " << blockSize << " bytes for file "
-                       << m_handle.fileId() << " at offset " << nextOffset;
-
-            prefetch(nextOffset, blockSize);
+            prefetch(nextOffset, boost::icl::size(prefetchBlock));
         }
     }
 
@@ -219,7 +222,7 @@ private:
 
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([=, s = weak_from_this()] {
+        return readData->promise.getFuture().then([ =, s = weak_from_this() ] {
             folly::call_once(readData->measureLatencyFlag, [&] {
                 if (auto self = s.lock()) {
                     const auto latency =

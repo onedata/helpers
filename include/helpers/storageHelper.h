@@ -240,6 +240,12 @@ public:
     virtual folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) = 0;
 
+    virtual folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const std::size_t continuousBlock)
+    {
+        return read(offset, size);
+    }
+
     virtual folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf) = 0;
 
@@ -260,6 +266,14 @@ public:
     virtual bool needsDataConsistencyCheck() { return false; }
 
     virtual folly::fbstring fileId() const { return m_fileId; }
+
+    virtual std::size_t wouldPrefetch(
+        const off_t offset, const std::size_t size)
+    {
+        return 0;
+    }
+
+    virtual folly::Future<folly::Unit> flushUnderlying() { return flush(); }
 
 protected:
     folly::fbstring m_fileId;
