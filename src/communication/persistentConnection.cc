@@ -209,14 +209,16 @@ void PersistentConnection::send(std::string message, Callback callback)
     });
 }
 
-std::array<asio::const_buffer, 2> PersistentConnection::prepareOutBuffer(
+std::array<asio::const_buffer, 1> PersistentConnection::prepareOutBuffer(
     std::string message)
 {
     LOG_FCALL() << LOG_FARG(message.size());
 
     m_outHeader = htonl(message.size());
-    m_outData = std::move(message);
-    return {{headerToBuffer(m_outHeader), asio::buffer(m_outData)}};
+    m_outData =
+        std::string(reinterpret_cast<char *>(&m_outHeader), 4) + message;
+
+    return {{asio::buffer(m_outData)}};
 }
 
 std::array<asio::const_buffer, 1> PersistentConnection::prepareRawOutBuffer(

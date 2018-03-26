@@ -133,7 +133,7 @@ private:
     template <typename SF> void asyncRead(SF &&onSuccess);
     template <typename SF>
     void asyncReadRawUntil(std::string delimiter, SF &&onSuccess);
-    std::array<asio::const_buffer, 2> prepareOutBuffer(std::string message);
+    std::array<asio::const_buffer, 1> prepareOutBuffer(std::string message);
     std::array<asio::const_buffer, 1> prepareRawOutBuffer(std::string message);
     asio::mutable_buffers_1 headerToBuffer(std::uint32_t &header);
 
