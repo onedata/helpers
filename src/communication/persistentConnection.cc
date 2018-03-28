@@ -29,7 +29,8 @@ const std::string PersistentConnection::CLPROTO_UPGRADE_RESPONSE_STATUS{
     "HTTP/1.1 101 Switching Protocols"};
 
 PersistentConnection::PersistentConnection(std::string host,
-    const unsigned short port, std::shared_ptr<asio::ssl::context> context,
+    const unsigned short port, asio::io_service &ioService,
+    std::shared_ptr<asio::ssl::context> context,
     std::function<void(std::string)> onMessage,
     std::function<void(PersistentConnection &)> onReady,
     std::function<std::string()> getHandshake,
@@ -37,6 +38,7 @@ PersistentConnection::PersistentConnection(std::string host,
     std::function<void(std::error_code)> onHandshakeDone)
     : m_host{std::move(host)}
     , m_port{port}
+    , m_ioService(ioService)
     , m_context{std::move(context)}
     , m_onMessage{std::move(onMessage)}
     , m_onReady{std::move(onReady)}
@@ -61,10 +63,12 @@ void PersistentConnection::connect()
 
     LOG_DBG(2) << "Connecting to " << m_host << ":" << m_port;
 
-    m_socket = std::make_shared<etls::TLSSocket>(m_app, m_context);
+    m_socket = std::make_shared<etls::TLSSocket>(m_ioService, m_context);
     m_socket->connectAsync(m_socket, m_host, m_port,
         createCallback<etls::TLSSocket::Ptr>([=](auto) { this->onConnect(); }));
 }
+
+bool PersistentConnection::connected() const { return m_connected.load(); }
 
 void PersistentConnection::onConnect()
 {
@@ -89,8 +93,12 @@ void PersistentConnection::upgrade()
 
     LOG_DBG(2) << "Sending socket upgrade request";
 
-    m_socket->sendAsync(m_socket, prepareRawOutBuffer(requestStream.str()),
-        createCallback([=] { this->onUpgradeRequestSent(); }));
+    auto buffer = prepareRawOutBuffer(requestStream.str());
+    m_socket->sendAsync(
+        m_socket, buffer->asioBufferSequence(), createCallback([=] {
+            this->onUpgradeRequestSent();
+            (void *)buffer.get();
+        }));
 }
 
 void PersistentConnection::onUpgradeRequestSent()
@@ -136,7 +144,10 @@ void PersistentConnection::onUpgradeResponseReceived()
         auto buffer = prepareOutBuffer(m_getHandshake());
 
         m_socket->sendAsync(
-            m_socket, buffer, createCallback([=] { onHandshakeSent(); }));
+            m_socket, buffer->asioBufferSequence(), createCallback([=] {
+                onHandshakeSent();
+                (void *)buffer.get();
+            }));
     }
 }
 
@@ -179,6 +190,8 @@ void PersistentConnection::onError(const std::error_code &ec1)
 
     LOG(ERROR) << "Error during connection: [" << ec1 << "] " << ec1.message();
 
+    close();
+
     auto recreateDelay = nextReconnectionDelay();
 
     LOG(INFO) << "Reconnecting in " << recreateDelay.count() << " [ms]";
@@ -192,7 +205,6 @@ void PersistentConnection::onError(const std::error_code &ec1)
     });
 
     notify(ec1);
-    close();
 }
 
 void PersistentConnection::send(std::string message, Callback callback)
@@ -201,42 +213,42 @@ void PersistentConnection::send(std::string message, Callback callback)
 
     LOG_DBG(4) << "Sending binary message: " << LOG_ERL_BIN(message);
 
-    asio::post(m_app.ioService(), [
-        =, message = std::move(message), callback = std::move(callback)
-    ]() mutable {
-        auto socket = getSocket();
-        if (!m_connected || !socket) {
-            LOG(ERROR) << "Cannot send message - socket not connected.";
-            callback(asio::error::not_connected);
-            return;
-        }
+    auto socket = getSocket();
+    if (!m_connected || !socket) {
+        LOG(ERROR) << "Cannot send message - socket not connected.";
+        callback(asio::error::not_connected);
+        return;
+    }
 
-        m_callback = std::move(callback);
-        auto buffer = prepareOutBuffer(std::move(message));
+    m_callback = std::move(callback);
 
-        socket->sendAsync(socket, buffer, createCallback([=] { onSent(); }));
-    });
+    auto buffer = prepareOutBuffer(std::move(message));
+
+    socket->sendAsync(socket, buffer->asioBufferSequence(), createCallback([=] {
+        onSent();
+        (void *)buffer.get();
+    }));
 }
 
-std::array<asio::const_buffer, 1> PersistentConnection::prepareOutBuffer(
-    std::string message)
+std::shared_ptr<SharedConstBufferSequence<1>>
+PersistentConnection::prepareOutBuffer(std::string message)
 {
     LOG_FCALL() << LOG_FARG(message.size());
 
-    m_outHeader = htonl(message.size());
-    m_outData =
-        std::string(reinterpret_cast<char *>(&m_outHeader), 4) + message;
+    int32_t outHeader = htonl(message.size());
+    auto outData =
+        std::string(reinterpret_cast<char *>(&outHeader), 4) + message;
 
-    return {{asio::buffer(m_outData)}};
+    return std::make_shared<SharedConstBufferSequence<1>>(std::move(outData));
 }
 
-std::array<asio::const_buffer, 1> PersistentConnection::prepareRawOutBuffer(
-    std::string message)
+std::shared_ptr<SharedConstBufferSequence<1>>
+PersistentConnection::prepareRawOutBuffer(std::string message)
 {
     LOG_FCALL() << LOG_FARG(message.size());
 
-    m_outData = std::move(message);
-    return {{asio::buffer(m_outData)}};
+    // m_outData = std::move(message);
+    return std::make_shared<SharedConstBufferSequence<1>>(std::move(message));
 }
 
 void PersistentConnection::readLoop()
@@ -258,11 +270,11 @@ void PersistentConnection::close()
 
     LOG_DBG(2) << "Closing persistent connection: " << m_connectionId;
 
+    m_connected = false;
+    ++m_connectionId;
+
     if (!m_socket)
         return;
-
-    ++m_connectionId;
-    m_connected = false;
 
     auto socket = std::atomic_exchange(&m_socket, {});
     socket->closeAsync(socket, {[=] {}, [=](auto) {}});
@@ -365,7 +377,8 @@ asio::mutable_buffers_1 PersistentConnection::headerToBuffer(
 }
 
 std::unique_ptr<Connection> createConnection(std::string host,
-    const unsigned short port, std::shared_ptr<asio::ssl::context> context,
+    const unsigned short port, asio::io_service &ioService,
+    std::shared_ptr<asio::ssl::context> context,
     std::function<void(std::string)> onMessage,
     std::function<void(Connection &)> onReady,
     std::function<std::string()> getHandshake,
@@ -373,7 +386,7 @@ std::unique_ptr<Connection> createConnection(std::string host,
     std::function<void(std::error_code)> onHandshakeDone)
 {
     return std::make_unique<PersistentConnection>(std::move(host), port,
-        std::move(context), std::move(onMessage), std::move(onReady),
+        ioService, std::move(context), std::move(onMessage), std::move(onReady),
         std::move(getHandshake), std::move(onHandshakeResponse),
         std::move(onHandshakeDone));
 }
