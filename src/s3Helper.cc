@@ -40,6 +40,12 @@ std::map<Aws::S3::S3Errors, std::errc> g_errors = {
     {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
         std::errc::no_such_file_or_directory}};
 
+// Retry only in case one of these errors occured
+const std::set<Aws::S3::S3Errors> S3_RETRY_ERRORS = {
+    Aws::S3::S3Errors::INTERNAL_FAILURE, Aws::S3::S3Errors::REQUEST_EXPIRED,
+    Aws::S3::S3Errors::SERVICE_UNAVAILABLE, Aws::S3::S3Errors::SLOW_DOWN,
+    Aws::S3::S3Errors::THROTTLING, Aws::S3::S3Errors::NETWORK_CONNECTION};
+
 template <typename Outcome>
 std::error_code getReturnCode(const Outcome &outcome)
 {
@@ -68,6 +74,12 @@ void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
     LOG_DBG(1) << "Operation " << operation << " failed with message " << msg;
 
     throw std::system_error{code, std::move(msg)};
+}
+
+template <typename T> bool S3RetryCondition(const T &outcome)
+{
+    return outcome.IsSuccess() ||
+        !S3_RETRY_ERRORS.count(outcome.GetError().GetErrorType());
 }
 
 } // namespace
@@ -162,8 +174,13 @@ folly::IOBufQueue S3Helper::getObject(
     LOG_DBG(1) << "Attempting to get " << size << "bytes from object " << key
                << " at offset " << offset;
 
-    auto outcome = m_client->GetObject(request);
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->GetObject(request);
+    },
+        S3RetryCondition<Aws::S3::Model::GetObjectOutcome>);
+
     auto code = getReturnCode(outcome);
+
     if (code != SUCCESS_CODE) {
         LOG_DBG(1) << "Reading from object " << key << " failed with error "
                    << outcome.GetError().GetMessage();
@@ -198,7 +215,11 @@ off_t S3Helper::getObjectsSize(
 
     LOG_DBG(1) << "Attempting to get size of object at prefix " << prefix;
 
-    auto outcome = m_client->ListObjects(request);
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
+        S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>);
+
     throwOnError("ListObjects", outcome);
 
     if (outcome.GetResult().GetContents().empty())
@@ -242,7 +263,10 @@ std::size_t S3Helper::putObject(
 
     LOG_DBG(1) << "Attempting to write object " << key << " of size " << size;
 
-    auto outcome = m_client->PutObject(request);
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->PutObject(request);
+    },
+        S3RetryCondition<Aws::S3::Model::PutObjectOutcome>);
 
     ONE_METRIC_TIMERCTX_STOP(timer, size);
 
@@ -290,7 +314,12 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
                     Aws::S3::Model::ObjectIdentifier{}.WithKey(key.c_str()));
 
             request.SetDelete(std::move(container));
-            auto outcome = m_client->DeleteObjects(request);
+
+            auto outcome = retry([&, request = std::move(request) ]() {
+                return m_client->DeleteObjects(request);
+            },
+                S3RetryCondition<Aws::S3::Model::DeleteObjectsOutcome>);
+
             throwOnError("DeleteObjects", outcome);
         }
     }
@@ -313,7 +342,11 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
     LOG_DBG(1) << "Retrieving object list for prefix " << prefix;
 
     while (true) {
-        auto outcome = m_client->ListObjects(request);
+        auto outcome = retry([&, request = std::move(request) ]() {
+            return m_client->ListObjects(request);
+        },
+            S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>);
+
         throwOnError("ListObjects", outcome);
 
         for (const auto &object : outcome.GetResult().GetContents())
