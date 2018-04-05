@@ -60,11 +60,33 @@ path makeRelative(path parent, path child)
 namespace one {
 namespace helpers {
 
+// Retry only in case one of these errors occured
+const std::set<int> GLUSTERFS_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
+    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
+    ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED,
+    ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
+    ECANCELED};
+
+inline bool GlusterFSRetryCondition(int result)
+{
+    return result >= 0 ||
+        GLUSTERFS_RETRY_ERRORS.find(errno) == GLUSTERFS_RETRY_ERRORS.end();
+}
+
+inline bool GlusterFSRetryHandleCondition(glfs_fd_t *result)
+{
+    return result != nullptr ||
+        GLUSTERFS_RETRY_ERRORS.find(errno) == GLUSTERFS_RETRY_ERRORS.end();
+}
+
 template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setHandleResult(
     int (*fun)(Args2...), glfs_fd_t *fd, Args1 &&... args)
 {
-    if (fun(fd, std::forward<Args1>(args)...) < 0)
+    auto ret = retry([&]() { return fun(fd, std::forward<Args1>(args)...); },
+        GlusterFSRetryCondition);
+
+    if (ret < 0)
         return one::helpers::makeFuturePosixException(errno);
 
     return folly::makeFuture();
@@ -74,7 +96,10 @@ template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setContextResult(
     int (*fun)(Args2...), glfs_t *ctx, Args1 &&... args)
 {
-    if (fun(ctx, std::forward<Args1>(args)...) < 0)
+    auto ret = retry([&]() { return fun(ctx, std::forward<Args1>(args)...); },
+        GlusterFSRetryCondition);
+
+    if (ret < 0)
         return one::helpers::makeFuturePosixException(errno);
 
     return folly::makeFuture();
@@ -138,7 +163,10 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
         LOG_DBG(1) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << fileId;
 
-        auto readBytesCount = glfs_pread(glfsFd.get(), raw, size, offset, 0);
+        auto readBytesCount = retry(
+            [&]() { return glfs_pread(glfsFd.get(), raw, size, offset, 0); },
+            GlusterFSRetryCondition);
+
         if (readBytesCount < 0) {
             LOG_DBG(1) << "Reading file " << fileId
                        << " failed with error: " << readBytesCount;
@@ -183,7 +211,13 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
         LOG_DBG(1) << "Attempting to write " << iov_size << " bytes at offset "
                    << offset << " to file " << fileId;
 
-        auto res = glfs_pwritev(glfsFd.get(), iov.data(), iov_size, offset, 0);
+        auto res = retry(
+            [&]() {
+                return glfs_pwritev(
+                    glfsFd.get(), iov.data(), iov_size, offset, 0);
+            },
+            GlusterFSRetryCondition);
+
         if (res == -1) {
             LOG_DBG(1) << "Writing to file " << fileId
                        << " failed with error: " << res;
@@ -352,8 +386,10 @@ folly::Future<folly::Unit> GlusterFSHelper::connect()
             }
         }
 
-        ret = glfs_init(m_glfsCtx.get());
-        if (ret != 0) {
+        ret = retry([&]() { return glfs_init(m_glfsCtx.get()); },
+            GlusterFSRetryCondition);
+
+        if (ret < 0) {
             LOG(ERROR) << "Couldn't initialize GlusterFS connection to "
                           "volume: "
                        << m_volume << " at: " << m_hostname;
@@ -391,13 +427,23 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
         // O_CREAT is not supported in GlusterFS for glfs_open().
         // glfs_creat() has to be used instead for creating files.
         if (flags & O_CREAT) {
-            glfsFd.reset(
-                glfs_creat(m_glfsCtx.get(), filePath.c_str(), flags,
-                    (flags & S_IRWXU) | (flags & S_IRWXG) | (flags & S_IRWXO)),
+            glfsFd.reset(retry(
+                             [&]() {
+                                 return glfs_creat(m_glfsCtx.get(),
+                                     filePath.c_str(), flags,
+                                     (flags & S_IRWXU) | (flags & S_IRWXG) |
+                                         (flags & S_IRWXO));
+                             },
+                             GlusterFSRetryHandleCondition),
                 glfsFdDeleter);
         }
         else {
-            glfsFd.reset(glfs_open(m_glfsCtx.get(), filePath.c_str(), flags),
+            glfsFd.reset(retry(
+                             [&]() {
+                                 return glfs_open(
+                                     m_glfsCtx.get(), filePath.c_str(), flags);
+                             },
+                             GlusterFSRetryHandleCondition),
                 glfsFdDeleter);
         }
 
@@ -429,7 +475,14 @@ folly::Future<struct stat> GlusterFSHelper::getattr(
 
             LOG_DBG(1) << "Getting stat for file " << filePath;
 
-            if (glfs_lstat(m_glfsCtx.get(), filePath.c_str(), &stbuf) == -1) {
+            auto ret = retry(
+                [&]() {
+                    return glfs_lstat(
+                        m_glfsCtx.get(), filePath.c_str(), &stbuf);
+                },
+                GlusterFSRetryCondition);
+
+            if (ret < 0) {
                 LOG_DBG(1) << "Stat failed for file " << filePath
                            << " with error " << errno;
                 return makeFuturePosixException<struct stat>(errno);
@@ -478,7 +531,9 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
         LOG_DBG(1) << "Attempting to read directory " << filePath
                    << " starting from entry " << offset;
 
-        dir = glfs_opendir(m_glfsCtx.get(), filePath.c_str());
+        dir = retry(
+            [&]() { return glfs_opendir(m_glfsCtx.get(), filePath.c_str()); },
+            GlusterFSRetryHandleCondition);
 
         if (!dir) {
             LOG_DBG(1) << "Reading directory " << filePath
@@ -524,8 +579,13 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
 
             LOG_DBG(1) << "Attempting to read link " << filePath;
 
-            const int res = glfs_readlink(m_glfsCtx.get(), filePath.c_str(),
-                reinterpret_cast<char *>(buf->writableData()), maxSize - 1);
+            auto res = retry(
+                [&]() {
+                    return glfs_readlink(m_glfsCtx.get(), filePath.c_str(),
+                        reinterpret_cast<char *>(buf->writableData()),
+                        maxSize - 1);
+                },
+                GlusterFSRetryCondition);
 
             if (res < 0) {
                 LOG_DBG(1) << "Reading link " << filePath
@@ -739,17 +799,27 @@ folly::Future<folly::fbstring> GlusterFSHelper::getxattr(
             LOG_DBG(1) << "Attempting to get extended attribute " << name
                        << " for file " << filePath;
 
-            int res = glfs_getxattr(m_glfsCtx.get(), filePath.c_str(),
-                name.c_str(), reinterpret_cast<char *>(buf->writableData()),
-                initialMaxSize - 1);
+            auto res = retry(
+                [&]() {
+                    return glfs_getxattr(m_glfsCtx.get(), filePath.c_str(),
+                        name.c_str(),
+                        reinterpret_cast<char *>(buf->writableData()),
+                        initialMaxSize - 1);
+                },
+                GlusterFSRetryCondition);
 
             // If the initial buffer for xattr value was too small, try again
             // with maximum allowed value
             if (res == -1 && errno == ERANGE) {
                 buf = folly::IOBuf::create(XATTR_SIZE_MAX);
-                res = glfs_getxattr(m_glfsCtx.get(), filePath.c_str(),
-                    name.c_str(), reinterpret_cast<char *>(buf->writableData()),
-                    XATTR_SIZE_MAX - 1);
+                res = retry(
+                    [&]() {
+                        return glfs_getxattr(m_glfsCtx.get(), filePath.c_str(),
+                            name.c_str(),
+                            reinterpret_cast<char *>(buf->writableData()),
+                            XATTR_SIZE_MAX - 1);
+                    },
+                    GlusterFSRetryCondition);
             }
 
             if (res == -1) {
@@ -836,8 +906,13 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
         LOG_DBG(1) << "Attempting to list extended attributes for file "
                    << filePath;
 
-        ssize_t buflen =
-            glfs_listxattr(m_glfsCtx.get(), filePath.c_str(), NULL, 0);
+        auto buflen = retry(
+            [&]() {
+                return glfs_listxattr(
+                    m_glfsCtx.get(), filePath.c_str(), NULL, 0);
+            },
+            GlusterFSRetryCondition);
+
         if (buflen == -1)
             return makeFuturePosixException<folly::fbvector<folly::fbstring>>(
                 errno);
@@ -847,8 +922,13 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
                 std::move(ret));
 
         auto buf = std::unique_ptr<char[]>(new char[buflen]);
-        buflen = glfs_listxattr(
-            m_glfsCtx.get(), filePath.c_str(), buf.get(), buflen);
+
+        buflen = retry(
+            [&]() {
+                return glfs_listxattr(
+                    m_glfsCtx.get(), filePath.c_str(), buf.get(), buflen);
+            },
+            GlusterFSRetryCondition);
 
         if (buflen == -1)
             return makeFuturePosixException<folly::fbvector<folly::fbstring>>(
