@@ -37,7 +37,7 @@ namespace communication {
  * reached.
  */
 static constexpr float RECREATE_DELAY_FACTOR{1.5};
-static constexpr std::chrono::milliseconds RECREATE_DELAY_INITIAL{500};
+static constexpr std::chrono::milliseconds RECREATE_DELAY_INITIAL{100};
 static constexpr std::chrono::milliseconds RECREATE_DELAY_MAX{5 * 60 * 1000};
 
 /**
