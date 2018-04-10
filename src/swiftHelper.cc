@@ -22,6 +22,8 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <functional>
+
 namespace std {
 template <> struct hash<Poco::Net::HTTPResponse::HTTPStatus> {
     size_t operator()(const Poco::Net::HTTPResponse::HTTPStatus &p) const
@@ -33,6 +35,8 @@ template <> struct hash<Poco::Net::HTTPResponse::HTTPStatus> {
 
 namespace one {
 namespace helpers {
+
+using namespace std::placeholders;
 
 namespace {
 
@@ -92,11 +96,21 @@ void throwOnError(folly::fbstring operation, const Outcome &outcome)
     throw std::system_error{code, std::move(reason)};
 }
 
-template <typename Outcome> bool SWIFTRetryCondition(const Outcome &outcome)
+template <typename Outcome>
+bool SWIFTRetryCondition(const Outcome &outcome, const std::string &operation)
 {
     auto statusCode = outcome->getResponse()->getStatus();
-    return statusCode == Swift::SwiftError::SWIFT_OK ||
-        !SWIFT_RETRY_ERRORS.count(statusCode);
+    auto ret = (statusCode == Swift::SwiftError::SWIFT_OK ||
+        !SWIFT_RETRY_ERRORS.count(statusCode));
+
+    if (!ret) {
+        LOG(WARNING) << "Retrying SWIFT helper operation '" << operation
+                     << "' due to error: " << outcome->getError().msg;
+        ONE_METRIC_COUNTER_INC(
+            "comp.helpers.mod.swift." + operation + ".retries");
+    }
+
+    return ret;
 }
 }
 
@@ -140,7 +154,7 @@ folly::IOBufQueue SwiftHelper::getObject(
             return GetResponsePtr{
                 object.swiftGetObjectContent(nullptr, &headers)};
         },
-        SWIFTRetryCondition<GetResponsePtr>);
+        std::bind(SWIFTRetryCondition<GetResponsePtr>, _1, "GetObjectContent"));
 
     throwOnError("getObject", getResponse);
 
@@ -180,7 +194,7 @@ off_t SwiftHelper::getObjectsSize(
             return ListResponsePtr{container.swiftListObjects(
                 Swift::HEADER_FORMAT_APPLICATION_JSON, &params, true)};
         },
-        SWIFTRetryCondition<ListResponsePtr>);
+        std::bind(SWIFTRetryCondition<ListResponsePtr>, _1, "ListObjects"));
 
     throwOnError("getObjectsSize", listResponse);
 
@@ -227,7 +241,8 @@ std::size_t SwiftHelper::putObject(
                 reinterpret_cast<const char *>(iobuf->data()), iobuf->length(),
                 true)};
         },
-        SWIFTRetryCondition<CreateResponsePtr>);
+        std::bind(
+            SWIFTRetryCondition<CreateResponsePtr>, _1, "CreateReplaceObject"));
 
     throwOnError("putObject", createResponse);
 
@@ -266,7 +281,8 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
                 return DeleteResponsePtr{
                     container.swiftDeleteObjects(std::move(keyBatch))};
             },
-            SWIFTRetryCondition<DeleteResponsePtr>);
+            std::bind(
+                SWIFTRetryCondition<DeleteResponsePtr>, _1, "DeleteObjects"));
 
         throwOnError("deleteObjects", deleteResponse);
     }
@@ -304,7 +320,7 @@ folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
                 return ListResponsePtr{container.swiftListObjects(
                     Swift::HEADER_FORMAT_TEXT_XML, &params, true)};
             },
-            SWIFTRetryCondition<ListResponsePtr>);
+            std::bind(SWIFTRetryCondition<ListResponsePtr>, _1, "ListObjects"));
 
         throwOnError("listObjects", listResponse);
 

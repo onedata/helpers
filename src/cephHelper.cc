@@ -12,8 +12,12 @@
 
 #include <glog/stl_logging.h>
 
+#include <functional>
+
 namespace one {
 namespace helpers {
+
+using namespace std::placeholders;
 
 // Retry only in case one of these errors occured
 const std::set<int> CEPH_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
@@ -22,9 +26,18 @@ const std::set<int> CEPH_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
     ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
     ECANCELED};
 
-inline bool CephRetryCondition(int result)
+inline bool CephRetryCondition(int result, const std::string &operation)
 {
-    return CEPH_RETRY_ERRORS.find(-result) == CEPH_RETRY_ERRORS.end();
+    auto ret = (CEPH_RETRY_ERRORS.find(-result) == CEPH_RETRY_ERRORS.end());
+
+    if (!ret) {
+        LOG(WARNING) << "Retrying Ceph helper operation '" << operation
+                     << "' due to error: " << result;
+        ONE_METRIC_COUNTER_INC(
+            "comp.helpers.mod.ceph." + operation + ".retries");
+    }
+
+    return ret;
 }
 
 CephFileHandle::CephFileHandle(folly::fbstring fileId,
@@ -64,7 +77,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
             [&]() {
                 return rs.read(m_fileId.toStdString(), &data, size, offset);
             },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "read"));
 
         if (ret < 0) {
             LOG_DBG(1) << "Read failed from " << m_fileId
@@ -115,7 +128,7 @@ folly::Future<std::size_t> CephFileHandle::write(
         auto ret = retry([&, data = std::move(data) ]() {
             return rs.write(m_fileId.toStdString(), data, size, offset);
         },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "write"));
 
         if (ret < 0) {
             LOG_DBG(1) << "Write failed to" << m_fileId
@@ -180,7 +193,7 @@ folly::Future<folly::Unit> CephHelper::unlink(const folly::fbstring &fileId)
 
             auto ret = retry(
                 [&]() { return m_radosStriper.remove(fileId.toStdString()); },
-                CephRetryCondition);
+                std::bind(CephRetryCondition, _1, "remove"));
 
             if (ret < 0) {
                 LOG_DBG(1) << "Removing file failed: " << ret;
@@ -213,7 +226,7 @@ folly::Future<folly::Unit> CephHelper::truncate(
 
         auto ret = retry(
             [&]() { return m_radosStriper.trunc(fileId.toStdString(), size); },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "trunc"));
 
         if (ret == -ENOENT) {
             // libradosstripe will not truncate non-existing file, so we have to
@@ -260,7 +273,7 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
                 return m_radosStriper.getxattr(
                     fileId.toStdString(), name.c_str(), bl);
             },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "getxattr"));
 
         if (ret < 0) {
             LOG_DBG(1) << "Getting extended attribute failed: " << ret;
@@ -309,7 +322,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
                     return m_radosStriper.getxattr(
                         fileId.toStdString(), name.c_str(), bl);
                 },
-                CephRetryCondition);
+                std::bind(CephRetryCondition, _1, "getxattr"));
 
             if (xattrExists >= 0) {
                 LOG_DBG(1) << "Extended attribute " << name
@@ -328,7 +341,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
                     return m_radosStriper.getxattr(
                         fileId.toStdString(), name.c_str(), bl);
                 },
-                CephRetryCondition);
+                std::bind(CephRetryCondition, _1, "getxattr"));
 
             if (xattrExists < 0) {
                 LOG_DBG(1) << "Extended attribute " << name
@@ -349,7 +362,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
                 return m_radosStriper.setxattr(
                     fileId.toStdString(), name.c_str(), bl);
             },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "setxattr"));
 
         if (ret < 0) {
             LOG_DBG(1) << "Failed to set extended attribute " << name
@@ -384,7 +397,7 @@ folly::Future<folly::Unit> CephHelper::removexattr(
                 return m_radosStriper.rmxattr(
                     fileId.toStdString(), name.c_str());
             },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "rmxattr"));
 
         if (ret < 0) {
             LOG_DBG(1) << "Failed to remove extended attribute " << name
@@ -421,7 +434,7 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
             [&]() {
                 return m_radosStriper.getxattrs(fileId.toStdString(), xattrs);
             },
-            CephRetryCondition);
+            std::bind(CephRetryCondition, _1, "getxattrs"));
 
         if (ret < 0) {
             LOG_DBG(1) << "Failed retrieving extended attributes for file "
@@ -447,95 +460,96 @@ folly::Future<folly::Unit> CephHelper::connect()
 {
     LOG_FCALL();
 
-    return folly::via(m_executor.get(), [
-        this, s = std::weak_ptr<CephHelper>{shared_from_this()}
-    ] {
-        auto self = s.lock();
-        if (!self)
-            return makeFuturePosixException(ECANCELED);
+    return folly::via(m_executor.get(),
+        [ this, s = std::weak_ptr<CephHelper>{shared_from_this()} ] {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException(ECANCELED);
 
-        std::lock_guard<std::mutex> guard{m_connectionMutex};
+            std::lock_guard<std::mutex> guard{m_connectionMutex};
 
-        LOG_DBG(1) << "Attempting to connect to Ceph server at: " << m_monHost;
+            LOG_DBG(1) << "Attempting to connect to Ceph server at: "
+                       << m_monHost;
 
-        if (m_connected) {
-            LOG_DBG(1) << "Already connected - skipping";
+            if (m_connected) {
+                LOG_DBG(1) << "Already connected - skipping";
+                return folly::makeFuture();
+            }
+
+            auto ret =
+                m_cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
+            if (ret < 0) {
+                LOG(ERROR) << "Couldn't initialize the cluster handle.";
+                return makeFuturePosixException(ret);
+            }
+
+            ret = m_cluster.conf_set("mon host", m_monHost.c_str());
+            if (ret < 0) {
+                LOG(ERROR) << "Couldn't set monitor host configuration "
+                              "variable.";
+                return makeFuturePosixException(ret);
+            }
+
+            ret = m_cluster.conf_set("key", m_key.c_str());
+            if (ret < 0) {
+                LOG(ERROR) << "Couldn't set key configuration variable.";
+                return makeFuturePosixException(ret);
+            }
+
+            ret = retry([&]() { return m_cluster.connect(); },
+                std::bind(CephRetryCondition, _1, "connect"));
+            if (ret < 0) {
+                LOG(ERROR) << "Couldn't connect to cluster.";
+                return makeFuturePosixException(ret);
+            }
+
+            ret = retry(
+                [&]() {
+                    return m_cluster.ioctx_create(m_poolName.c_str(), m_ioCTX);
+                },
+                std::bind(CephRetryCondition, _1, "ioctx_create"));
+            if (ret < 0) {
+                LOG(ERROR) << "Couldn't set up ioCTX.";
+                return makeFuturePosixException(ret);
+            }
+
+            // Setup libradosstriper context
+            ret = retry(
+                [&]() {
+                    return libradosstriper::RadosStriper::striper_create(
+                        m_ioCTX, &m_radosStriper);
+                },
+                std::bind(CephRetryCondition, _1, "striper_create"));
+            if (ret < 0) {
+                LOG(ERROR) << "Couldn't Create RadosStriper: " << ret;
+
+                m_ioCTX.close();
+                m_cluster.shutdown();
+                return makeFuturePosixException(ret);
+            }
+
+            // Get the alignment setting for pool from io_ctx
+            uint64_t alignment = 0;
+            ret = m_ioCTX.pool_required_alignment2(&alignment);
+            if (ret < 0) {
+                LOG(ERROR) << "IO_CTX didn't return pool alignment: " << ret
+                           << "\n Is this an erasure coded pool? " << std::endl;
+
+                m_ioCTX.close();
+                m_cluster.shutdown();
+                return makeFuturePosixException(ret);
+            }
+
+            // TODO: VFS-3780
+            m_radosStriper.set_object_layout_stripe_unit(4 * 1024 * 1024);
+            m_radosStriper.set_object_layout_stripe_count(8);
+            m_radosStriper.set_object_layout_object_size(16 * 1024 * 1024);
+
+            LOG_DBG(1) << "Successfully connected to Ceph at: " << m_monHost;
+
+            m_connected = true;
             return folly::makeFuture();
-        }
-
-        auto ret =
-            m_cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
-        if (ret < 0) {
-            LOG(ERROR) << "Couldn't initialize the cluster handle.";
-            return makeFuturePosixException(ret);
-        }
-
-        ret = m_cluster.conf_set("mon host", m_monHost.c_str());
-        if (ret < 0) {
-            LOG(ERROR) << "Couldn't set monitor host configuration "
-                          "variable.";
-            return makeFuturePosixException(ret);
-        }
-
-        ret = m_cluster.conf_set("key", m_key.c_str());
-        if (ret < 0) {
-            LOG(ERROR) << "Couldn't set key configuration variable.";
-            return makeFuturePosixException(ret);
-        }
-
-        ret = retry([&]() { return m_cluster.connect(); }, CephRetryCondition);
-        if (ret < 0) {
-            LOG(ERROR) << "Couldn't connect to cluster.";
-            return makeFuturePosixException(ret);
-        }
-
-        ret = retry(
-            [&]() {
-                return m_cluster.ioctx_create(m_poolName.c_str(), m_ioCTX);
-            },
-            CephRetryCondition);
-        if (ret < 0) {
-            LOG(ERROR) << "Couldn't set up ioCTX.";
-            return makeFuturePosixException(ret);
-        }
-
-        // Setup libradosstriper context
-        ret = retry(
-            [&]() {
-                return libradosstriper::RadosStriper::striper_create(
-                    m_ioCTX, &m_radosStriper);
-            },
-            CephRetryCondition);
-        if (ret < 0) {
-            LOG(ERROR) << "Couldn't Create RadosStriper: " << ret;
-
-            m_ioCTX.close();
-            m_cluster.shutdown();
-            return makeFuturePosixException(ret);
-        }
-
-        // Get the alignment setting for pool from io_ctx
-        uint64_t alignment = 0;
-        ret = m_ioCTX.pool_required_alignment2(&alignment);
-        if (ret < 0) {
-            LOG(ERROR) << "IO_CTX didn't return pool alignment: " << ret
-                       << "\n Is this an erasure coded pool? " << std::endl;
-
-            m_ioCTX.close();
-            m_cluster.shutdown();
-            return makeFuturePosixException(ret);
-        }
-
-        // TODO: VFS-3780
-        m_radosStriper.set_object_layout_stripe_unit(4 * 1024 * 1024);
-        m_radosStriper.set_object_layout_stripe_count(8);
-        m_radosStriper.set_object_layout_object_size(16 * 1024 * 1024);
-
-        LOG_DBG(1) << "Successfully connected to Ceph at: " << m_monHost;
-
-        m_connected = true;
-        return folly::makeFuture();
-    });
+        });
 }
 
 } // namespace helpers

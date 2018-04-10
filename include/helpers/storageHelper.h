@@ -70,6 +70,7 @@ inline auto retry(OpFunc &&op, CondFunc &&condition,
     while (!condition(ret) && (retryIt < retryCount)) {
         std::this_thread::sleep_for(
             retryInitialDelay * std::pow(retryBackoff, retryIt));
+
         ret = op();
         retryIt++;
     }
