@@ -263,7 +263,7 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
             else {
                 auto pathLeaf = std::stol(pathTokens[level - 1]);
 
-                if (pathLeaf <=
+                if (pathLeaf <
                     std::get<0>(m_simulatedFilesystemParameters[level - 1])) {
                     stbuf.st_mode = 0777 | S_IFDIR;
                 }
@@ -331,65 +331,66 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdir(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
-    return folly::via(m_executor.get(), [
-        this, fileId, offset, count, self = shared_from_this()
-    ] {
+    return folly::via(m_executor.get(),
+        [ this, fileId, offset, count, self = shared_from_this() ] {
 
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readdir");
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readdir");
 
-        SIMULATE_STORAGE_ISSUES(
-            self, "readdir", folly::fbvector<folly::fbstring>)
+            SIMULATE_STORAGE_ISSUES(
+                self, "readdir", folly::fbvector<folly::fbstring>)
 
-        folly::fbvector<folly::fbstring> ret;
+            folly::fbvector<folly::fbstring> ret;
 
-        LOG_DBG(1) << "Attempting to read directory " << fileId;
+            LOG_DBG(1) << "Attempting to read directory " << fileId;
 
-        if (isSimulatedFilesystem()) {
-            std::vector<std::string> pathTokens;
-            auto fileIdStr = fileId.toStdString();
-            folly::split("/", fileIdStr, pathTokens, true);
+            if (isSimulatedFilesystem()) {
+                std::vector<std::string> pathTokens;
+                auto fileIdStr = fileId.toStdString();
+                folly::split("/", fileIdStr, pathTokens, true);
 
-            auto level = pathTokens.size();
+                auto level = pathTokens.size();
 
-            if (level < m_simulatedFilesystemParameters.size()) {
-                size_t totalEntriesOnLevel =
-                    std::get<0>(m_simulatedFilesystemParameters[level]) +
-                    std::get<1>(m_simulatedFilesystemParameters[level]);
+                if (level < m_simulatedFilesystemParameters.size()) {
+                    size_t totalEntriesOnLevel =
+                        std::get<0>(m_simulatedFilesystemParameters[level]) +
+                        std::get<1>(m_simulatedFilesystemParameters[level]);
 
-                for (size_t i = offset;
-                     i < std::min(offset + count, totalEntriesOnLevel); i++) {
-                    auto entryId = std::to_string(i);
-                    auto entryPath =
-                        boost::filesystem::path(fileId.toStdString()) /
-                        boost::filesystem::path(entryId);
+                    for (size_t i = offset;
+                         i < std::min(offset + count, totalEntriesOnLevel);
+                         i++) {
+                        auto entryId = std::to_string(i);
+                        auto entryPath =
+                            boost::filesystem::path(fileId.toStdString()) /
+                            boost::filesystem::path(entryId);
 
-                    std::vector<std::string> entryPathTokens;
-                    folly::split(
-                        "/", entryPath.string(), entryPathTokens, true);
+                        std::vector<std::string> entryPathTokens;
+                        folly::split(
+                            "/", entryPath.string(), entryPathTokens, true);
 
-                    if (m_simulatedFilesystemGrowSpeed == 0.0 ||
-                        (std::chrono::seconds(
-                             simulatedFilesystemFileDist(entryPathTokens)) /
-                            m_simulatedFilesystemGrowSpeed) >
-                            std::chrono::system_clock::now() - m_mountTime) {
-                        ret.emplace_back(entryId);
+                        if (m_simulatedFilesystemGrowSpeed == 0.0 ||
+                            (std::chrono::seconds(
+                                 simulatedFilesystemFileDist(entryPathTokens)) /
+                                m_simulatedFilesystemGrowSpeed) +
+                                    m_mountTime <
+                                std::chrono::system_clock::now()) {
+                            ret.emplace_back(entryId);
+                        }
                     }
                 }
             }
-        }
-        else {
-            // we want the files to have unique names even when listing
-            // thousands of files
-            for (size_t i = 0; i < count; i++)
-                ret.emplace_back(std::to_string(i + offset));
-        }
+            else {
+                // we want the files to have unique names even when listing
+                // thousands of files
+                for (size_t i = 0; i < count; i++)
+                    ret.emplace_back(std::to_string(i + offset));
+            }
 
-        LOG_DBG(1) << "Read directory " << fileId << " at offset " << offset
-                   << " with entries " << LOG_VEC(ret);
+            LOG_DBG(1) << "Read directory " << fileId << " at offset " << offset
+                       << " with entries " << LOG_VEC(ret);
 
-        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
-            std::move(ret));
-    });
+            return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+                std::move(ret));
+        });
 }
 
 folly::Future<folly::fbstring> NullDeviceHelper::readlink(
@@ -779,7 +780,8 @@ NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
         if (levelParams.size() != 2)
             throw std::invalid_argument("Invalid null helper simulated "
                                         "filesystem parameters "
-                                        "specification.");
+                                        "specification: '" +
+                params + "'");
 
         result.emplace_back(
             std::stol(levelParams[0]), std::stol(levelParams[1]));

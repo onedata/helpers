@@ -36,6 +36,28 @@ struct NullDeviceHelperTest : public ::testing::Test {
         std::make_shared<folly::ManualExecutor>();
 };
 
+TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
+{
+    asio::io_service ioService;
+    NullDeviceHelperFactory factory{ioService};
+
+    Params empty;
+
+    auto defaultNullHelper = factory.createStorageHelper(empty);
+
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+
+    auto nullHelper1 = factory.createStorageHelper(p1);
+}
+
 TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)
 {
     NullDeviceHelper helper(

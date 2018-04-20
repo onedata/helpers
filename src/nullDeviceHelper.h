@@ -294,9 +294,11 @@ public:
         const auto latencyMax = getParam<int>(parameters, "latencyMax", 0.0);
         const auto timeoutProbability =
             getParam<double>(parameters, "timeoutProbability", 0.0);
-        const auto &filter = getParam(parameters, "filter", "*");
+        const auto &filter = getParam<folly::fbstring, folly::fbstring>(
+            parameters, "filter", "*");
         const auto &simulatedFilesystemParameters =
-            getParam(parameters, "simulatedFilesystemParameters", "");
+            getParam<folly::fbstring, folly::fbstring>(
+                parameters, "simulatedFilesystemParameters", "");
         const auto simulatedFilesystemGrowSpeed =
             getParam<double>(parameters, "simulatedFilesystemGrowSpeed", 0.0);
 
