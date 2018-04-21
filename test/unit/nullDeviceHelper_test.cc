@@ -254,6 +254,8 @@ TEST_F(NullDeviceHelperTest, simulatedFilesystemEntryCountShouldWork)
     EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(0), 2 + 2);
     EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(1), 2 * (2 + 2));
     EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(2), 2 * 2 * (0 + 3));
+
+    EXPECT_EQ(helper.simulatedFilesystemEntryCount(), 4 + 8 + 12);
 }
 
 TEST_F(NullDeviceHelperTest, simulatedFilesystemFileDistShouldWork)

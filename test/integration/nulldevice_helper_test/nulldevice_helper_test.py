@@ -97,6 +97,25 @@ def simulatedFilesystemServer(request):
 
     return Server(0, 0, 0.0, "*", "5-20:10-20:5-1:0-100", 0.0)
 
+@pytest.fixture(scope='module')
+def simulatedGrowingFilesystemServer(request):
+    class Server(object):
+        def __init__(self, latencyMin, latencyMax, timeoutProbability, filter,
+                     simulatedFilesystemParameters, simulatedFilesystemGrowSpeed):
+            self.latencyMin = latencyMin
+            self.latencyMax = latencyMax
+            self.timeoutProbability = timeoutProbability
+            self.filter = filter
+            self.simulatedFilesystemParameters = simulatedFilesystemParameters
+            self.simulatedFilesystemGrowSpeed = simulatedFilesystemGrowSpeed
+
+    def fin():
+         pass
+
+    request.addfinalizer(fin)
+
+    return Server(0, 0, 0.0, "*", "4-4:0-1", 1.0)
+
 
 @pytest.fixture
 def helper(server):
@@ -146,6 +165,19 @@ def simulatedFilesystemStorageHelper(simulatedFilesystemServer):
         simulatedFilesystemServer.filter,
         simulatedFilesystemServer.simulatedFilesystemParameters,
         simulatedFilesystemServer.simulatedFilesystemGrowSpeed)
+
+@pytest.fixture
+def simulatedGrowingFilesystemStorageHelper(simulatedGrowingFilesystemServer):
+    """
+    Create a helper which simulates a growing filesystem
+    """
+    return NullDeviceHelperProxy(
+        simulatedGrowingFilesystemServer.latencyMin,
+        simulatedGrowingFilesystemServer.latencyMax,
+        simulatedGrowingFilesystemServer.timeoutProbability,
+        simulatedGrowingFilesystemServer.filter,
+        simulatedGrowingFilesystemServer.simulatedFilesystemParameters,
+        simulatedGrowingFilesystemServer.simulatedFilesystemGrowSpeed)
 
 
 @pytest.mark.readwrite_operations_tests
@@ -319,13 +351,14 @@ def test_write_should_generate_timeouts_on_busy_storage(busyStorageHelper, file_
 
     assert completed < failed
 
+
 @pytest.mark.simulated_filesystem_tests
 def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemStorageHelper):
+    """
+    Test example specification defined in simulatedFilesystemServer fixture:
 
-    # Test example specification defined in simulatedFilesystemServer fixture:
-    #
-    #   5-20:10-20:5-1:0-100
-    #
+        5-20:10-20:5-1:0-100
+    """
 
     S_IFDIR = 0040000
     S_IFREG = 0100000
@@ -344,3 +377,17 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
 
     assert simulatedFilesystemStorageHelper.getattr("/6").st_size == 6*1024
     assert simulatedFilesystemStorageHelper.getattr("/5/10/5/100").st_size == 100*1024
+
+
+@pytest.mark.simulated_filesystem_tests
+def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFilesystemStorageHelper):
+    """
+    Test example specification defined in simulatedFilesystemServer fixture:
+
+        4-4:0-4
+    """
+
+    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) < 4+4
+    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/1", 0, 10)) == 0
+    time.sleep(9)
+    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) == 4+4

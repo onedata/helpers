@@ -205,6 +205,8 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     , m_timeoutProbability{timeoutProbability}
     , m_simulatedFilesystemParameters{simulatedFilesystemParameters}
     , m_simulatedFilesystemGrowSpeed{simulatedFilesystemGrowSpeed}
+    , m_simulatedFilesystemLevelEntryCountReady{false}
+    , m_simulatedFilesystemEntryCountReady{false}
     , m_executor{std::move(executor)}
     , m_timeout{std::move(timeout)}
 {
@@ -230,6 +232,9 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
             NullDeviceHelper::m_mountTime = std::chrono::system_clock::now();
         },
         __nullMountTimeOnceFlag);
+
+    // Precalculate the number of entries per level and total in the filesystem
+    simulatedFilesystemEntryCount();
 }
 
 folly::Future<struct stat> NullDeviceHelper::getattr(
@@ -237,75 +242,85 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(m_executor.get(), [
-        this, fileId, self = shared_from_this()
-    ] {
+    return folly::via(
+        m_executor.get(), [ this, fileId, self = shared_from_this() ] {
 
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getattr");
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getattr");
 
-        SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
+            SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
 
-        LOG_DBG(1) << "Attempting to stat file " << fileId;
+            LOG_DBG(1) << "Attempting to stat file " << fileId;
 
-        struct stat stbuf = {};
-        stbuf.st_gid = 0;
-        stbuf.st_uid = 0;
+            struct stat stbuf = {};
+            stbuf.st_gid = 0;
+            stbuf.st_uid = 0;
 
-        if (isSimulatedFilesystem()) {
-            std::vector<std::string> pathTokens;
-            auto fileIdStr = fileId.toStdString();
-            folly::split("/", fileIdStr, pathTokens, true);
-            auto level = pathTokens.size();
+            if (isSimulatedFilesystem()) {
+                std::vector<std::string> pathTokens;
+                auto fileIdStr = fileId.toStdString();
+                folly::split("/", fileIdStr, pathTokens, true);
+                auto level = pathTokens.size();
 
-            if (level == 0) {
-                stbuf.st_mode = 0777 | S_IFDIR;
-            }
-            else {
-                auto pathLeaf = std::stol(pathTokens[level - 1]);
-
-                if (pathLeaf <
-                    std::get<0>(m_simulatedFilesystemParameters[level - 1])) {
+                if (level == 0) {
                     stbuf.st_mode = 0777 | S_IFDIR;
                 }
                 else {
-                    stbuf.st_mode = 0777 | S_IFREG;
-                    stbuf.st_size = pathLeaf * 1024;
+                    auto pathLeaf = std::stol(pathTokens[level - 1]);
+
+                    if (pathLeaf <
+                        std::get<0>(
+                            m_simulatedFilesystemParameters[level - 1])) {
+                        stbuf.st_mode = 0777 | S_IFDIR;
+                    }
+                    else {
+                        stbuf.st_mode = 0777 | S_IFREG;
+                        stbuf.st_size = pathLeaf * 1024;
+                    }
                 }
-            }
 
-            stbuf.st_ino = simulatedFilesystemFileDist(pathTokens) + 2;
+                stbuf.st_ino = simulatedFilesystemFileDist(pathTokens) + 2;
 
-            stbuf.st_ctim.tv_sec =
-                std::chrono::system_clock::to_time_t(m_mountTime);
-            stbuf.st_ctim.tv_nsec = 0;
-
-            if (m_simulatedFilesystemGrowSpeed == 0.0) {
-                stbuf.st_mtim.tv_sec =
+                stbuf.st_ctim.tv_sec =
                     std::chrono::system_clock::to_time_t(m_mountTime);
-                stbuf.st_mtim.tv_nsec = 0;
-            }
-            else {
-                if (stbuf.st_mode & S_IFDIR) {
-                    stbuf.st_mtim.tv_sec = std::chrono::system_clock::to_time_t(
-                        std::chrono::system_clock::now());
+                stbuf.st_ctim.tv_nsec = 0;
+
+                if (m_simulatedFilesystemGrowSpeed == 0.0) {
+                    stbuf.st_mtim.tv_sec =
+                        std::chrono::system_clock::to_time_t(m_mountTime);
+                    stbuf.st_mtim.tv_nsec = 0;
                 }
                 else {
-                    stbuf.st_mtim.tv_sec =
-                        std::chrono::system_clock::to_time_t(m_mountTime +
-                            std::chrono::seconds((long int)(stbuf.st_ino /
-                                m_simulatedFilesystemGrowSpeed)));
-                }
-                stbuf.st_mtim.tv_nsec = 0;
-            }
-        }
-        else {
-            stbuf.st_ino = 1;
-            stbuf.st_mode = 0777 | S_IFREG;
-            stbuf.st_size = 0;
-        }
+                    if (stbuf.st_mode & S_IFDIR) {
+                        auto now = std::chrono::system_clock::now();
+                        auto mtimeMax = m_mountTime +
+                            std::chrono::seconds(
+                                (long int)(m_simulatedFilesystemEntryCount /
+                                    m_simulatedFilesystemGrowSpeed));
 
-        return folly::makeFuture(stbuf);
-    });
+                        if (now < mtimeMax)
+                            stbuf.st_mtim.tv_sec =
+                                std::chrono::system_clock::to_time_t(now);
+                        else
+                            stbuf.st_mtim.tv_sec =
+                                std::chrono::system_clock::to_time_t(mtimeMax);
+                    }
+                    else {
+                        stbuf.st_mtim.tv_sec =
+                            std::chrono::system_clock::to_time_t(m_mountTime +
+                                std::chrono::seconds((long int)(stbuf.st_ino /
+                                    m_simulatedFilesystemGrowSpeed)));
+                    }
+                    stbuf.st_mtim.tv_nsec = 0;
+                }
+            }
+            else {
+                stbuf.st_ino = 1;
+                stbuf.st_mode = 0777 | S_IFREG;
+                stbuf.st_size = 0;
+            }
+
+            return folly::makeFuture(stbuf);
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::access(
@@ -719,16 +734,37 @@ double NullDeviceHelper::simulatedFilesystemGrowSpeed() const
 
 size_t NullDeviceHelper::simulatedFilesystemLevelEntryCount(size_t level)
 {
-    if (level > m_simulatedFilesystemParameters.size())
-        level = m_simulatedFilesystemParameters.size();
+    if (!m_simulatedFilesystemLevelEntryCountReady) {
+        for (size_t l = 0; l < m_simulatedFilesystemParameters.size(); l++) {
+            size_t directoryProduct = 1;
+            for (size_t i = 0; i < l; i++)
+                directoryProduct *=
+                    std::get<0>(m_simulatedFilesystemParameters[i]);
 
-    size_t directoryProduct = 1;
-    for (size_t i = 0; i < level; i++)
-        directoryProduct *= std::get<0>(m_simulatedFilesystemParameters[i]);
+            m_simulatedFilesystemLevelEntryCount.push_back(directoryProduct *
+                (std::get<0>(m_simulatedFilesystemParameters[l]) +
+                    std::get<1>(m_simulatedFilesystemParameters[l])));
+        }
+    }
 
-    return directoryProduct *
-        (std::get<0>(m_simulatedFilesystemParameters[level]) +
-            std::get<1>(m_simulatedFilesystemParameters[level]));
+    if (level >= m_simulatedFilesystemParameters.size())
+        level = m_simulatedFilesystemParameters.size() - 1;
+
+    return m_simulatedFilesystemLevelEntryCount[level];
+}
+
+size_t NullDeviceHelper::simulatedFilesystemEntryCount()
+{
+    if (!m_simulatedFilesystemEntryCountReady) {
+        m_simulatedFilesystemEntryCount = 0;
+
+        for (size_t i = 0; i < m_simulatedFilesystemParameters.size(); i++) {
+            m_simulatedFilesystemEntryCount +=
+                simulatedFilesystemLevelEntryCount(i);
+        }
+    }
+
+    return m_simulatedFilesystemEntryCount;
 }
 
 size_t NullDeviceHelper::simulatedFilesystemFileDist(

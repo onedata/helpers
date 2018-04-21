@@ -205,10 +205,16 @@ public:
 
     /**
      * Returns the total number of entries (directories and files) on
-     * a give filesystem tree level.
+     * a given filesystem tree level.
      * @param level Tree level
      */
     size_t simulatedFilesystemLevelEntryCount(size_t level);
+
+    /**
+     * Returns the total number of files directories in the simulated
+     * filesystem.
+     */
+    size_t simulatedFilesystemEntryCount();
 
     /**
      * Returns a distance of the file or directory in the tree.
@@ -261,6 +267,12 @@ private:
 
     std::vector<std::pair<long int, long int>> m_simulatedFilesystemParameters;
     double m_simulatedFilesystemGrowSpeed;
+
+    bool m_simulatedFilesystemLevelEntryCountReady;
+    std::vector<size_t> m_simulatedFilesystemLevelEntryCount;
+
+    bool m_simulatedFilesystemEntryCountReady;
+    size_t m_simulatedFilesystemEntryCount;
 
     static std::chrono::time_point<std::chrono::system_clock> m_mountTime;
 
