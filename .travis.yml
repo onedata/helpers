@@ -25,8 +25,7 @@ before_install:
   - brew install ccache
   - PATH=/usr/local/opt/ccache/libexec:$PATH
   - brew install gnu-sed --with-default-names && brew link --force gnu-sed
-  - brew install python@2
-  - brew link --overwrite python@2
+  - brew upgrade python
   - brew outdated boost || brew upgrade boost
   - brew install boost-python
   - brew install libtool
