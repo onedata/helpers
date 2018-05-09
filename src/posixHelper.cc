@@ -217,6 +217,7 @@ folly::Future<folly::IOBufQueue> PosixFileHandle::read(
         if (res == -1) {
             LOG_DBG(1) << "Reading from file " << fileId
                        << " failed with error " << errno;
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.read");
             return makeFuturePosixException<folly::IOBufQueue>(errno);
         }
 
@@ -269,6 +270,7 @@ folly::Future<std::size_t> PosixFileHandle::write(
             if (res == -1) {
                 LOG_DBG(1) << "Writing to file " << fileId
                            << " failed with error " << errno;
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.write");
                 return makeFuturePosixException<std::size_t>(errno);
             }
             size += res;

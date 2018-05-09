@@ -93,6 +93,13 @@ void throwOnError(folly::fbstring operation, const Outcome &outcome)
     LOG(ERROR) << "Operation " << operation << " failed with message "
                << outcome->getError().msg;
 
+    if (operation == "putObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.swift.errors.write");
+    }
+    else if (operation == "getObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.swift.errors.read");
+    }
+
     throw std::system_error{code, std::move(reason)};
 }
 

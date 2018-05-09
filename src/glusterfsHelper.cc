@@ -196,6 +196,7 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
         if (readBytesCount < 0) {
             LOG_DBG(1) << "Reading file " << fileId
                        << " failed with error: " << readBytesCount;
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.glusterfs.errors.read");
             return makeFuturePosixException<folly::IOBufQueue>(readBytesCount);
         }
 
@@ -247,6 +248,7 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
         if (res == -1) {
             LOG_DBG(1) << "Writing to file " << fileId
                        << " failed with error: " << res;
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.glusterfs.errors.write");
             return makeFuturePosixException<std::size_t>(errno);
         }
 
