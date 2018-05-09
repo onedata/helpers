@@ -78,6 +78,13 @@ void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
 
     LOG_DBG(1) << "Operation " << operation << " failed with message " << msg;
 
+    if (operation == "PutObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3.errors.write");
+    }
+    else if (operation == "GetObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3.errors.read");
+    }
+
     throw std::system_error{code, std::move(msg)};
 }
 

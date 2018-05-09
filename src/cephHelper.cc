@@ -82,6 +82,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
         if (ret < 0) {
             LOG_DBG(1) << "Read failed from " << m_fileId
                        << " with error:" << ret;
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.read");
             return makeFuturePosixException<folly::IOBufQueue>(ret);
         }
 
@@ -133,6 +134,7 @@ folly::Future<std::size_t> CephFileHandle::write(
         if (ret < 0) {
             LOG_DBG(1) << "Write failed to" << m_fileId
                        << " with error:" << ret;
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.write");
             return makeFuturePosixException<std::size_t>(ret);
         }
 
