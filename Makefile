@@ -29,6 +29,15 @@ WITH_GLUSTERFS		?= ON
 	                       -DOPENSSL_LIBRARIES=${OPENSSL_LIBRARIES} ..
 	touch $@
 
+##
+## Submodules
+##
+
+submodules:
+	git submodule sync --recursive ${submodule}
+	git submodule update --init --recursive ${submodule}
+
+
 .PHONY: release
 release: release/CMakeCache.txt
 	cmake --build release --target helpersStatic

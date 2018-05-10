@@ -61,6 +61,8 @@ variable ONEDATA_GIT_URL must be exported before calling `make`, e.g.:
 
     export ONEDATA_GIT_URL=https://github.com/onedata
 
+Before build submodules must be initialized. To do it simply run `make submodules`
+
 #### Build Release binaries
 
     make -s release
