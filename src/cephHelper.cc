@@ -70,7 +70,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
         librados::bufferlist data;
         libradosstriper::RadosStriper &rs = m_helper->getRadosStriper();
 
-        LOG_DBG(1) << "Attempting to read " << size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << m_fileId;
 
         auto ret = retry(
@@ -122,7 +122,7 @@ folly::Future<std::size_t> CephFileHandle::write(
                 reinterpret_cast<char *>(
                     const_cast<unsigned char *>(byteRange.data()))));
 
-        LOG_DBG(1) << "Attempting to write " << size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
                    << offset << " to file " << m_fileId;
         libradosstriper::RadosStriper &rs = m_helper->getRadosStriper();
 
@@ -191,7 +191,7 @@ folly::Future<folly::Unit> CephHelper::unlink(const folly::fbstring &fileId)
             if (!self)
                 return makeFuturePosixException(ECANCELED);
 
-            LOG_DBG(1) << "Attempting to remove file " << fileId;
+            LOG_DBG(2) << "Attempting to remove file " << fileId;
 
             auto ret = retry(
                 [&]() { return m_radosStriper.remove(fileId.toStdString()); },
@@ -223,7 +223,7 @@ folly::Future<folly::Unit> CephHelper::truncate(
         if (!self)
             return makeFuturePosixException(ECANCELED);
 
-        LOG_DBG(1) << "Attempting to truncate file " << fileId << " to size "
+        LOG_DBG(2) << "Attempting to truncate file " << fileId << " to size "
                    << size;
 
         auto ret = retry(
@@ -266,7 +266,7 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
 
         std::string xattrValue;
 
-        LOG_DBG(1) << "Getting extended attribute " << name << " from file "
+        LOG_DBG(2) << "Getting extended attribute " << name << " from file "
                    << fileId;
 
         librados::bufferlist bl;
@@ -315,7 +315,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
         librados::bufferlist bl;
 
         if (create) {
-            LOG_DBG(1) << "Checking if extended attribute " << name
+            LOG_DBG(2) << "Checking if extended attribute " << name
                        << " already exists for file " << fileId
                        << " before creating";
 
@@ -334,7 +334,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
             }
         }
         else if (replace) {
-            LOG_DBG(1) << "Checking if extended attribute " << name
+            LOG_DBG(2) << "Checking if extended attribute " << name
                        << " already exists for file " << fileId
                        << " before replacing";
 
@@ -356,7 +356,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
         bl.clear();
         bl.append(value.toStdString());
 
-        LOG_DBG(1) << "Attempting to set extended attribute " << name
+        LOG_DBG(2) << "Attempting to set extended attribute " << name
                    << " for file " << fileId;
 
         auto ret = retry(
@@ -391,7 +391,7 @@ folly::Future<folly::Unit> CephHelper::removexattr(
         if (!self)
             return makeFuturePosixException(ECANCELED);
 
-        LOG_DBG(1) << "Attempting to remove extended attribute " << name
+        LOG_DBG(2) << "Attempting to remove extended attribute " << name
                    << " for file " << fileId;
 
         auto ret = retry(
@@ -429,7 +429,7 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
 
         std::map<std::string, librados::bufferlist> xattrs;
 
-        LOG_DBG(1) << "Attempting to list extended attributes for file "
+        LOG_DBG(2) << "Attempting to list extended attributes for file "
                    << fileId;
 
         auto ret = retry(
@@ -470,7 +470,7 @@ folly::Future<folly::Unit> CephHelper::connect()
 
             std::lock_guard<std::mutex> guard{m_connectionMutex};
 
-            LOG_DBG(1) << "Attempting to connect to Ceph server at: "
+            LOG_DBG(2) << "Attempting to connect to Ceph server at: "
                        << m_monHost;
 
             if (m_connected) {

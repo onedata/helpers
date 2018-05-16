@@ -208,7 +208,7 @@ folly::Future<folly::IOBufQueue> PosixFileHandle::read(
 
         void *data = buf.preallocate(size, size).first;
 
-        LOG_DBG(1) << "Attempting to read " << size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << fileId;
 
         auto res = retry([&]() { return ::pread(fh, data, size, offset); },
@@ -256,7 +256,7 @@ folly::Future<std::size_t> PosixFileHandle::write(
         auto iov_size = iov.size();
         auto size = 0;
 
-        LOG_DBG(1) << "Attempting to write " << buf.chainLength()
+        LOG_DBG(2) << "Attempting to write " << buf.chainLength()
                    << " bytes at offset " << offset << " to file " << fileId;
 
         for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
@@ -362,7 +362,7 @@ folly::Future<struct stat> PosixHelper::getattr(const folly::fbstring &fileId)
 
             struct stat stbuf = {};
 
-            LOG_DBG(1) << "Attempting to stat file " << filePath;
+            LOG_DBG(2) << "Attempting to stat file " << filePath;
 
             UserCtxSetter userCTX{uid, gid};
             if (!userCTX.valid())
@@ -395,7 +395,7 @@ folly::Future<folly::Unit> PosixHelper::access(
             if (!userCTX.valid())
                 return makeFuturePosixException(EDOM);
 
-            LOG_DBG(1) << "Attempting to access file " << filePath;
+            LOG_DBG(2) << "Attempting to access file " << filePath;
 
             return setResult("access", ::access, filePath.c_str(), mask);
         });
@@ -418,7 +418,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
 
         folly::fbvector<folly::fbstring> ret;
 
-        LOG_DBG(1) << "Attempting to read directory " << filePath;
+        LOG_DBG(2) << "Attempting to read directory " << filePath;
 
         DIR *dir;
         struct dirent *dp;

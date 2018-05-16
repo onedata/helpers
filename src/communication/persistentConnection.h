@@ -36,8 +36,8 @@ namespace communication {
  * m_recreateBackoffDelay*RECREATE_DELAY_FACTOR until RECREATE_DELAY_MAX is
  * reached.
  */
-static constexpr float RECREATE_DELAY_FACTOR{1.5};
-static constexpr std::chrono::milliseconds RECREATE_DELAY_INITIAL{100};
+static constexpr float RECREATE_DELAY_FACTOR{2};
+static constexpr std::chrono::milliseconds RECREATE_DELAY_INITIAL{10};
 static constexpr std::chrono::milliseconds RECREATE_DELAY_MAX{5 * 60 * 1000};
 
 /**

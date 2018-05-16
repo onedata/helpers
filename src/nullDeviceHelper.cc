@@ -82,7 +82,7 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
 
         SIMULATE_STORAGE_ISSUES(helper, "read", folly::IOBufQueue)
 
-        LOG_DBG(1) << "Attempting to read " << size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << fileId;
 
         if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
@@ -249,7 +249,7 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
 
             SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
 
-            LOG_DBG(1) << "Attempting to stat file " << fileId;
+            LOG_DBG(2) << "Attempting to stat file " << fileId;
 
             struct stat stbuf = {};
             stbuf.st_gid = 0;
@@ -336,7 +336,7 @@ folly::Future<folly::Unit> NullDeviceHelper::access(
 
         SIMULATE_STORAGE_ISSUES(self, "access", folly::Unit)
 
-        LOG_DBG(1) << "Attempting to access file " << fileId;
+        LOG_DBG(2) << "Attempting to access file " << fileId;
 
         return folly::makeFuture();
     });
@@ -357,7 +357,7 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdir(
 
             folly::fbvector<folly::fbstring> ret;
 
-            LOG_DBG(1) << "Attempting to read directory " << fileId;
+            LOG_DBG(2) << "Attempting to read directory " << fileId;
 
             if (isSimulatedFilesystem()) {
                 std::vector<std::string> pathTokens;
@@ -420,7 +420,7 @@ folly::Future<folly::fbstring> NullDeviceHelper::readlink(
 
         SIMULATE_STORAGE_ISSUES(self, "readlink", folly::fbstring)
 
-        LOG_DBG(1) << "Attempting to read link " << fileId;
+        LOG_DBG(2) << "Attempting to read link " << fileId;
 
         auto target = folly::fbstring(10, NULL_DEVICE_HELPER_CHAR);
 

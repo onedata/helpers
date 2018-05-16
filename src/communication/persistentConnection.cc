@@ -136,7 +136,7 @@ void PersistentConnection::onUpgradeResponseReceived()
         onError(ec);
     }
     else {
-        LOG_DBG(2) << "Socket protocol successfully upgraded to clproto";
+        LOG_DBG(1) << "Socket protocol successfully upgraded to clproto";
 
         m_inData.clear();
 

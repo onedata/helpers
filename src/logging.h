@@ -179,8 +179,7 @@ std::string containerToErlangBinaryString(const TSeq &bytes)
  *
  * Print a demangled stack backtrace of the caller function to ostream.
  */
-static inline void print_stacktrace(
-    std::ostream &out)
+static inline void print_stacktrace(std::ostream &out)
 {
     constexpr auto max_frames = 63;
     void *addrlist[max_frames + 1];

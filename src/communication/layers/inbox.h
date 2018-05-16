@@ -11,6 +11,7 @@
 
 #include "communication/declarations.h"
 #include "communication/subscriptionData.h"
+#include "logging.h"
 
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/concurrent_queue.h>
@@ -124,6 +125,10 @@ void Inbox<LowerLayer>::communicate(
                 auto cb = std::move(*acc->second);
                 m_callbacks.erase(acc);
                 cb(ec, {});
+            }
+            else {
+                LOG_DBG(1) << "Message with id: " << messageId
+                           << " not found in inbox";
             }
         }
     };
