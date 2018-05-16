@@ -86,7 +86,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
             return makeFuturePosixException<folly::IOBufQueue>(ret);
         }
 
-        LOG_DBG(1) << "Read " << ret << " bytes at offset " << offset
+        LOG_DBG(2) << "Read " << ret << " bytes at offset " << offset
                    << " from file " << m_fileId;
 
         data.copy(0, ret, raw);
@@ -138,7 +138,7 @@ folly::Future<std::size_t> CephFileHandle::write(
             return makeFuturePosixException<std::size_t>(ret);
         }
 
-        LOG_DBG(1) << "Written " << ret << " bytes at offset " << offset
+        LOG_DBG(2) << "Written " << ret << " bytes at offset " << offset
                    << " to file " << m_fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, size);
@@ -202,7 +202,7 @@ folly::Future<folly::Unit> CephHelper::unlink(const folly::fbstring &fileId)
                 return makeFuturePosixException(ret);
             }
 
-            LOG_DBG(1) << "Removed file " << fileId;
+            LOG_DBG(2) << "Removed file " << fileId;
 
             return folly::makeFuture();
         });
@@ -246,7 +246,7 @@ folly::Future<folly::Unit> CephHelper::truncate(
             return makeFuturePosixException(ret);
         }
 
-        LOG_DBG(1) << "Truncated file " << fileId;
+        LOG_DBG(2) << "Truncated file " << fileId;
 
         return folly::makeFuture();
     });
@@ -284,7 +284,7 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
 
         bl.copy(0, ret, xattrValue);
 
-        LOG_DBG(1) << "Got extended attribute with value: " << xattrValue;
+        LOG_DBG(2) << "Got extended attribute with value: " << xattrValue;
 
         return folly::makeFuture<folly::fbstring>(std::move(xattrValue));
     });
@@ -372,7 +372,7 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
             return makeFuturePosixException<folly::Unit>(ret);
         }
 
-        LOG_DBG(1) << "Set extended attribute " << name << " for file "
+        LOG_DBG(2) << "Set extended attribute " << name << " for file "
                    << fileId;
 
         return folly::makeFuture();
@@ -407,7 +407,7 @@ folly::Future<folly::Unit> CephHelper::removexattr(
             return makeFuturePosixException<folly::Unit>(ret);
         }
 
-        LOG_DBG(1) << "Removed extended attribute " << name << " from file "
+        LOG_DBG(2) << "Removed extended attribute " << name << " from file "
                    << fileId;
 
         return folly::makeFuture();
@@ -450,7 +450,7 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
             xattrNames.push_back(xattr.first);
         }
 
-        LOG_DBG(1) << "Got extended attributes for file " << fileId << ": "
+        LOG_DBG(2) << "Got extended attributes for file " << fileId << ": "
                    << LOG_VEC(xattrNames);
 
         return folly::makeFuture<folly::fbvector<folly::fbstring>>(

@@ -175,12 +175,12 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     }
 
     if (buffered) {
-        LOG_DBG(1) << "Created buffered helper of type " << name;
+        LOG_DBG(1) << "Created buffered helper of type: " << name;
         return std::make_shared<buffering::BufferAgent>(
             m_bufferLimits, helper, *m_scheduler);
     }
 
-    LOG_DBG(1) << "Created non-buffered helper of type " << name;
+    LOG_DBG(1) << "Created non-buffered helper of type: " << name;
 
     return helper;
 }

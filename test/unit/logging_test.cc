@@ -29,12 +29,7 @@ struct LoggingTest : public ::testing::Test {
     void TearDown() override {}
 };
 
-std::string function2()
-{
-    std::stringstream logSink;
-    LOG_STACKTRACE(logSink, "Test stacktrace:");
-    return logSink.str();
-}
+std::string function2() { return one::logging::print_stacktrace(); }
 
 std::string function1() { return function2(); }
 
@@ -42,7 +37,6 @@ TEST_F(LoggingTest, loggingStackTraceShouldWork)
 {
     auto log = function1();
 
-    ASSERT_TRUE(boost::contains(log, "Test stacktrace:"));
     ASSERT_TRUE(boost::contains(log, "function1"));
     ASSERT_TRUE(boost::contains(log, "function2"));
 }

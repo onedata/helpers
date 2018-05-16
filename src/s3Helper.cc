@@ -214,7 +214,7 @@ folly::IOBufQueue S3Helper::getObject(
     auto readBytes = outcome.GetResult().GetContentLength();
     buf.postallocate(static_cast<std::size_t>(readBytes));
 
-    LOG_DBG(1) << "Got " << readBytes << " bytes from object " << key;
+    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
 
     ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
 
@@ -293,7 +293,7 @@ std::size_t S3Helper::putObject(
 
     throwOnError("PutObject", outcome);
 
-    LOG_DBG(1) << "Written " << size << " bytes to object " << key;
+    LOG_DBG(2) << "Written " << size << " bytes to object " << key;
 
     return size;
 }
@@ -365,7 +365,7 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     ONE_METRIC_TIMERCTX_STOP(timer, keys.size());
 
-    LOG_DBG(1) << "Got object list at prefix " << prefix << ": "
+    LOG_DBG(2) << "Got object list at prefix " << prefix << ": "
                << LOG_VEC(keys);
 
     return keys;

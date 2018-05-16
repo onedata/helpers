@@ -202,7 +202,7 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 
         buffer.postallocate(readBytesCount);
 
-        LOG_DBG(1) << "Read " << readBytesCount << " from file " << fileId;
+        LOG_DBG(2) << "Read " << readBytesCount << " from file " << fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, readBytesCount);
 
@@ -252,7 +252,7 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
             return makeFuturePosixException<std::size_t>(errno);
         }
 
-        LOG_DBG(1) << "Written " << res << " bytes to file " << fileId;
+        LOG_DBG(2) << "Written " << res << " bytes to file " << fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, res);
 
@@ -285,7 +285,7 @@ folly::Future<folly::Unit> GlusterFSFileHandle::release()
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
-        LOG_DBG(1) << "Closing file";
+        LOG_DBG(2) << "Closing file";
 
         return setHandleResult("glfs_close", glfs_close, glfsFd.get());
     });
@@ -486,7 +486,7 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
         auto handle = std::make_shared<GlusterFSFileHandle>(
             filePath.string(), shared_from_this(), glfsFd, uid, gid);
 
-        LOG_DBG(1) << "File " << filePath << " opened";
+        LOG_DBG(2) << "File " << filePath << " opened";
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
     });
@@ -519,7 +519,7 @@ folly::Future<struct stat> GlusterFSHelper::getattr(
                 return makeFuturePosixException<struct stat>(errno);
             }
 
-            LOG_DBG(1) << "Got stat for file " << filePath;
+            LOG_DBG(2) << "Got stat for file " << filePath;
 
             return folly::makeFuture(stbuf);
         });
@@ -587,7 +587,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
         }
         glfs_closedir(dir);
 
-        LOG_DBG(1) << "Read directory " << filePath << " with entries "
+        LOG_DBG(2) << "Read directory " << filePath << " with entries "
                    << LOG_VEC(ret);
 
         return folly::makeFuture<folly::fbvector<folly::fbstring>>(
@@ -627,7 +627,7 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
             buf->append(res);
             auto target = folly::fbstring(buf->moveToFbString().c_str());
 
-            LOG_DBG(1) << "Link " << filePath
+            LOG_DBG(2) << "Link " << filePath
                        << " read successfully - resolves to " << target;
 
             return folly::makeFuture(std::move(target));
@@ -972,7 +972,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
                 strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) + 1;
         }
 
-        LOG_DBG(1) << "Got extended attributes for " << filePath
+        LOG_DBG(2) << "Got extended attributes for " << filePath
                    << " with names " << LOG_VEC(ret);
 
         return folly::makeFuture<folly::fbvector<folly::fbstring>>(

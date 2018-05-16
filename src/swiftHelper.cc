@@ -90,7 +90,7 @@ void throwOnError(folly::fbstring operation, const Outcome &outcome)
     auto reason =
         "'" + operation.toStdString() + "': " + outcome->getError().msg;
 
-    LOG(ERROR) << "Operation " << operation << " failed with message "
+    LOG_DBG(1) << "Operation " << operation << " failed with message "
                << outcome->getError().msg;
 
     if (operation == "putObject") {
@@ -177,7 +177,7 @@ folly::IOBufQueue SwiftHelper::getObject(
     ONE_METRIC_TIMERCTX_STOP(
         timer, getResponse->getResponse()->getContentLength());
 
-    LOG_DBG(1) << "Read " << size << " bytes from object " << key;
+    LOG_DBG(2) << "Read " << size << " bytes from object " << key;
 
     return buf;
 }
@@ -258,7 +258,7 @@ std::size_t SwiftHelper::putObject(
 
     ONE_METRIC_TIMERCTX_STOP(timer, writtenBytes);
 
-    LOG_DBG(1) << "Written " << writtenBytes << " bytes to object " << key;
+    LOG_DBG(2) << "Written " << writtenBytes << " bytes to object " << key;
 
     return writtenBytes;
 }
@@ -295,7 +295,7 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         throwOnError("deleteObjects", deleteResponse);
     }
 
-    LOG_DBG(1) << "Deleted objects: " << LOG_VEC(keys);
+    LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
 folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
@@ -344,7 +344,7 @@ folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
             break;
     };
 
-    LOG_DBG(1) << "Got object list at prefix " << prefix << ": "
+    LOG_DBG(2) << "Got object list at prefix " << prefix << ": "
                << LOG_VEC(objectsList);
 
     return objectsList;

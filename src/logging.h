@@ -135,11 +135,8 @@
 /**
  * Logs current stack trace, should be used in `catch` blocks.
  */
-#define LOG_STACKTRACE(OSTR, MSG)                                              \
-    {                                                                          \
-        OSTR << MSG << '\n';                                                   \
-        ::one::logging::print_stacktrace(OSTR);                                \
-    }
+#define LOG_STACKTRACE(X, MSG)                                                 \
+    LOG_DBG(X) << MSG << '\n' << ::one::logging::print_stacktrace();
 
 namespace one {
 namespace logging {
@@ -179,8 +176,10 @@ std::string containerToErlangBinaryString(const TSeq &bytes)
  *
  * Print a demangled stack backtrace of the caller function to ostream.
  */
-static inline void print_stacktrace(std::ostream &out)
+static inline std::string print_stacktrace()
 {
+    std::stringstream out;
+
     constexpr auto max_frames = 63;
     void *addrlist[max_frames + 1];
 
@@ -189,7 +188,7 @@ static inline void print_stacktrace(std::ostream &out)
 
     if (addrlen == 0) {
         out << "  <empty, possibly corrupt>\n";
-        return;
+        return out.str();
     }
 
     // resolve addresses into strings containing "filename(function+address)",
@@ -250,6 +249,8 @@ static inline void print_stacktrace(std::ostream &out)
 
     free(funcname);
     free(symbollist);
+
+    return out.str();
 }
 }
 }

@@ -223,7 +223,7 @@ folly::Future<folly::IOBufQueue> PosixFileHandle::read(
 
         buf.postallocate(res);
 
-        LOG_DBG(1) << "Read " << res << " bytes from file " << fileId;
+        LOG_DBG(2) << "Read " << res << " bytes from file " << fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, res);
 
@@ -276,7 +276,7 @@ folly::Future<std::size_t> PosixFileHandle::write(
             size += res;
         }
 
-        LOG_DBG(1) << "Written " << size << " bytes to file " << fileId;
+        LOG_DBG(2) << "Written " << size << " bytes to file " << fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, size);
 
@@ -299,7 +299,7 @@ folly::Future<folly::Unit> PosixFileHandle::release()
             if (!userCTX.valid())
                 return makeFuturePosixException(EDOM);
 
-            LOG_DBG(1) << "Closing file " << fileId;
+            LOG_DBG(2) << "Closing file " << fileId;
 
             return setResult("close", close, fh);
         });
@@ -317,7 +317,7 @@ folly::Future<folly::Unit> PosixFileHandle::flush()
             if (!userCTX.valid())
                 return makeFuturePosixException(EDOM);
 
-            LOG_DBG(1) << "Flushing file " << fileId;
+            LOG_DBG(2) << "Flushing file " << fileId;
 
             return folly::makeFuture();
         });
@@ -335,7 +335,7 @@ folly::Future<folly::Unit> PosixFileHandle::fsync(bool /*isDataSync*/)
             if (!userCTX.valid())
                 return makeFuturePosixException(EDOM);
 
-            LOG_DBG(1) << "Syncing file " << fileId;
+            LOG_DBG(2) << "Syncing file " << fileId;
 
             return setResult("fsync", ::fsync, fh);
         });
@@ -455,7 +455,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
         }
         closedir(dir);
 
-        LOG_DBG(1) << "Read directory " << filePath << " at offset " << offset
+        LOG_DBG(2) << "Read directory " << filePath << " at offset " << offset
                    << " with entries " << LOG_VEC(ret);
 
         return folly::makeFuture<folly::fbvector<folly::fbstring>>(
@@ -498,7 +498,7 @@ folly::Future<folly::fbstring> PosixHelper::readlink(
 
             auto target = buf->moveToFbString();
 
-            LOG_DBG(1) << "Read link " << filePath << " - resolves to "
+            LOG_DBG(2) << "Read link " << filePath << " - resolves to "
                        << target;
 
             return folly::makeFuture(std::move(target));

@@ -174,7 +174,7 @@ private:
                 offset, offset + continuousSize);
 
         if (m_cache.size() < 2 && boost::icl::size(prefetchBlock) > 0) {
-            LOG_DBG(1) << "Prefetching " << boost::icl::size(prefetchBlock)
+            LOG_DBG(2) << "Prefetching " << boost::icl::size(prefetchBlock)
                        << " bytes for file " << m_handle.fileId()
                        << " at offset " << nextOffset;
 
@@ -254,13 +254,13 @@ private:
                             std::chrono::steady_clock::now() - startPoint)
                             .count();
 
-                    LOG_DBG(1)
+                    LOG_DBG(2)
                         << "Latest measured read latency for "
                         << m_handle.fileId() << " is " << m_latency << " ns";
 
                     m_latency = (m_latency + 2 * latency) / 3;
 
-                    LOG_DBG(1)
+                    LOG_DBG(2)
                         << "Adjusted average read latency for "
                         << m_handle.fileId() << " to " << m_latency << " ns";
                 }
@@ -270,7 +270,7 @@ private:
             if (readData->buf.empty() ||
                 static_cast<off_t>(
                     readData->offset + readData->buf.chainLength()) < offset) {
-                LOG_DBG(1) << "Latest block in read cache is empty or outside "
+                LOG_DBG(2) << "Latest block in read cache is empty or outside "
                               "requested range for file "
                            << m_handle.fileId();
                 return buf;
@@ -278,14 +278,14 @@ private:
 
             buf.append(readData->buf.front()->clone());
             if (offset > readData->offset) {
-                LOG_DBG(1) << "Trimming latest read cache block for file "
+                LOG_DBG(2) << "Trimming latest read cache block for file "
                            << m_handle.fileId()
                            << " to start at requested offset by: "
                            << offset - readData->offset;
                 buf.trimStart(offset - readData->offset);
             }
             if (buf.chainLength() > size) {
-                LOG_DBG(1) << "Trimming latest read cache block for file "
+                LOG_DBG(2) << "Trimming latest read cache block for file "
                            << m_handle.fileId()
                            << " to end at requested size by: "
                            << buf.chainLength() - size;
@@ -322,7 +322,7 @@ private:
                     static_cast<std::size_t>(m_prefetchCoeff));
             prefetchCoeff *= m_prefetchPowerBase;
 
-            LOG_DBG(1) << "Adjusted prefetch block size for file "
+            LOG_DBG(2) << "Adjusted prefetch block size for file "
                        << m_handle.fileId() << " to: " << blockSize
                        << " and prefetch coefficient to: " << prefetchCoeff;
         }

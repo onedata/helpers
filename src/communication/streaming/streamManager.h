@@ -106,7 +106,7 @@ auto StreamManager<Communicator>::create() -> std::shared_ptr<Stream>
     m_idMap.insert(acc, streamId);
     acc->second = *it;
 
-    LOG_DBG(1) << "Created stream with stream id " << streamId;
+    LOG_DBG(2) << "Created stream with stream id " << streamId;
 
     return stream;
 }
