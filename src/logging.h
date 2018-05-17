@@ -13,6 +13,8 @@
 #include <glog/logging.h>
 
 #include <bitset>
+#include <cxxabi.h>
+#include <execinfo.h>
 #include <limits>
 #include <map>
 #include <unordered_map>
@@ -30,14 +32,13 @@
  *    builds should be logged using LOG(INFO), LOG(WARNING) and LOG(ERROR)
  *    macros. They should be kept to minimum and provide information on
  *    errors and their possible mitigation.
- *  - Debug logs which will be included in debug builds only, should be logged
- *    using GLOG verbose logging facility, i.e. DVLOG(n) macros. Below are
- *    several convenience macros which should be used in the code instead of
- *    GLOG native macros:
+ *  - Verbose logs should be logged using GLOG verbose logging facility,
+ *    i.e. VLOG(n) macros. Below are several convenience macros which should
+ *    be used in the code instead of GLOG native macros:
  *     * LOG_DBG(n) - log with specific verbosity level
  *     * LOG_FCALL() - log function signature, should be used at the beginning
  *                     of functions and methods, which are relevant for the
- *                     program flow
+ *                     program flow (they will be logged at level 3)
  *     * LOG_FARG(arg) - appends to LOG_FCALL() name and value of a specific
  *                       function argument, example use:
  *                       LOG_FCALL() << LOG_FARG(arg1) << LOG_FARG(arg2)
@@ -45,11 +46,13 @@
  *                        numbers in different numeric bases (LOG_FARGB,
  *                        LOG_FARGO, LOG_FARGH), vectors and lists (LOG_FARGV)
  *                        and maps (LOG_FARGM)
+ *  - Stack traces can be logged at any place in the code using:
+ *     * LOG_STACKTRACE(ostream, msg) - where ostream is any valid ostream,
+ *                                      including e.g. LOG(ERROR) or LOG_DBG(1)
+ *                                      and msg is a header added to the stack
+ *                                      trace
  *    Debug logs can be enabled by setting global GLOG variables:
  *     * FLAGS_v = n; - where n determines the verbosity level
- *     * FLAGS_vmodule = pattern; - where pattern specifies a filter to enable
- *                                 logs only for specific compilation units
- *                                 with specific verbosity levels
  */
 // clang-format on
 
@@ -89,24 +92,24 @@
 /**
  * Macro for verbose logging in debug mode
  */
-#define LOG_DBG(X) DVLOG(X)
+#define LOG_DBG(X) VLOG(X)
 
 /**
  * Logs function call, should be added at the beginning of the function or
  * method body and log the values of main parameters.
  */
 #define LOG_FCALL()                                                            \
-    DVLOG(2) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: "
+    VLOG(3) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: "
 
 /**
  * Logs function return including optionally the return value.
  */
 #define LOG_FRET()                                                             \
-    DVLOG(2) << "Returning from " << BOOST_CURRENT_FUNCTION << " with value: "
+    VLOG(3) << "Returning from " << BOOST_CURRENT_FUNCTION << " with value: "
 
 /**
  * Logs function argument - must be used in 'stream' context and preceded by
- * LOG_FCALL() or DVLOG(n).
+ * LOG_FCALL() or VLOG(n).
  */
 #define LOG_FARG(ARG) " " #ARG "=" << ARG
 
@@ -119,15 +122,21 @@
 
 /**
  * Logs function argument which is a vector - must be used in 'stream' context
- * and preceded by LOG_FCALL() or DVLOG(n).
+ * and preceded by LOG_FCALL() or VLOG(n).
  */
 #define LOG_FARGV(ARG) " " #ARG "=" << LOG_VEC(ARG)
 
 /**
  * Logs function argument which is a map - must be used in 'stream' context
- * and preceded by LOG_FCALL() or DVLOG(n).
+ * and preceded by LOG_FCALL() or VLOG(n).
  */
 #define LOG_FARGM(ARG) " " #ARG "=" << LOG_MAP(ARG)
+
+/**
+ * Logs current stack trace, should be used in `catch` blocks.
+ */
+#define LOG_STACKTRACE(X, MSG)                                                 \
+    LOG_DBG(X) << MSG << '\n' << ::one::logging::print_stacktrace();
 
 namespace one {
 namespace logging {
@@ -158,6 +167,90 @@ std::string containerToErlangBinaryString(const TSeq &bytes)
     });
 
     return std::string("<<") + boost::algorithm::join(bytesValues, ",") + ">>";
+}
+
+/**
+ * Based on:
+ *   stacktrace.h (c) 2008, Timo Bingmann from http://idlebox.net/
+ *    published under the WTFPL v2.0
+ *
+ * Print a demangled stack backtrace of the caller function to ostream.
+ */
+static inline std::string print_stacktrace()
+{
+    std::stringstream out;
+
+    constexpr auto max_frames = 63;
+    void *addrlist[max_frames + 1];
+
+    // retrieve current stack addresses
+    int addrlen = backtrace(addrlist, sizeof(addrlist) / sizeof(void *));
+
+    if (addrlen == 0) {
+        out << "  <empty, possibly corrupt>\n";
+        return out.str();
+    }
+
+    // resolve addresses into strings containing "filename(function+address)",
+    // this array must be free()-ed
+    char **symbollist = backtrace_symbols(addrlist, addrlen);
+
+    // allocate string which will be filled with the demangled function name
+    size_t funcnamesize = 256;
+    char *funcname = (char *)malloc(funcnamesize);
+
+    // iterate over the returned symbol lines. skip the first, it is the
+    // address of this function.
+    for (int i = 1; i < addrlen; i++) {
+        char *begin_name = 0, *begin_offset = 0, *end_offset = 0;
+
+        // find parentheses and +address offset surrounding the mangled name:
+        // ./module(function+0x15c) [0x8048a6d]
+        for (char *p = symbollist[i]; *p; ++p) {
+            if (*p == '(')
+                begin_name = p;
+            else if (*p == '+')
+                begin_offset = p;
+            else if (*p == ')' && begin_offset) {
+                end_offset = p;
+                break;
+            }
+        }
+
+        if (begin_name && begin_offset && end_offset &&
+            begin_name < begin_offset) {
+            *begin_name++ = '\0';
+            *begin_offset++ = '\0';
+            *end_offset = '\0';
+
+            // mangled name is now in [begin_name, begin_offset) and caller
+            // offset in [begin_offset, end_offset). now apply
+            // __cxa_demangle():
+            int status;
+            char *ret = abi::__cxa_demangle(
+                begin_name, funcname, &funcnamesize, &status);
+            if (status == 0) {
+                funcname = ret; // use possibly realloc()-ed string
+                out << "  " << symbollist[i] << " : " << funcname << "+"
+                    << begin_offset << "\n";
+            }
+            else {
+                // demangling failed. Output function name as a C function with
+                // no arguments.
+                out << "  " << symbollist[i] << " : " << begin_name << "()+"
+                    << begin_offset << "\n";
+            }
+        }
+        else {
+            // couldn't parse the line? print the whole line.
+            out << "  " << symbollist[i] << '\n';
+        }
+    }
+
+    free(funcname);
+    free(symbollist);
+
+    return out.str();
 }
 }
 }

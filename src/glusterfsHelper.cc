@@ -186,7 +186,7 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
         folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
         char *raw = static_cast<char *>(buffer.preallocate(size, size).first);
 
-        LOG_DBG(1) << "Attempting to read " << size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << fileId;
 
         auto readBytesCount = retry(
@@ -202,7 +202,7 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 
         buffer.postallocate(readBytesCount);
 
-        LOG_DBG(1) << "Read " << readBytesCount << " from file " << fileId;
+        LOG_DBG(2) << "Read " << readBytesCount << " from file " << fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, readBytesCount);
 
@@ -235,7 +235,7 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
         auto iov = buf.front()->getIov();
         auto iov_size = iov.size();
 
-        LOG_DBG(1) << "Attempting to write " << iov_size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to write " << iov_size << " bytes at offset "
                    << offset << " to file " << fileId;
 
         auto res = retry(
@@ -252,7 +252,7 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
             return makeFuturePosixException<std::size_t>(errno);
         }
 
-        LOG_DBG(1) << "Written " << res << " bytes to file " << fileId;
+        LOG_DBG(2) << "Written " << res << " bytes to file " << fileId;
 
         ONE_METRIC_TIMERCTX_STOP(timer, res);
 
@@ -285,7 +285,7 @@ folly::Future<folly::Unit> GlusterFSFileHandle::release()
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
-        LOG_DBG(1) << "Closing file";
+        LOG_DBG(2) << "Closing file";
 
         return setHandleResult("glfs_close", glfs_close, glfsFd.get());
     });
@@ -315,12 +315,12 @@ folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
         glfs_setfsgid(gid);
 
         if (isDataSync) {
-            LOG_DBG(1) << "Performing data sync on file " << fileId;
+            LOG_DBG(2) << "Performing data sync on file " << fileId;
             return setHandleResult(
                 "glfs_fdatasync", glfs_fdatasync, glfsFd.get());
         }
         else {
-            LOG_DBG(1) << "Performing sync on file " << fileId;
+            LOG_DBG(2) << "Performing sync on file " << fileId;
             return setHandleResult("glfs_fsync", glfs_fsync, glfsFd.get());
         }
     });
@@ -450,7 +450,7 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
-        LOG_DBG(1) << "Attempting to open file " << filePath;
+        LOG_DBG(2) << "Attempting to open file " << filePath;
 
         std::shared_ptr<glfs_fd_t> glfsFd{nullptr};
         // O_CREAT is not supported in GlusterFS for glfs_open().
@@ -486,7 +486,7 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
         auto handle = std::make_shared<GlusterFSFileHandle>(
             filePath.string(), shared_from_this(), glfsFd, uid, gid);
 
-        LOG_DBG(1) << "File " << filePath << " opened";
+        LOG_DBG(2) << "File " << filePath << " opened";
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
     });
@@ -504,7 +504,7 @@ folly::Future<struct stat> GlusterFSHelper::getattr(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Getting stat for file " << filePath;
+            LOG_DBG(2) << "Getting stat for file " << filePath;
 
             auto ret = retry(
                 [&]() {
@@ -519,7 +519,7 @@ folly::Future<struct stat> GlusterFSHelper::getattr(
                 return makeFuturePosixException<struct stat>(errno);
             }
 
-            LOG_DBG(1) << "Got stat for file " << filePath;
+            LOG_DBG(2) << "Got stat for file " << filePath;
 
             return folly::makeFuture(stbuf);
         });
@@ -536,7 +536,7 @@ folly::Future<folly::Unit> GlusterFSHelper::access(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Checking access to file " << filePath
+            LOG_DBG(2) << "Checking access to file " << filePath
                        << " with mask " << LOG_OCT(mask);
 
             return setContextResult("glfs_access", glfs_access, m_glfsCtx.get(),
@@ -559,7 +559,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
-        LOG_DBG(1) << "Attempting to read directory " << filePath
+        LOG_DBG(2) << "Attempting to read directory " << filePath
                    << " starting from entry " << offset;
 
         dir = retry(
@@ -587,7 +587,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
         }
         glfs_closedir(dir);
 
-        LOG_DBG(1) << "Read directory " << filePath << " with entries "
+        LOG_DBG(2) << "Read directory " << filePath << " with entries "
                    << LOG_VEC(ret);
 
         return folly::makeFuture<folly::fbvector<folly::fbstring>>(
@@ -608,7 +608,7 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to read link " << filePath;
+            LOG_DBG(2) << "Attempting to read link " << filePath;
 
             auto res = retry(
                 [&]() {
@@ -627,7 +627,7 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
             buf->append(res);
             auto target = folly::fbstring(buf->moveToFbString().c_str());
 
-            LOG_DBG(1) << "Link " << filePath
+            LOG_DBG(2) << "Link " << filePath
                        << " read successfully - resolves to " << target;
 
             return folly::makeFuture(std::move(target));
@@ -647,7 +647,7 @@ folly::Future<folly::Unit> GlusterFSHelper::mknod(const folly::fbstring &fileId,
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
-        LOG_DBG(1) << "Attempting to mknod " << filePath << " with mode "
+        LOG_DBG(2) << "Attempting to mknod " << filePath << " with mode "
                    << LOG_OCT(mode);
 
         return setContextResult("glfs_mknod", glfs_mknod, m_glfsCtx.get(),
@@ -665,7 +665,7 @@ folly::Future<folly::Unit> GlusterFSHelper::mkdir(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to create directory " << filePath
+            LOG_DBG(2) << "Attempting to create directory " << filePath
                        << " with mode " << LOG_OCT(mode);
 
             return setContextResult("glfs_mkdir", glfs_mkdir, m_glfsCtx.get(),
@@ -682,7 +682,7 @@ folly::Future<folly::Unit> GlusterFSHelper::unlink(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to unlink file " << filePath;
+            LOG_DBG(2) << "Attempting to unlink file " << filePath;
 
             return setContextResult(
                 "glfs_unlink", glfs_unlink, m_glfsCtx.get(), filePath.c_str());
@@ -698,7 +698,7 @@ folly::Future<folly::Unit> GlusterFSHelper::rmdir(const folly::fbstring &fileId)
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to remove directory " << filePath;
+            LOG_DBG(2) << "Attempting to remove directory " << filePath;
 
             return setContextResult(
                 "glfs_rmdir", glfs_rmdir, m_glfsCtx.get(), filePath.c_str());
@@ -715,7 +715,7 @@ folly::Future<folly::Unit> GlusterFSHelper::symlink(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to create symbolink link from " << from
+            LOG_DBG(2) << "Attempting to create symbolink link from " << from
                        << " to " << to;
 
             return setContextResult("glfs_symlink", glfs_symlink,
@@ -732,7 +732,7 @@ folly::Future<folly::Unit> GlusterFSHelper::rename(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to rename file from " << from << " to "
+            LOG_DBG(2) << "Attempting to rename file from " << from << " to "
                        << to;
 
             return setContextResult("glfs_rename", glfs_rename, m_glfsCtx.get(),
@@ -750,7 +750,7 @@ folly::Future<folly::Unit> GlusterFSHelper::link(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to create link from " << from << " to "
+            LOG_DBG(2) << "Attempting to create link from " << from << " to "
                        << to;
 
             return setContextResult("glfs_link", glfs_link, m_glfsCtx.get(),
@@ -768,7 +768,7 @@ folly::Future<folly::Unit> GlusterFSHelper::chmod(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to chmod of file " << filePath << " to "
+            LOG_DBG(2) << "Attempting to chmod of file " << filePath << " to "
                        << LOG_OCT(mode);
 
             return setContextResult("glfs_chmod", glfs_chmod, m_glfsCtx.get(),
@@ -788,7 +788,7 @@ folly::Future<folly::Unit> GlusterFSHelper::chown(
         glfs_setfsuid(fsuid);
         glfs_setfsgid(fsgid);
 
-        LOG_DBG(1) << "Attempting to change owner of file " << filePath
+        LOG_DBG(2) << "Attempting to change owner of file " << filePath
                    << " to " << newUid << ":" << newGid;
 
         return setContextResult("glfs_chown", glfs_chown, m_glfsCtx.get(),
@@ -806,7 +806,7 @@ folly::Future<folly::Unit> GlusterFSHelper::truncate(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to truncate file " << filePath
+            LOG_DBG(2) << "Attempting to truncate file " << filePath
                        << " to size " << size;
 
             return setContextResult("glfs_truncate", glfs_truncate,
@@ -827,7 +827,7 @@ folly::Future<folly::fbstring> GlusterFSHelper::getxattr(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to get extended attribute " << name
+            LOG_DBG(2) << "Attempting to get extended attribute " << name
                        << " for file " << filePath;
 
             auto res = retry(
@@ -882,7 +882,7 @@ folly::Future<folly::Unit> GlusterFSHelper::setxattr(
     ] {
         int flags = 0;
 
-        LOG_DBG(1) << "Attempting to set extended attribute " << name
+        LOG_DBG(2) << "Attempting to set extended attribute " << name
                    << " for file " << filePath;
 
         if (create && replace) {
@@ -913,7 +913,7 @@ folly::Future<folly::Unit> GlusterFSHelper::removexattr(
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 
-            LOG_DBG(1) << "Attempting to remove extended attribute " << name
+            LOG_DBG(2) << "Attempting to remove extended attribute " << name
                        << " from file " << filePath;
 
             return setContextResult("glfs_removexattr", glfs_removexattr,
@@ -934,7 +934,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
-        LOG_DBG(1) << "Attempting to list extended attributes for file "
+        LOG_DBG(2) << "Attempting to list extended attributes for file "
                    << filePath;
 
         auto buflen = retry(
@@ -972,7 +972,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
                 strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) + 1;
         }
 
-        LOG_DBG(1) << "Got extended attributes for " << filePath
+        LOG_DBG(2) << "Got extended attributes for " << filePath
                    << " with names " << LOG_VEC(ret);
 
         return folly::makeFuture<folly::fbvector<folly::fbstring>>(

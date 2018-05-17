@@ -90,7 +90,7 @@ void throwOnError(folly::fbstring operation, const Outcome &outcome)
     auto reason =
         "'" + operation.toStdString() + "': " + outcome->getError().msg;
 
-    LOG(ERROR) << "Operation " << operation << " failed with message "
+    LOG_DBG(1) << "Operation " << operation << " failed with message "
                << outcome->getError().msg;
 
     if (operation == "putObject") {
@@ -146,7 +146,7 @@ folly::IOBufQueue SwiftHelper::getObject(
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
 
-    LOG_DBG(1) << "Attempting to read " << size << " bytes from object " << key
+    LOG_DBG(2) << "Attempting to read " << size << " bytes from object " << key
                << " at offset " << offset;
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.swift.read");
@@ -177,7 +177,7 @@ folly::IOBufQueue SwiftHelper::getObject(
     ONE_METRIC_TIMERCTX_STOP(
         timer, getResponse->getResponse()->getContentLength());
 
-    LOG_DBG(1) << "Read " << size << " bytes from object " << key;
+    LOG_DBG(2) << "Read " << size << " bytes from object " << key;
 
     return buf;
 }
@@ -189,7 +189,7 @@ off_t SwiftHelper::getObjectsSize(
 
     auto &account = m_auth.getAccount();
 
-    LOG_DBG(1) << "Attempting to get object " << prefix << " size";
+    LOG_DBG(2) << "Attempting to get object " << prefix << " size";
 
     Swift::Container container(&account, m_containerName.toStdString());
     std::vector<Swift::HTTPHeader> params{
@@ -238,7 +238,7 @@ std::size_t SwiftHelper::putObject(
         iobuf->coalesce();
     }
 
-    LOG_DBG(1) << "Attempting to write object " << key << " of size "
+    LOG_DBG(2) << "Attempting to write object " << key << " of size "
                << iobuf->length();
 
     using CreateResponsePtr = std::unique_ptr<Swift::SwiftResult<int *>>;
@@ -258,7 +258,7 @@ std::size_t SwiftHelper::putObject(
 
     ONE_METRIC_TIMERCTX_STOP(timer, writtenBytes);
 
-    LOG_DBG(1) << "Written " << writtenBytes << " bytes to object " << key;
+    LOG_DBG(2) << "Written " << writtenBytes << " bytes to object " << key;
 
     return writtenBytes;
 }
@@ -269,7 +269,7 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 
     auto &account = m_auth.getAccount();
 
-    LOG_DBG(1) << "Attempting to delete objects: " << LOG_VEC(keys);
+    LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
     Swift::Container container(&account, m_containerName.toStdString());
     for (auto offset = 0u; offset < keys.size(); offset += MAX_DELETE_OBJECTS) {
@@ -295,7 +295,7 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         throwOnError("deleteObjects", deleteResponse);
     }
 
-    LOG_DBG(1) << "Deleted objects: " << LOG_VEC(keys);
+    LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
 folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
@@ -310,7 +310,7 @@ folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
         {Swift::HTTPHeader("prefix", adjustPrefix(prefix)),
             Swift::HTTPHeader("limit", std::to_string(MAX_LIST_OBJECTS))});
 
-    LOG_DBG(1) << "Attempting to list objects at prefix " << prefix;
+    LOG_DBG(2) << "Attempting to list objects at prefix " << prefix;
 
     folly::fbvector<folly::fbstring> objectsList;
     while (true) {
@@ -344,7 +344,7 @@ folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
             break;
     };
 
-    LOG_DBG(1) << "Got object list at prefix " << prefix << ": "
+    LOG_DBG(2) << "Got object list at prefix " << prefix << ": "
                << LOG_VEC(objectsList);
 
     return objectsList;

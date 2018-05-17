@@ -43,7 +43,7 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.proxy.read");
 
-    LOG_DBG(1) << "Attempting to read " << size << " bytes from file "
+    LOG_DBG(2) << "Attempting to read " << size << " bytes from file "
                << m_fileId;
 
     return m_communicator
@@ -52,7 +52,7 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
             const messages::proxyio::RemoteData &rd) mutable {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
             buf.append(rd.data());
-            LOG_DBG(1) << "Received " << buf.chainLength()
+            LOG_DBG(2) << "Received " << buf.chainLength()
                        << " bytes from provider";
             ONE_METRIC_TIMERCTX_STOP(timer, rd.data().size());
             return buf;
@@ -64,7 +64,7 @@ folly::Future<std::size_t> ProxyFileHandle::write(
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
-    LOG_DBG(1) << "Attempting to write " << buf.chainLength()
+    LOG_DBG(2) << "Attempting to write " << buf.chainLength()
                << " bytes to file " << m_fileId;
 
     folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs;
@@ -79,7 +79,7 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.proxy.write");
 
-    LOG_DBG(1) << "Attempting multiwrite to file " << m_fileId << " from "
+    LOG_DBG(2) << "Attempting multiwrite to file " << m_fileId << " from "
                << buffs.size() << " buffers";
 
     folly::fbvector<std::pair<off_t, folly::fbstring>> stringBuffs;
@@ -98,7 +98,7 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
         .then([timer = std::move(timer)](
             const messages::proxyio::RemoteWriteResult &result) mutable {
             ONE_METRIC_TIMERCTX_STOP(timer, result.wrote());
-            LOG_DBG(1) << "Written " << result.wrote() << " bytes";
+            LOG_DBG(2) << "Written " << result.wrote() << " bytes";
             return result.wrote();
         });
 }
@@ -117,7 +117,7 @@ folly::Future<FileHandlePtr> ProxyHelper::open(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGB(flags);
 
-    LOG_DBG(1) << "Attempting to open file " << fileId << " with flags "
+    LOG_DBG(2) << "Attempting to open file " << fileId << " with flags "
                << LOG_OCT(flags);
 
     return folly::makeFuture(

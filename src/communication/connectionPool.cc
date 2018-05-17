@@ -79,7 +79,7 @@ void ConnectionPool::connect()
                 std::bind(&ConnectionPool::onConnectionReady, this, _1),
                 m_getHandshake, m_onHandshakeResponse, m_onHandshakeDone);
 
-            LOG_DBG(1) << "Establishing connection in connection pool to "
+            LOG_DBG(1) << "Creating connection in connection pool to "
                        << m_host;
 
             connection->connect();
@@ -148,14 +148,14 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
     // since connection will fail the send instead of erroring out.
     conn->send(std::move(message), std::move(callback));
 
-    LOG_DBG(1) << "Message sent";
+    LOG_DBG(2) << "Message sent";
 }
 
 void ConnectionPool::onConnectionReady(Connection &conn)
 {
     LOG_FCALL();
 
-    LOG_DBG(1) << "Connection established - adding to idle connection pool";
+    LOG_DBG(2) << "Connection ready - adding to idle connection pool";
 
     m_idleConnections.emplace(&conn);
 }
@@ -171,7 +171,7 @@ void ConnectionPool::stop()
 {
     LOG_FCALL();
 
-    LOG_DBG(1) << "Stopping connection pool";
+    LOG_DBG(1) << "Stopping connection pool...";
 
     m_connected = false;
     m_connections.clear();

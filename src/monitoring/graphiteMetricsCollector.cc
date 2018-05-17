@@ -30,18 +30,19 @@ void GraphiteMetricsCollector::initialize()
     LOG_DBG(1) << "Initializing Graphite metrics reporter";
 
     if (!conf) {
-        LOG_DBG(1) << "Invalid Graphite reporter configuration";
         throw std::runtime_error("Invalid monitoring configuration type");
     }
 
     if (conf->graphiteProtocol ==
         GraphiteMonitoringConfiguration::GraphiteProtocol::TCP) {
-        LOG_DBG(1) << "Creating TCP Graphite reporter";
+        LOG_DBG(1) << "Creating TCP Graphite reporter to "
+                   << conf->graphiteHostname << ":" << conf->graphitePort;
         m_sender.reset(new graphite::GraphiteSenderTCP(
             conf->graphiteHostname, conf->graphitePort));
     }
     else {
-        LOG_DBG(1) << "Creating UDP Graphite reporter";
+        LOG_DBG(1) << "Creating UDP Graphite reporter to "
+                   << conf->graphiteHostname << ":" << conf->graphitePort;
         m_sender.reset(new graphite::GraphiteSenderUDP(
             conf->graphiteHostname, conf->graphitePort));
     }

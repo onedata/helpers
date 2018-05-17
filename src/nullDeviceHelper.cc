@@ -82,7 +82,7 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
 
         SIMULATE_STORAGE_ISSUES(helper, "read", folly::IOBufQueue)
 
-        LOG_DBG(1) << "Attempting to read " << size << " bytes at offset "
+        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << fileId;
 
         if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
@@ -105,7 +105,7 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
             buf.postallocate(size);
         }
 
-        LOG_DBG(1) << "Read " << size << " bytes from file " << fileId;
+        LOG_DBG(2) << "Read " << size << " bytes from file " << fileId;
 
         self->m_readBytes += size;
 
@@ -131,7 +131,7 @@ folly::Future<std::size_t> NullDeviceFileHandle::write(
 
         std::size_t size = buf.chainLength();
 
-        LOG_DBG(1) << "Written " << size << " bytes to file " << fileId;
+        LOG_DBG(2) << "Written " << size << " bytes to file " << fileId;
 
         self->m_writtenBytes += size;
 
@@ -152,7 +152,7 @@ folly::Future<folly::Unit> NullDeviceFileHandle::release()
 
             SIMULATE_STORAGE_ISSUES(helper, "release", folly::Unit)
 
-            LOG_DBG(1) << "Closing file " << fileId;
+            LOG_DBG(2) << "Closing file " << fileId;
 
             return folly::makeFuture();
         });
@@ -169,7 +169,7 @@ folly::Future<folly::Unit> NullDeviceFileHandle::flush()
 
             SIMULATE_STORAGE_ISSUES(helper, "flush", folly::Unit)
 
-            LOG_DBG(1) << "Flushing file " << fileId;
+            LOG_DBG(2) << "Flushing file " << fileId;
 
             return folly::makeFuture();
         });
@@ -186,7 +186,7 @@ folly::Future<folly::Unit> NullDeviceFileHandle::fsync(bool /*isDataSync*/)
 
             SIMULATE_STORAGE_ISSUES(helper, "fsync", folly::Unit)
 
-            LOG_DBG(1) << "Syncing file " << fileId;
+            LOG_DBG(2) << "Syncing file " << fileId;
 
             return folly::makeFuture();
         });
@@ -249,7 +249,7 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
 
             SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
 
-            LOG_DBG(1) << "Attempting to stat file " << fileId;
+            LOG_DBG(2) << "Attempting to stat file " << fileId;
 
             struct stat stbuf = {};
             stbuf.st_gid = 0;
@@ -336,7 +336,7 @@ folly::Future<folly::Unit> NullDeviceHelper::access(
 
         SIMULATE_STORAGE_ISSUES(self, "access", folly::Unit)
 
-        LOG_DBG(1) << "Attempting to access file " << fileId;
+        LOG_DBG(2) << "Attempting to access file " << fileId;
 
         return folly::makeFuture();
     });
@@ -357,7 +357,7 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdir(
 
             folly::fbvector<folly::fbstring> ret;
 
-            LOG_DBG(1) << "Attempting to read directory " << fileId;
+            LOG_DBG(2) << "Attempting to read directory " << fileId;
 
             if (isSimulatedFilesystem()) {
                 std::vector<std::string> pathTokens;
@@ -401,7 +401,7 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdir(
                     ret.emplace_back(std::to_string(i + offset));
             }
 
-            LOG_DBG(1) << "Read directory " << fileId << " at offset " << offset
+            LOG_DBG(2) << "Read directory " << fileId << " at offset " << offset
                        << " with entries " << LOG_VEC(ret);
 
             return folly::makeFuture<folly::fbvector<folly::fbstring>>(
@@ -420,11 +420,11 @@ folly::Future<folly::fbstring> NullDeviceHelper::readlink(
 
         SIMULATE_STORAGE_ISSUES(self, "readlink", folly::fbstring)
 
-        LOG_DBG(1) << "Attempting to read link " << fileId;
+        LOG_DBG(2) << "Attempting to read link " << fileId;
 
         auto target = folly::fbstring(10, NULL_DEVICE_HELPER_CHAR);
 
-        LOG_DBG(1) << "Read link " << fileId << " - resolves to " << target;
+        LOG_DBG(2) << "Read link " << fileId << " - resolves to " << target;
 
         return folly::makeFuture(std::move(target));
     });

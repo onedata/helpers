@@ -144,16 +144,17 @@ folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
         "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
         "eu-central-1", "eu-west-1", "eu-west-2", "sa-east-1"};
 
-    LOG_DBG(1) << "Attempting to determine S3 region based on hostname";
+    LOG_DBG(1) << "Attempting to determine S3 region based on hostname: "
+               << hostname;
 
     for (const auto &region : regions) {
         if (hostname.find(region) != folly::fbstring::npos) {
-            LOG_DBG(1) << "Using region " << region;
+            LOG_DBG(1) << "Using S3 region: " << region;
             return region;
         }
     }
 
-    LOG_DBG(1) << "Using default region us-east-1";
+    LOG_DBG(1) << "Using default S3 region us-east-1";
 
     return "us-east-1";
 }
@@ -188,7 +189,7 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.read");
 
-    LOG_DBG(1) << "Attempting to get " << size << "bytes from object " << key
+    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
                << " at offset " << offset;
 
     auto outcome = retry([&, request = std::move(request) ]() {
@@ -213,7 +214,7 @@ folly::IOBufQueue S3Helper::getObject(
     auto readBytes = outcome.GetResult().GetContentLength();
     buf.postallocate(static_cast<std::size_t>(readBytes));
 
-    LOG_DBG(1) << "Got " << readBytes << " from object " << key;
+    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
 
     ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
 
@@ -231,7 +232,7 @@ off_t S3Helper::getObjectsSize(
     request.SetDelimiter(OBJECT_DELIMITER);
     request.SetMaxKeys(1);
 
-    LOG_DBG(1) << "Attempting to get size of object at prefix " << prefix;
+    LOG_DBG(2) << "Attempting to get size of object at prefix " << prefix;
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->ListObjects(request);
@@ -280,7 +281,7 @@ std::size_t S3Helper::putObject(
 #endif
     request.SetBody(stream);
 
-    LOG_DBG(1) << "Attempting to write object " << key << " of size " << size;
+    LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->PutObject(request);
@@ -292,7 +293,7 @@ std::size_t S3Helper::putObject(
 
     throwOnError("PutObject", outcome);
 
-    LOG_DBG(1) << "Written " << size << " bytes to object " << key;
+    LOG_DBG(2) << "Written " << size << " bytes to object " << key;
 
     return size;
 }
@@ -304,7 +305,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     Aws::S3::Model::DeleteObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
 
-    LOG_DBG(1) << "Attempting to delete objects " << LOG_VEC(keys);
+    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
 
     for (auto offset = 0u; offset < keys.size(); offset += MAX_DELETE_OBJECTS) {
         Aws::S3::Model::Delete container;
@@ -342,7 +343,7 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.listobjects");
 
-    LOG_DBG(1) << "Retrieving object list for prefix " << prefix;
+    LOG_DBG(2) << "Retrieving object list for prefix " << prefix;
 
     while (true) {
         auto outcome = retry([&, request = std::move(request) ]() {
@@ -364,7 +365,7 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     ONE_METRIC_TIMERCTX_STOP(timer, keys.size());
 
-    LOG_DBG(1) << "Got object list at prefix " << prefix << ": "
+    LOG_DBG(2) << "Got object list at prefix " << prefix << ": "
                << LOG_VEC(keys);
 
     return keys;

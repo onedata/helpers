@@ -58,12 +58,16 @@ void Retrier<LowerLayer>::send(
         [ =, callback = std::move(callback) ](const std::error_code &ec) mutable
     {
         if (ec && retries > 0) {
-            LOG_DBG(1) << "Sending message - remaining retry count: "
+            LOG_DBG(2) << "Sending message - remaining retry count: "
                        << retries;
             send(std::move(message), std::move(callback), retries - 1);
         }
         else {
-            LOG_DBG(1) << "Sending message failed: " << ec.message();
+            if (!ec)
+                LOG_DBG(3) << "Sending message succeeded";
+            else
+                LOG_DBG(1) << "Sending message failed: " << ec.message();
+
             callback(ec);
         }
     };
