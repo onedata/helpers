@@ -12,8 +12,6 @@
 #include "connection.h"
 
 #include <asio/ssl/context.hpp>
-#include <folly/FBString.h>
-#include <folly/futures/Future.h>
 #include <tbb/concurrent_queue.h>
 
 #include <atomic>

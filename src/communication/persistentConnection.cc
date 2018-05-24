@@ -237,29 +237,6 @@ void PersistentConnection::send(std::string message, Callback callback)
     }));
 }
 
-void PersistentConnection::sendRaw(std::string message, Callback callback)
-{
-    LOG_FCALL() << LOG_FARG(message.size());
-
-    LOG_DBG(4) << "Sending raw message";
-
-    auto socket = getSocket();
-    if (!m_connected || !socket) {
-        LOG(ERROR) << "Cannot send message - socket not connected.";
-        callback(asio::error::not_connected);
-        return;
-    }
-
-    auto buffer = prepareRawOutBuffer(std::move(message));
-
-    socket->sendAsync(socket, buffer->asioBufferSequence(), createCallback([
-        self = shared_from_this(), buffer, callback = std::move(callback)
-    ]() mutable {
-        self->onSent(std::move(callback));
-        buffer.reset();
-    }));
-}
-
 std::shared_ptr<SharedConstBufferSequence<1>>
 PersistentConnection::prepareOutBuffer(std::string message)
 {
