@@ -31,7 +31,7 @@ std::shared_ptr<Connection> createRawConnection(std::string host,
     return std::make_shared<PersistentConnection>(std::move(host), port,
         ioService, std::move(context), std::move(onMessage), std::move(onReady),
         std::move(getHandshake), std::move(onHandshakeResponse),
-        std::move(onHandshakeDone), false);
+        std::move(onHandshakeDone));
 }
 
 class ConnectionPoolProxy {

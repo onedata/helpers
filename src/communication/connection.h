@@ -31,6 +31,7 @@ public:
      * failed with error.
      */
     virtual void send(std::string message, Callback callback) = 0;
+    virtual void sendRaw(std::string message, Callback callback) = 0;
 
     /**
      * Starts the managed connection.

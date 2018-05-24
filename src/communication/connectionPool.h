@@ -12,6 +12,8 @@
 #include "connection.h"
 
 #include <asio/ssl/context.hpp>
+#include <folly/FBString.h>
+#include <folly/futures/Future.h>
 #include <tbb/concurrent_queue.h>
 
 #include <atomic>
@@ -114,6 +116,10 @@ public:
      * error.
      */
     void send(std::string message, Callback callback, const int = int{});
+
+    std::string makeHttpRequest(const std::string &token,
+        const std::string &type, const std::string &endpoint,
+        const std::string &contentType, const std::string &body);
 
     /**
      * Destructor.

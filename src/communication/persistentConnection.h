@@ -107,6 +107,8 @@ public:
      */
     void send(std::string message, Callback callback) override;
 
+    void sendRaw(std::string message, Callback callback) override;
+
     /**
      * Starts the managed connection.
      */

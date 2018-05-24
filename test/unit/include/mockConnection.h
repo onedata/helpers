@@ -21,6 +21,8 @@ struct MockConnectionWrapper;
 struct MockConnection {
     MOCK_METHOD2(
         send, void(std::string, one::communication::Connection::Callback));
+    MOCK_METHOD2(
+        sendRaw, void(std::string, one::communication::Connection::Callback));
     MOCK_METHOD0(connect, void());
     MOCK_METHOD0(upgrade, void());
     MOCK_METHOD0(connected, bool());
@@ -51,6 +53,11 @@ struct MockConnectionWrapper : public one::communication::Connection {
     void send(std::string data, Callback callback) override
     {
         m_mockConnection.send(std::move(data), std::move(callback));
+    }
+
+    void sendRaw(std::string data, Callback callback) override
+    {
+        m_mockConnection.sendRaw(std::move(data), std::move(callback));
     }
 
     void connect() override
