@@ -162,7 +162,7 @@ std::string ConnectionPool::makeHttpRequest(const std::string &token,
     // Process the response headers.
     std::string header;
     while (std::getline(response_stream, header) && header != "\r")
-        LOG(INFO) << "Received HTTP REST response header: " << header << "\n";
+        LOG_DBG(3) << "Received HTTP REST response header: " << header << "\n";
 
     std::stringstream responseContent;
 
