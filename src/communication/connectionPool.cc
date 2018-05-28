@@ -90,6 +90,97 @@ void ConnectionPool::connect()
     m_connected = true;
 }
 
+std::string ConnectionPool::makeHttpRequest(const std::string &token,
+    const std::string &type, const std::string &endpoint,
+    const std::string &contentType, const std::string &body)
+{
+    asio::io_service io_service;
+
+    using asio::ip::tcp;
+
+    // Get a list of endpoints corresponding to the server name.
+    tcp::resolver resolver(io_service);
+    tcp::resolver::query query(m_host, "https");
+    tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
+
+    // Try each endpoint until we successfully establish a connection.
+    asio::ssl::stream<tcp::socket> socket(io_service, *m_context);
+    asio::connect(socket.lowest_layer(), endpoint_iterator);
+    socket.lowest_layer().set_option(tcp::no_delay(true));
+    socket.handshake(asio::ssl::stream_base::client);
+
+    // Form the request. We specify the "Connection: close" header so that the
+    // server will close the socket after transmitting the response. This will
+    // allow us to treat all data up until the EOF as the content.
+    asio::streambuf request;
+    std::ostream requestStream(&request);
+    requestStream << type << " " << endpoint << " HTTP/1.1\r\n";
+    requestStream << "Host: " << m_host << "\r\n";
+    requestStream << "User-agent: Oneclient\r\n";
+    requestStream << "Accept: */*\r\n";
+    requestStream << "X-Auth-Token: " << token << "\r\n";
+    if (contentType.size() > 0)
+        requestStream << "Content-type: " << contentType << "\r\n";
+    requestStream << "Content-length: " << std::to_string(body.size())
+                  << "\r\n";
+    requestStream << "\r\n";
+    if (body.size() > 0)
+        requestStream << body;
+    requestStream.flush();
+
+    // Send the request.
+    asio::write(socket, request);
+
+    // Read the response status line. The response streambuf will automatically
+    // grow to accommodate the entire line. The growth may be limited by passing
+    // a maximum size to the streambuf constructor.
+    asio::streambuf response;
+    asio::read_until(socket, response, "\r\n");
+
+    // Check that response is OK.
+    std::istream response_stream(&response);
+    std::string http_version;
+    response_stream >> http_version;
+    unsigned int status_code;
+    response_stream >> status_code;
+    std::string status_message;
+    std::getline(response_stream, status_message);
+    if (!response_stream || http_version.substr(0, 5) != "HTTP/") {
+        LOG(ERROR) << "Invalid HTTP REST response";
+        throw std::runtime_error("Invalid HTTP REST response");
+    }
+    if (!(status_code == 200 || status_code == 204)) {
+        LOG(ERROR) << "HTTP REST response returned with status code: "
+                   << status_code << "\n";
+        throw std::runtime_error(
+            "HTTP REST error: " + std::to_string(status_code));
+    }
+
+    // Read the response headers, which are terminated by a blank line.
+    asio::read_until(socket, response, "\r\n\r\n");
+
+    // Process the response headers.
+    std::string header;
+    while (std::getline(response_stream, header) && header != "\r")
+        LOG_DBG(3) << "Received HTTP REST response header: " << header << "\n";
+
+    std::stringstream responseContent;
+
+    // Write whatever content we already have to output.
+    if (response.size() > 0)
+        responseContent << &response;
+
+    // Read until EOF, writing data to output as we go.
+    asio::error_code error;
+    while (asio::read(socket, response, asio::transfer_at_least(1), error))
+        responseContent << &response;
+
+    if (error != asio::error::eof)
+        throw std::runtime_error(error.category().name());
+
+    return responseContent.str();
+}
+
 asio::io_service &ConnectionPool::ioService() { return m_ioService; }
 
 void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,

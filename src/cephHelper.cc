@@ -474,7 +474,6 @@ folly::Future<folly::Unit> CephHelper::connect()
                        << m_monHost;
 
             if (m_connected) {
-                LOG_DBG(1) << "Already connected - skipping";
                 return folly::makeFuture();
             }
 

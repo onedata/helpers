@@ -115,6 +115,10 @@ public:
      */
     void send(std::string message, Callback callback, const int = int{});
 
+    std::string makeHttpRequest(const std::string &token,
+        const std::string &type, const std::string &endpoint,
+        const std::string &contentType, const std::string &body);
+
     /**
      * Destructor.
      * Calls @c stop().
