@@ -15,7 +15,9 @@
 
 #include "cppmetrics/graphite/graphite_reporter.h"
 #include "cppmetrics/core/utils.h"
+#include <algorithm>
 #include <glog/logging.h>
+#include <math.h>
 
 namespace cppmetrics {
 namespace graphite {
@@ -41,7 +43,6 @@ void GraphiteReporter::report(core::CounterMap counter_map,
     core::TimerMap timer_map, core::GaugeMap gauge_map)
 {
     auto timestamp = core::get_seconds_from_epoch();
-
     try {
         sender_->connect();
 
@@ -64,12 +65,12 @@ void GraphiteReporter::report(core::CounterMap counter_map,
         for (const auto &kv : gauge_map) {
             reportGauge(kv.first, kv.second, timestamp);
         }
-
         sender_->close();
     }
     catch (const std::exception &e) {
-        LOG(ERROR) << "Exception in graphite reporting: " << e.what();
         sender_->close();
+        // handled by scheduler to avoid deadlock in the lambda
+        throw std::runtime_error("Connection refused");
     }
 }
 

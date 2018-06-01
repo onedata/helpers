@@ -14,7 +14,6 @@
  */
 
 #include "cppmetrics/core/scheduled_reporter.h"
-#include <glog/logging.h>
 
 namespace cppmetrics {
 namespace core {
@@ -48,12 +47,27 @@ void ScheduledReporter::start(std::chrono::milliseconds period)
 {
     if (!running_) {
         running_ = true;
+        static auto reconnectDelaySeconds =
+            GRAPHITE_REPORTED_RECONNECT_INITIAL_DELAY_SECONDS;
         scheduled_executor_.scheduleAtFixedDelay(
             [s = std::weak_ptr<ScheduledReporter>{shared_from_this()}]() {
                 auto self = s.lock();
                 if (!self)
                     return;
-                self->report();
+                try {
+                    self->report();
+                    // the line below resets the delay timer iff the report()
+                    // method doesn't throw an exception...
+                    reconnectDelaySeconds = 15;
+                }
+                catch (std::exception &e) {
+                    LOG(ERROR) << "Error in reporting task: " << e.what()
+                               << ", sleeping for " << reconnectDelaySeconds;
+                    std::this_thread::sleep_for(
+                        std::chrono::seconds(reconnectDelaySeconds));
+                    reconnectDelaySeconds = std::min(reconnectDelaySeconds * 2,
+                        GRAPHITE_REPORTED_RECONNECT_MAX_WAIT * 60);
+                }
             },
             period);
     }
@@ -85,11 +99,13 @@ double ScheduledReporter::convertRateUnit(double rate) const
     return rate * rate_factor_;
 }
 
-void ScheduledReporter::setReportingLevel(ReportingLevel level) {
+void ScheduledReporter::setReportingLevel(ReportingLevel level)
+{
     reporting_level_ = level;
 }
 
-ReportingLevel ScheduledReporter::getReportingLevel() const {
+ReportingLevel ScheduledReporter::getReportingLevel() const
+{
     return reporting_level_;
 }
 

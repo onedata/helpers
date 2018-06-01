@@ -17,6 +17,7 @@
 
 #include <asio/connect.hpp>
 #include <asio/write.hpp>
+#include <glog/logging.h>
 
 #include <sstream>
 
@@ -35,15 +36,19 @@ GraphiteSenderTCP::~GraphiteSenderTCP() {}
 void GraphiteSenderTCP::connect()
 {
     io_service_.reset(new asio::io_service());
-
     asio::ip::tcp::resolver resolver(*io_service_);
     asio::ip::tcp::resolver::query query(host_, port_);
     asio::ip::tcp::resolver::iterator iterator = resolver.resolve(query);
-
-    socket_.reset(new asio::ip::tcp::socket(*io_service_));
     asio::error_code ec;
-    asio::connect(*socket_, iterator, ec);
-    connected_ = !ec;
+    try {
+        socket_.reset(new asio::ip::tcp::socket(*io_service_));
+        asio::connect(*socket_, iterator, ec);
+        connected_ = !ec;
+    }
+    catch (const std::exception &e) {
+        LOG(ERROR) << "socket reset";
+        connected_ = false;
+    }
     if (!connected_) {
         throw std::runtime_error("Connect() error, reason: " + ec.message());
     }
