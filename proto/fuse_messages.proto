@@ -218,6 +218,7 @@ message FuseResponse {
         Xattr xattr = 13;
         XattrList xattr_list = 14;
         FileChildrenAttrs file_children_attrs = 15;
+        FileLocationChanged file_location_changed = 16;
     }
 }
 
@@ -248,6 +249,12 @@ message FileChildrenAttrs {
     repeated FileAttr child_attrs = 1;
     optional bytes index_token = 2;
     optional bool is_last = 3;
+}
+
+message FileLocationChanged {
+    required FileLocation file_location = 1;
+    optional uint64 change_beg_offset = 2;
+    optional uint64 change_end_offset = 3;
 }
 
 message FileLocation {
