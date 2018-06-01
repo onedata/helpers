@@ -19,16 +19,16 @@
 #include "cppmetrics/concurrent/simple_scheduled_thread_pool_executor.h"
 #include "cppmetrics/core/metric_registry.h"
 #include "reporter.h"
+#include <algorithm>
 #include <chrono>
+#include <glog/logging.h>
 
 namespace cppmetrics {
 namespace core {
 
-enum class ReportingLevel {
-    Basic,
-    Full
-};
-
+enum class ReportingLevel { Basic, Full };
+constexpr auto GRAPHITE_REPORTED_RECONNECT_INITIAL_DELAY_SECONDS = 15;
+constexpr auto GRAPHITE_REPORTED_RECONNECT_MAX_WAIT = 30;
 /**
  * The abstract base class for all scheduled reporters (i.e., reporters which
  * process a registry's metrics periodically).
