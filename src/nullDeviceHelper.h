@@ -70,8 +70,6 @@ public:
 
     const Timeout &timeout() override { return m_timeout; }
 
-    bool needsDataConsistencyCheck() override { return true; }
-
     std::size_t readBytes() const { return m_readBytes.load(); }
 
     std::size_t writtenBytes() const { return m_writtenBytes.load(); }
