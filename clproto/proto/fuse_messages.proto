@@ -85,6 +85,7 @@ message FileRequest {
         FSync fsync = 23;
         GetFileChildrenAttrs get_file_children_attrs = 24;
         StorageFileCreated storage_file_created = 25;
+        OpenFileWithExtendedInfo open_file_with_extended_info = 26;
     }
 }
 
@@ -143,6 +144,10 @@ message MakeFile {
 }
 
 message OpenFile {
+    required OpenFlag flag = 1 [default = READ_WRITE];
+}
+
+message OpenFileWithExtendedInfo {
     required OpenFlag flag = 1 [default = READ_WRITE];
 }
 
@@ -219,6 +224,7 @@ message FuseResponse {
         XattrList xattr_list = 14;
         FileChildrenAttrs file_children_attrs = 15;
         FileLocationChanged file_location_changed = 16;
+        FileOpenedExtended file_opened_extended = 17;
     }
 }
 
@@ -275,6 +281,13 @@ message FileCreated {
 
 message FileOpened {
     required bytes handle_id = 1;
+}
+
+message FileOpenedExtended {
+    required bytes handle_id = 1;
+    required bytes provider_id = 2;
+    required bytes file_id = 3;
+    required bytes storage_id = 4;
 }
 
 message HelperArg {
