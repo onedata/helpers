@@ -28,6 +28,16 @@ ClientHandshakeRequest::ClientHandshakeRequest(
 {
 }
 
+ClientHandshakeRequest::ClientHandshakeRequest(std::string sessionId,
+    std::string macaroon, std::string version,
+    std::vector<std::string> compatibleOneproviderVersions)
+    : m_sessionId{std::move(sessionId)}
+    , m_macaroon{std::move(macaroon)}
+    , m_version{std::move(version)}
+    , m_compatibleOneproviderVersions{std::move(compatibleOneproviderVersions)}
+{
+}
+
 std::string ClientHandshakeRequest::toString() const
 {
     std::stringstream stream;
@@ -39,7 +49,10 @@ std::string ClientHandshakeRequest::toString() const
     else
         stream << "'undefined'";
 
-    stream << ", version: '" << m_version << "'";
+    stream << ", version: '" << m_version
+           << "', compatible oneprovider versions:";
+    for (auto compatibleVersion : m_compatibleOneproviderVersions)
+        stream << " " << compatibleVersion;
 
     return stream.str();
 }
@@ -57,6 +70,9 @@ ClientHandshakeRequest::serializeAndDestroy()
     }
 
     handshakeRequestMsg->set_version(m_version);
+    for (auto compatibleVersion : m_compatibleOneproviderVersions)
+        handshakeRequestMsg->add_compatible_oneprovider_versions(
+            compatibleVersion);
 
     return clientMsg;
 }

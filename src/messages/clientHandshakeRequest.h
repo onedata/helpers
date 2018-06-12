@@ -36,8 +36,13 @@ public:
      * @param sessionId Id of session to be used in handshake
      * @param macaroon Access macaroon used to established session
      */
+
     ClientHandshakeRequest(
         std::string sessionId, std::string macaroon, std::string version);
+
+    ClientHandshakeRequest(std::string sessionId, std::string macaroon,
+        std::string version,
+        std::vector<std::string> compatibleOneproviderVersions);
 
     std::string toString() const override;
 
@@ -47,6 +52,7 @@ private:
     std::string m_sessionId;
     boost::optional<std::string> m_macaroon;
     std::string m_version;
+    std::vector<std::string> m_compatibleOneproviderVersions;
 };
 
 } // namespace messages

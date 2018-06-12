@@ -19,6 +19,8 @@ HandshakeResponse::HandshakeResponse(
 {
     auto &msg = serverMessage->handshake_response();
     m_status = translateStatus(msg);
+    for (auto compatibleVersion : msg.compatible_oneclient_versions())
+        m_compatibleOneclientVersions.push_back(compatibleVersion);
 }
 
 bool HandshakeResponse::isMacaroonError() const
@@ -38,7 +40,10 @@ std::string HandshakeResponse::toString() const
 {
     std::stringstream stream;
     stream << "type: 'HandshakeResponse', status: '" << status().message()
-           << "'";
+           << "', compatible oneclient versions:";
+    for (auto compatibleVersion : m_compatibleOneclientVersions)
+        stream << " " << compatibleVersion;
+
     return stream.str();
 }
 
