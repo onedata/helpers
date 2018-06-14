@@ -119,6 +119,22 @@ public:
         return res;
     }
 
+    int lock(std::string fileId, std::string cookie, bool exclusive)
+    {
+        using namespace one::helpers;
+
+        if (exclusive) {
+            return m_helper->getIoCTX().lock_exclusive(
+                fileId + CEPH_STRIPER_FIRST_OBJECT_SUFFIX,
+                CEPH_STRIPER_LOCK_NAME, cookie, "", NULL, 0);
+        }
+        else {
+            return m_helper->getIoCTX().lock_shared(
+                fileId + CEPH_STRIPER_FIRST_OBJECT_SUFFIX,
+                CEPH_STRIPER_LOCK_NAME, cookie, "", "Tag", NULL, 0);
+        }
+    }
+
 private:
     asio::io_service m_service;
     asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
@@ -146,5 +162,6 @@ BOOST_PYTHON_MODULE(ceph_helper)
         .def("getxattr", &CephHelperProxy::getxattr)
         .def("setxattr", &CephHelperProxy::setxattr)
         .def("removexattr", &CephHelperProxy::removexattr)
-        .def("listxattr", &CephHelperProxy::listxattr);
+        .def("listxattr", &CephHelperProxy::listxattr)
+        .def("lock", &CephHelperProxy::lock);
 }
