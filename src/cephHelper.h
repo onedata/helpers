@@ -24,6 +24,9 @@ namespace helpers {
 
 class CephHelper;
 
+constexpr auto CEPH_STRIPER_FIRST_OBJECT_SUFFIX = ".0000000000000000";
+constexpr auto CEPH_STRIPER_LOCK_NAME = "striper.lock";
+
 /**
  * The @c FileHandle implementation for Ceph storage helper.
  */
@@ -122,12 +125,22 @@ public:
 
     libradosstriper::RadosStriper &getRadosStriper() { return m_radosStriper; }
 
+    librados::IoCtx &getIoCTX() { return m_ioCTX; }
+
     /**
      * Establishes connection to the Ceph storage cluster.
      */
     folly::Future<folly::Unit> connect();
 
 private:
+    /**
+     * Forcibly removes any locks on the first object of a larger object managed
+     * by Rados striper.
+     * @param fileId The name of the object recognizable by Rados striper
+     * @returns 0 on success, otherwise an error code
+     */
+    int removeStriperLocks(const folly::fbstring &fileId);
+
     folly::fbstring m_clusterName;
     folly::fbstring m_monHost;
     folly::fbstring m_poolName;

@@ -197,8 +197,17 @@ folly::Future<folly::Unit> CephHelper::unlink(const folly::fbstring &fileId)
                 [&]() { return m_radosStriper.remove(fileId.toStdString()); },
                 std::bind(CephRetryCondition, _1, "remove"));
 
+            if (ret == -EBUSY) {
+                // If there are any dangling locks on the file, forcibly remove
+                // the locks and attempt to unlink the file one more time
+                if (removeStriperLocks(fileId) == 0) {
+                    ret = m_radosStriper.remove(fileId.toStdString());
+                }
+            }
+
             if (ret < 0) {
-                LOG_DBG(1) << "Removing file failed: " << ret;
+                LOG(WARNING)
+                    << "Removing file " << fileId << " failed: " << ret;
                 return makeFuturePosixException(ret);
             }
 
@@ -241,8 +250,16 @@ folly::Future<folly::Unit> CephHelper::truncate(
             ret = m_radosStriper.trunc(fileId.toStdString(), size);
             ONE_METRIC_TIMERCTX_STOP(timer, size);
         }
+        else if (ret == -EBUSY) {
+            // If there are any dangling locks on the file, forcibly remove
+            // the locks and attempt to truncate the file one more time
+            if (removeStriperLocks(fileId) == 0) {
+                ret = m_radosStriper.trunc(fileId.toStdString(), size);
+            }
+        }
+
         if (ret < 0) {
-            LOG_DBG(1) << "Truncating file failed: " << ret;
+            LOG(WARNING) << "Truncating file " << fileId << " failed: " << ret;
             return makeFuturePosixException(ret);
         }
 
@@ -553,5 +570,34 @@ folly::Future<folly::Unit> CephHelper::connect()
         });
 }
 
+int CephHelper::removeStriperLocks(const folly::fbstring &fileId)
+{
+    int exclusive;
+    std::string tag;
+    std::list<librados::locker_t> lockers;
+
+    auto striperFileId =
+        fileId.toStdString() + CEPH_STRIPER_FIRST_OBJECT_SUFFIX;
+    auto result = m_ioCTX.list_lockers(
+        striperFileId, CEPH_STRIPER_LOCK_NAME, &exclusive, &tag, &lockers);
+
+    if (result < 0) {
+        LOG(ERROR) << "Cannot list striper locks on " << striperFileId
+                   << " due to error: " << result;
+        return result;
+    }
+
+    for (const auto &locker : lockers) {
+        result = m_ioCTX.break_lock(striperFileId, CEPH_STRIPER_LOCK_NAME,
+            locker.client, locker.cookie);
+        if (result < 0) {
+            LOG(ERROR) << "Cannot break lock on " << striperFileId
+                       << " due to error: " << result;
+            return result;
+        }
+    }
+
+    return 0;
+}
 } // namespace helpers
 } // namespace one
