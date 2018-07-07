@@ -674,7 +674,7 @@ folly::Future<folly::Unit> GlusterFSHelper::mkdir(
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::unlink(
-    const folly::fbstring &fileId)
+    const folly::fbstring &fileId, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId);
     return connect().then(
@@ -797,7 +797,8 @@ folly::Future<folly::Unit> GlusterFSHelper::chown(
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::truncate(
-    const folly::fbstring &fileId, const off_t size)
+    const folly::fbstring &fileId, const off_t size,
+    const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 

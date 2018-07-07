@@ -569,7 +569,8 @@ folly::Future<folly::Unit> PosixHelper::mkdir(
         });
 }
 
-folly::Future<folly::Unit> PosixHelper::unlink(const folly::fbstring &fileId)
+folly::Future<folly::Unit> PosixHelper::unlink(
+    const folly::fbstring &fileId, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
@@ -688,8 +689,8 @@ folly::Future<folly::Unit> PosixHelper::chown(
     });
 }
 
-folly::Future<folly::Unit> PosixHelper::truncate(
-    const folly::fbstring &fileId, const off_t size)
+folly::Future<folly::Unit> PosixHelper::truncate(const folly::fbstring &fileId,
+    const off_t size, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 

@@ -178,7 +178,7 @@ TEST_F(PosixHelperTest, shouldMakeDirectory)
 
 TEST_F(PosixHelperTest, shouldDeleteFile)
 {
-    EXPECT_NO_THROW(proxy->unlink(testFileId).getVia(executor.get()));
+    EXPECT_NO_THROW(proxy->unlink(testFileId, 0).getVia(executor.get()));
 }
 
 TEST_F(PosixHelperTest, shouldDeleteDir)
@@ -234,7 +234,7 @@ TEST_F(PosixHelperTest, shouldChangeOwner)
 
 TEST_F(PosixHelperTest, shouldTruncate)
 {
-    EXPECT_NO_THROW(proxy->truncate(testFileId, 0).getVia(executor.get()));
+    EXPECT_NO_THROW(proxy->truncate(testFileId, 0, 0).getVia(executor.get()));
 }
 
 TEST_F(PosixHelperTest, setxattrShouldSetExtendedAttribute)

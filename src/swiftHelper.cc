@@ -182,46 +182,12 @@ folly::IOBufQueue SwiftHelper::getObject(
     return buf;
 }
 
-off_t SwiftHelper::getObjectsSize(
-    const folly::fbstring &prefix, const std::size_t objectSize)
-{
-    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(objectSize);
-
-    auto &account = m_auth.getAccount();
-
-    LOG_DBG(2) << "Attempting to get object " << prefix << " size";
-
-    Swift::Container container(&account, m_containerName.toStdString());
-    std::vector<Swift::HTTPHeader> params{
-        {Swift::HTTPHeader("prefix", adjustPrefix(prefix))}};
-
-    using ListResponsePtr = std::unique_ptr<Swift::SwiftResult<std::istream *>>;
-
-    auto listResponse = retry(
-        [&]() {
-            return ListResponsePtr{container.swiftListObjects(
-                Swift::HEADER_FORMAT_APPLICATION_JSON, &params, true)};
-        },
-        std::bind(SWIFTRetryCondition<ListResponsePtr>, sp::_1, "ListObjects"));
-
-    throwOnError("getObjectsSize", listResponse);
-
-    boost::property_tree::ptree pt;
-    boost::property_tree::read_json(*listResponse->getPayload(), pt);
-    if (pt.size() == 0) {
-        return 0;
-    }
-
-    auto key = pt.get<folly::fbstring>(".name");
-    auto size = pt.get<uint64_t>(".bytes");
-
-    return getObjectId(std::move(key)) * objectSize + size;
-}
-
 std::size_t SwiftHelper::putObject(
-    const folly::fbstring &key, folly::IOBufQueue buf)
+    const folly::fbstring &key, folly::IOBufQueue buf, const std::size_t offset)
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
+
+    assert(offset == 0);
 
     std::size_t writtenBytes = 0;
     auto &account = m_auth.getAccount();
@@ -296,58 +262,6 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     }
 
     LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
-}
-
-folly::fbvector<folly::fbstring> SwiftHelper::listObjects(
-    const folly::fbstring &prefix)
-{
-    LOG_FCALL() << LOG_FARG(prefix);
-
-    auto &account = m_auth.getAccount();
-
-    Swift::Container container(&account, m_containerName.toStdString());
-    auto params = std::vector<Swift::HTTPHeader>(
-        {Swift::HTTPHeader("prefix", adjustPrefix(prefix)),
-            Swift::HTTPHeader("limit", std::to_string(MAX_LIST_OBJECTS))});
-
-    LOG_DBG(2) << "Attempting to list objects at prefix " << prefix;
-
-    folly::fbvector<folly::fbstring> objectsList;
-    while (true) {
-        if (!objectsList.empty()) {
-            params.pop_back();
-            params.push_back(
-                Swift::HTTPHeader("marker", objectsList.back().toStdString()));
-        }
-
-        using ListResponsePtr =
-            std::unique_ptr<Swift::SwiftResult<std::istream *>>;
-
-        auto listResponse = retry(
-            [&]() {
-                return ListResponsePtr{container.swiftListObjects(
-                    Swift::HEADER_FORMAT_TEXT_XML, &params, true)};
-            },
-            std::bind(
-                SWIFTRetryCondition<ListResponsePtr>, sp::_1, "ListObjects"));
-
-        throwOnError("listObjects", listResponse);
-
-        auto lines = 0;
-        for (std::string name;
-             std::getline(*listResponse->getPayload(), name);) {
-            ++lines;
-            objectsList.emplace_back(std::move(name));
-        }
-
-        if (lines != MAX_LIST_OBJECTS)
-            break;
-    };
-
-    LOG_DBG(2) << "Got object list at prefix " << prefix << ": "
-               << LOG_VEC(objectsList);
-
-    return objectsList;
 }
 
 SwiftHelper::Authentication::Authentication(const folly::fbstring &authUrl,

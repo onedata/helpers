@@ -30,6 +30,11 @@ constexpr auto MAX_OBJECT_ID_DIGITS = 6;
  */
 class KeyValueHelper {
 public:
+    KeyValueHelper(const bool randomAccess = false)
+        : m_randomAccess{randomAccess}
+    {
+    }
+
     virtual ~KeyValueHelper() = default;
 
     /**
@@ -71,20 +76,15 @@ public:
         const off_t offset, const std::size_t size) = 0;
 
     /**
-     * @param prefix Arbitrary sequence of characters that provides namespace.
-     * @param objectSize Maximal size of a single object.
-     * @return Size of all object in given namespace.
-     */
-    virtual off_t getObjectsSize(
-        const folly::fbstring &prefix, const std::size_t objectSize) = 0;
-
-    /**
      * @param key Sequence of characters identifying value on the storage.
      * @param buf Buffer containing bytes of an object to be stored.
+     * @param offset Write the object contents starting at offset. Only
+     *               applicable to object storages which allow writing to
+     *               objects at specific offsets.
      * @return Number of bytes that has been successfully saved on the storage.
      */
-    virtual std::size_t putObject(
-        const folly::fbstring &key, folly::IOBufQueue buf) = 0;
+    virtual std::size_t putObject(const folly::fbstring &key,
+        folly::IOBufQueue buf, const std::size_t offset = 0) = 0;
 
     /**
      * @param keys Vector of keys of objects to be deleted.
@@ -92,14 +92,9 @@ public:
     virtual void deleteObjects(
         const folly::fbvector<folly::fbstring> &keys) = 0;
 
-    /**
-     * @param prefix Arbitrary sequence of characters that provides namespace.
-     * @return Vector of keys of objects in given namespace.
-     */
-    virtual folly::fbvector<folly::fbstring> listObjects(
-        const folly::fbstring &prefix) = 0;
-
     virtual const Timeout &timeout() = 0;
+
+    bool hasRandomAccess() const { return m_randomAccess; }
 
 protected:
     std::string adjustPrefix(const folly::fbstring &prefix) const
@@ -118,6 +113,9 @@ protected:
         return "bytes=" + std::to_string(lower) + RANGE_DELIMITER +
             std::to_string(upper);
     }
+
+private:
+    const bool m_randomAccess;
 };
 
 } // namespace helpers
