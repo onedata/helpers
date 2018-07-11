@@ -17,6 +17,7 @@
 
 #if WITH_CEPH
 #include "cephHelper.h"
+#include "cephRadosHelper.h"
 #endif
 
 #if WITH_S3
@@ -38,7 +39,7 @@ namespace helpers {
 
 StorageHelperCreator::StorageHelperCreator(
 #if WITH_CEPH
-    asio::io_service &cephService,
+    asio::io_service &cephService, asio::io_service &cephRadosService,
 #endif
     asio::io_service &dioService,
 #if WITH_S3
@@ -56,6 +57,7 @@ StorageHelperCreator::StorageHelperCreator(
     :
 #if WITH_CEPH
     m_cephService{cephService}
+    , m_cephRadosService{cephRadosService}
     ,
 #endif
     m_dioService{dioService}
@@ -82,7 +84,7 @@ StorageHelperCreator::StorageHelperCreator(
 
 StorageHelperCreator::StorageHelperCreator(
 #if WITH_CEPH
-    asio::io_service &cephService,
+    asio::io_service &cephService, asio::io_service &cephRadosService,
 #endif
     asio::io_service &dioService,
 #if WITH_S3
@@ -99,6 +101,7 @@ StorageHelperCreator::StorageHelperCreator(
     :
 #if WITH_CEPH
     m_cephService{cephService}
+    , m_cephRadosService{cephRadosService}
     ,
 #endif
     m_dioService{dioService}
@@ -139,6 +142,10 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #if WITH_CEPH
     if (name == CEPH_HELPER_NAME)
         helper = CephHelperFactory{m_cephService}.createStorageHelper(args);
+
+    if (name == CEPHRADOS_HELPER_NAME)
+        helper = CephRadosHelperFactory{m_cephRadosService}.createStorageHelper(
+            args);
 #endif
 
 #ifdef BUILD_PROXY_IO
