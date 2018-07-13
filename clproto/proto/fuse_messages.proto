@@ -165,10 +165,12 @@ message Truncate {
 message SynchronizeBlock {
     required FileBlock block    = 1;
     optional bool      prefetch = 2 [default = true];
+    optional int32     priority = 3 [default = 100];
 }
 
 message SynchronizeBlockAndComputeChecksum {
     required FileBlock block = 1;
+    optional int32     priority = 2 [default = 100];
 }
 
 message Xattr {
