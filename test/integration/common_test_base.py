@@ -164,6 +164,7 @@ def test_read_should_read_data_with_holes(helper, file_id):
     assert helper.read(file_id, 0, block_num * block_size) == ''.join(data)
 
 
+@pytest.mark.skip(reason="Not supported for object storages")
 def test_read_should_not_read_after_end_of_file(helper, file_id):
     data = random_str()
     offset = random_int()
@@ -188,16 +189,18 @@ def test_unlink_should_delete_empty_data(helper, file_id):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    helper.unlink(file_id)
+    helper.unlink(file_id, offset+len(data))
 
 
+@pytest.mark.skip(reason="Not supported for object storages")
 def test_truncate_should_decrease_file_size(helper, file_id):
     data = random_str()
 
     assert helper.write(file_id, data, 0) == len(data)
     for size in range(len(data) - 1, -1, -1):
-        helper.truncate(file_id, size)
-        assert helper.read(file_id, 0, size + 1) == data[:size]
+        helper.truncate(file_id, size, size+1)
+        assert (helper.read(file_id, 0, size + 1) == data[:size]) \
+                or (helper.read(file_id, 0, size + 1) == data[:size]+'\0'*(len(data)-size-1))
 
 
 def test_truncate_should_increase_file_size(helper, file_id):
@@ -208,5 +211,5 @@ def test_truncate_should_increase_file_size(helper, file_id):
     data += '\0' * (file_size - len(data))
 
     for size in range(len(data), file_size):
-        helper.truncate(file_id, size)
+        helper.truncate(file_id, size, size-1)
         assert helper.read(file_id, 0, size + 1) == data[:size]

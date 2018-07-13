@@ -103,8 +103,8 @@ def test_rmdir_should_remove_directory(helper, file_id):
         helper.rmdir(dir_id)
     assert 'Directory not empty' in str(excinfo.value)
 
-    helper.unlink(dir_id+"/"+file1_id)
-    helper.unlink(dir_id+"/"+file2_id)
+    helper.unlink(dir_id+"/"+file1_id, 0)
+    helper.unlink(dir_id+"/"+file2_id, 0)
 
     with pytest.raises(RuntimeError) as excinfo:
         helper.read(dir_id+"/"+file1_id, offset, len(data))
@@ -121,7 +121,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
 def test_unlink_should_pass_errors(helper, file_id):
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.unlink(file_id)
+        helper.unlink(file_id, 1024)
     assert 'No such file or directory' in str(excinfo.value)
 
 
@@ -131,7 +131,7 @@ def test_unlink_should_delete_file(helper, file_id):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    helper.unlink(file_id)
+    helper.unlink(file_id, len(data)+offset)
 
     with pytest.raises(RuntimeError) as excinfo:
         helper.read(file_id, offset, len(data))
@@ -245,7 +245,7 @@ def test_truncate_should_not_create_file(helper, file_id):
     size = random_int() + 1
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.truncate(file_id, size)
+        helper.truncate(file_id, size, 0)
     assert 'No such file' in str(excinfo.value)
 
 

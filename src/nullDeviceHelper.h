@@ -138,7 +138,8 @@ public:
     folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override;
 
-    folly::Future<folly::Unit> unlink(const folly::fbstring &fileId) override;
+    folly::Future<folly::Unit> unlink(
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
     folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
 
@@ -157,8 +158,8 @@ public:
     folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
         const uid_t uid, const gid_t gid) override;
 
-    folly::Future<folly::Unit> truncate(
-        const folly::fbstring &fileId, const off_t size) override;
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize) override;
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;

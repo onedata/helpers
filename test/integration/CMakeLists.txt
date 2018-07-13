@@ -45,6 +45,7 @@ file(GLOB TEST_DIRS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *_test)
 #
 if(NOT WITH_CEPH)
     list(REMOVE_ITEM TEST_DIRS  ceph_helper_test)
+    list(REMOVE_ITEM TEST_DIRS  cephrados_helper_test)
 endif(NOT WITH_CEPH)
 
 if(NOT WITH_S3)

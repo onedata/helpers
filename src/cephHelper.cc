@@ -181,7 +181,8 @@ folly::Future<FileHandlePtr> CephHelper::open(
     return folly::makeFuture(std::move(handle));
 }
 
-folly::Future<folly::Unit> CephHelper::unlink(const folly::fbstring &fileId)
+folly::Future<folly::Unit> CephHelper::unlink(
+    const folly::fbstring &fileId, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
@@ -218,7 +219,7 @@ folly::Future<folly::Unit> CephHelper::unlink(const folly::fbstring &fileId)
 }
 
 folly::Future<folly::Unit> CephHelper::truncate(
-    const folly::fbstring &fileId, off_t size)
+    const folly::fbstring &fileId, off_t size, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 

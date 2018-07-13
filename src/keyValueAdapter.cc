@@ -86,14 +86,7 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 
     return folly::via(
         m_executor.get(), [ this, offset, size, self = shared_from_this() ] {
-            const off_t fileSize =
-                m_helper->getObjectsSize(m_fileId, m_blockSize);
-
-            if (offset >= fileSize)
-                return folly::makeFuture(
-                    folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
-
-            return readBlocks(offset, size, fileSize);
+            return readBlocks(offset, size);
         });
 }
 
@@ -168,61 +161,75 @@ KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::unlink(
-    const folly::fbstring &fileId)
+    const folly::fbstring &fileId, const size_t currentSize)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(m_executor.get(), [ fileId, helper = m_helper ] {
-        try {
-            auto keys = helper->listObjects(fileId);
-            helper->deleteObjects(keys);
-        }
-        catch (const std::system_error &e) {
-            logError("unlink", e);
-            throw;
-        }
-    });
+    if (currentSize == 0)
+        return folly::makeFuture();
+
+    return folly::via(m_executor.get(),
+        [ fileId, helper = m_helper, blockSize = m_blockSize, currentSize ] {
+            try {
+                folly::fbvector<folly::fbstring> keysToDelete;
+                for (size_t objectId = 0; objectId <= (currentSize / blockSize);
+                     objectId++) {
+                    keysToDelete.emplace_back(helper->getKey(fileId, objectId));
+                }
+                helper->deleteObjects(keysToDelete);
+            }
+            catch (const std::system_error &e) {
+                logError("unlink", e);
+                throw;
+            }
+        });
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::truncate(
-    const folly::fbstring &fileId, const off_t size)
+    const folly::fbstring &fileId, const off_t size, const size_t currentSize)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
+    if (static_cast<size_t>(size) == currentSize)
+        return folly::makeFuture();
+
     return folly::via(m_executor.get(), [
-        fileId, size, helper = m_helper, locks = m_locks,
+        fileId, size, currentSize, helper = m_helper, locks = m_locks,
         defBlockSize = m_blockSize
     ] {
         try {
-            auto blockId = getBlockId(size, defBlockSize);
-            auto blockOffset = getBlockOffset(size, defBlockSize);
+            auto currentLastBlockId = getBlockId(currentSize, defBlockSize);
+            auto newLastBlockId = getBlockId(size, defBlockSize);
+            auto newLastBlockOffset = getBlockOffset(size, defBlockSize);
 
-            auto keys = helper->listObjects(fileId);
-
+            // Generate a list of objects to delete
             folly::fbvector<folly::fbstring> keysToDelete;
-            for (auto &key : keys) {
-                auto objectId = helper->getObjectId(key);
-                if (objectId > blockId ||
-                    (objectId == blockId && blockOffset == 0)) {
-                    keysToDelete.emplace_back(std::move(key));
+            for (size_t objectId = 0; objectId <= currentLastBlockId;
+                 objectId++) {
+                if ((objectId > newLastBlockId) ||
+                    ((objectId == newLastBlockId) &&
+                        (newLastBlockOffset == 0))) {
+                    keysToDelete.emplace_back(helper->getKey(fileId, objectId));
                 }
             }
 
-            auto key = helper->getKey(fileId, blockId);
-            auto blockSize = static_cast<std::size_t>(blockOffset);
+            auto key = helper->getKey(fileId, newLastBlockId);
+            auto remainderBlockSize =
+                static_cast<std::size_t>(newLastBlockOffset);
 
-            if (blockSize == 0 && blockId > 0) {
-                key = helper->getKey(fileId, blockId - 1);
-                blockSize = defBlockSize;
+            if (remainderBlockSize == 0 && newLastBlockId > 0) {
+                key = helper->getKey(fileId, newLastBlockId - 1);
+                remainderBlockSize = defBlockSize;
             }
 
-            if (blockSize > 0 || blockId > 0) {
+            if (remainderBlockSize > 0 || newLastBlockId > 0) {
                 Locks::accessor acc;
                 locks->insert(acc, key);
 
                 try {
                     auto buf = fillToSize(
-                        readBlock(helper, key, 0, blockSize), blockSize);
+                        readBlock(helper, key, 0, remainderBlockSize),
+                        remainderBlockSize);
                     helper->putObject(key, std::move(buf));
                     locks->erase(acc);
                 }
@@ -252,13 +259,11 @@ const Timeout &KeyValueAdapter::timeout()
 }
 
 folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
-    const off_t offset, const std::size_t requestedSize, const off_t fileSize)
+    const off_t offset, const std::size_t requestedSize)
 {
-    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(requestedSize)
-                << LOG_FARG(fileSize);
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(requestedSize);
 
-    const auto size =
-        std::min(requestedSize, static_cast<std::size_t>(fileSize - offset));
+    const auto size = requestedSize;
 
     if (size == 0)
         return folly::makeFuture(
@@ -338,30 +343,37 @@ void KeyValueFileHandle::writeBlock(
 
     try {
         if (buf.chainLength() != m_blockSize) {
-            auto fetchedBuf = ::readBlock(m_helper, key, 0, m_blockSize);
-
-            folly::IOBufQueue filledBuf{folly::IOBufQueue::cacheChainLength()};
-
-            if (blockOffset > 0) {
-                if (!fetchedBuf.empty())
-                    filledBuf.append(fetchedBuf.front()->clone());
-
-                if (filledBuf.chainLength() >=
-                    static_cast<std::size_t>(blockOffset))
-                    filledBuf.trimEnd(filledBuf.chainLength() - blockOffset);
-
-                filledBuf = fillToSize(std::move(filledBuf),
-                    static_cast<std::size_t>(blockOffset));
+            if (m_helper->hasRandomAccess()) {
+                m_helper->putObject(key, std::move(buf), blockOffset);
             }
+            else {
+                auto fetchedBuf = ::readBlock(m_helper, key, 0, m_blockSize);
 
-            filledBuf.append(std::move(buf));
+                folly::IOBufQueue filledBuf{
+                    folly::IOBufQueue::cacheChainLength()};
 
-            if (filledBuf.chainLength() < fetchedBuf.chainLength()) {
-                fetchedBuf.trimStart(filledBuf.chainLength());
-                filledBuf.append(std::move(fetchedBuf));
+                if (blockOffset > 0) {
+                    if (!fetchedBuf.empty())
+                        filledBuf.append(fetchedBuf.front()->clone());
+
+                    if (filledBuf.chainLength() >=
+                        static_cast<std::size_t>(blockOffset))
+                        filledBuf.trimEnd(
+                            filledBuf.chainLength() - blockOffset);
+
+                    filledBuf = fillToSize(std::move(filledBuf),
+                        static_cast<std::size_t>(blockOffset));
+                }
+
+                filledBuf.append(std::move(buf));
+
+                if (filledBuf.chainLength() < fetchedBuf.chainLength()) {
+                    fetchedBuf.trimStart(filledBuf.chainLength());
+                    filledBuf.append(std::move(fetchedBuf));
+                }
+
+                m_helper->putObject(key, std::move(filledBuf));
             }
-
-            m_helper->putObject(key, std::move(filledBuf));
         }
         else {
             m_helper->putObject(key, std::move(buf));

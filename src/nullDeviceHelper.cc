@@ -463,7 +463,7 @@ folly::Future<folly::Unit> NullDeviceHelper::mkdir(
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::unlink(
-    const folly::fbstring &fileId)
+    const folly::fbstring &fileId, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
@@ -571,7 +571,8 @@ folly::Future<folly::Unit> NullDeviceHelper::chown(
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::truncate(
-    const folly::fbstring &fileId, const off_t size)
+    const folly::fbstring &fileId, const off_t size,
+    const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
