@@ -74,6 +74,8 @@ public:
 
     std::size_t writtenBytes() const { return m_writtenBytes.load(); }
 
+    bool isConcurrencyEnabled() const override { return true; }
+
 private:
     std::shared_ptr<NullDeviceHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;

@@ -66,46 +66,6 @@ static inline int setfsgid(gid_t gid)
 #endif
 
 namespace {
-#if defined(__linux__) || defined(__APPLE__)
-class UserCtxSetter {
-public:
-    UserCtxSetter(const uid_t uid, const gid_t gid)
-        : m_uid{uid}
-        , m_gid{gid}
-        , m_prevUid{static_cast<uid_t>(setfsuid(uid))}
-        , m_prevGid{static_cast<gid_t>(setfsgid(gid))}
-        , m_currUid{static_cast<uid_t>(setfsuid(-1))}
-        , m_currGid{static_cast<gid_t>(setfsgid(-1))}
-    {
-    }
-
-    ~UserCtxSetter()
-    {
-        setfsuid(m_prevUid);
-        setfsgid(m_prevGid);
-    }
-
-    bool valid() const
-    {
-        return (m_uid == static_cast<uid_t>(-1) || m_currUid == m_uid) &&
-            (m_gid == static_cast<gid_t>(-1) || m_currGid == m_gid);
-    }
-
-private:
-    const uid_t m_uid;
-    const gid_t m_gid;
-    const uid_t m_prevUid;
-    const gid_t m_prevGid;
-    const uid_t m_currUid;
-    const gid_t m_currGid;
-};
-#else
-struct UserCtxSetter {
-public:
-    UserCtxSetter(const int, const int) {}
-    bool valid() const { return true; }
-};
-#endif
 
 // Retry only in case one of these errors occured
 const std::set<int> POSIX_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
@@ -135,6 +95,20 @@ inline bool POSIXRetryCondition(int result, const std::string &operation)
 }
 
 template <typename... Args1, typename... Args2>
+inline void setResult(folly::Promise<folly::Unit> &promise,
+    const std::string &operation, int (*fun)(Args2...), Args1 &&... args)
+{
+    auto ret =
+        one::helpers::retry([&]() { return fun(std::forward<Args1>(args)...); },
+            std::bind(POSIXRetryCondition, std::placeholders::_1, operation));
+
+    if (ret < 0)
+        promise.setException(one::helpers::makePosixException(errno));
+    else
+        promise.setValue();
+}
+
+template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setResult(
     const std::string &operation, int (*fun)(Args2...), Args1 &&... args)
 {
@@ -155,6 +129,44 @@ namespace helpers {
 
 using namespace std::placeholders;
 
+#if defined(__linux__) || defined(__APPLE__)
+UserCtxSetter::UserCtxSetter(const uid_t uid, const gid_t gid)
+    : m_uid{uid}
+    , m_gid{gid}
+    , m_prevUid{static_cast<uid_t>(setfsuid(uid))}
+    , m_prevGid{static_cast<gid_t>(setfsgid(gid))}
+    , m_currUid{static_cast<uid_t>(setfsuid(-1))}
+    , m_currGid{static_cast<gid_t>(setfsgid(-1))}
+{
+}
+
+UserCtxSetter::~UserCtxSetter()
+{
+    setfsuid(m_prevUid);
+    setfsgid(m_prevGid);
+}
+
+bool UserCtxSetter::valid() const
+{
+    return (m_uid == static_cast<uid_t>(-1) || m_currUid == m_uid) &&
+        (m_gid == static_cast<gid_t>(-1) || m_currGid == m_gid);
+}
+#else
+UserCtxSetter::UserCtxSetter(const int, const int) {}
+UserCtxSetter::~UserCtxSetter() {}
+bool UserCtxSetter::valid() const { return true; }
+#endif
+
+std::shared_ptr<PosixFileHandle> PosixFileHandle::create(folly::fbstring fileId,
+    const uid_t uid, const gid_t gid, const int fileHandle,
+    std::shared_ptr<folly::Executor> executor, Timeout timeout)
+{
+    auto ptr = std::shared_ptr<PosixFileHandle>(new PosixFileHandle(
+        std::move(fileId), uid, gid, fileHandle, std::move(executor), timeout));
+    ptr->initOpScheduler(ptr);
+    return ptr;
+}
+
 PosixFileHandle::PosixFileHandle(folly::fbstring fileId, const uid_t uid,
     const gid_t gid, const int fileHandle,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
@@ -167,6 +179,13 @@ PosixFileHandle::PosixFileHandle(folly::fbstring fileId, const uid_t uid,
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid)
                 << LOG_FARG(fileHandle);
+}
+
+void PosixFileHandle::initOpScheduler(std::shared_ptr<PosixFileHandle> self)
+{
+    assert(self.get() == this);
+    opScheduler = FlatOpScheduler<HandleOp, OpExec>::create(
+        m_executor, std::make_shared<OpExec>(self));
 }
 
 PosixFileHandle::~PosixFileHandle()
@@ -189,99 +208,190 @@ PosixFileHandle::~PosixFileHandle()
     }
 }
 
+PosixFileHandle::OpExec::OpExec(std::shared_ptr<PosixFileHandle> handle)
+    : m_handle{handle}
+{
+}
+
+std::unique_ptr<UserCtxSetter> PosixFileHandle::OpExec::startDrain()
+{
+    if (auto handle = m_handle.lock()) {
+        auto userCtx =
+            std::make_unique<UserCtxSetter>(handle->m_uid, handle->m_gid);
+        m_validCtx = userCtx->valid();
+        return userCtx;
+    }
+
+    return std::unique_ptr<UserCtxSetter>{nullptr};
+}
+
+void PosixFileHandle::OpExec::operator()(ReadOp &op) const
+{
+    if (!m_validCtx) {
+        op.promise.setException(makePosixException(EDOM));
+        return;
+    }
+
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
+
+    folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+
+    void *data = buf.preallocate(op.size, op.size).first;
+
+    LOG_DBG(2) << "Attempting to read " << op.size << " bytes at offset "
+               << op.offset << " from file " << handle->m_fileId;
+
+    auto res =
+        retry([&]() { return ::pread(handle->m_fh, data, op.size, op.offset); },
+            std::bind(POSIXRetryCondition, _1, "pread"));
+
+    if (res == -1) {
+        LOG_DBG(1) << "Reading from file " << handle->m_fileId
+                   << " failed with error " << errno;
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.read");
+        op.promise.setException(makePosixException(errno));
+        return;
+    }
+
+    buf.postallocate(res);
+
+    LOG_DBG(2) << "Read " << res << " bytes from file " << handle->m_fileId;
+
+    ONE_METRIC_TIMERCTX_STOP(op.timer, res);
+
+    op.promise.setValue(std::move(buf));
+}
+
+void PosixFileHandle::OpExec::operator()(WriteOp &op) const
+{
+    if (!m_validCtx) {
+        op.promise.setException(makePosixException(EDOM));
+        return;
+    }
+
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
+
+    auto res = ::lseek(handle->m_fh, op.offset, SEEK_SET);
+    if (res == -1) {
+        op.promise.setException(makePosixException(errno));
+        return;
+    }
+
+    if (op.buf.empty()) {
+        op.promise.setValue(0);
+        return;
+    }
+
+    auto iov = op.buf.front()->getIov();
+    auto iov_size = iov.size();
+    auto size = 0;
+
+    LOG_DBG(2) << "Attempting to write " << op.buf.chainLength()
+               << " bytes at offset " << op.offset << " to file "
+               << handle->m_fileId;
+
+    for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
+        res = retry(
+            [&]() {
+                return ::writev(handle->m_fh, iov.data() + iov_off,
+                    std::min<std::size_t>(IOV_MAX, iov_size - iov_off));
+            },
+            [](int result) { return result != -1; });
+
+        if (res == -1) {
+            LOG_DBG(1) << "Writing to file " << handle->m_fileId
+                       << " failed with error " << errno;
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.write");
+            op.promise.setException(makePosixException(errno));
+            return;
+        }
+        size += res;
+    }
+
+    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId;
+
+    ONE_METRIC_TIMERCTX_STOP(op.timer, size);
+
+    op.promise.setValue(size);
+}
+
+void PosixFileHandle::OpExec::operator()(ReleaseOp &op) const
+{
+    if (!m_validCtx) {
+        op.promise.setException(makePosixException(EDOM));
+        return;
+    }
+
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
+
+    ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.release");
+    LOG_DBG(2) << "Closing file " << handle->m_fileId;
+    setResult(op.promise, "close", close, handle->m_fh);
+}
+
+void PosixFileHandle::OpExec::operator()(FsyncOp &op) const
+{
+    if (!m_validCtx) {
+        op.promise.setException(makePosixException(EDOM));
+        return;
+    }
+
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
+
+    ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.fsync");
+    LOG_DBG(2) << "Syncing file " << handle->m_fileId;
+    setResult(op.promise, "fsync", ::fsync, handle->m_fh);
+}
+
+void PosixFileHandle::OpExec::operator()(FlushOp &op) const
+{
+    if (!m_validCtx) {
+        op.promise.setException(makePosixException(EDOM));
+        return;
+    }
+
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
+
+    ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.flush");
+    LOG_DBG(2) << "Flushing file " << handle->m_fileId;
+    op.promise.setValue();
+}
+
 folly::Future<folly::IOBufQueue> PosixFileHandle::read(
     const off_t offset, const std::size_t size)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
-
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.posix.read");
-
-    return folly::via(m_executor.get(), [
-        offset, size, uid = m_uid, gid = m_gid, fh = m_fh, fileId = m_fileId,
-        timer = std::move(timer)
-    ] {
-        UserCtxSetter userCTX{uid, gid};
-        if (!userCTX.valid())
-            return makeFuturePosixException<folly::IOBufQueue>(EDOM);
-
-        folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-
-        void *data = buf.preallocate(size, size).first;
-
-        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
-                   << offset << " from file " << fileId;
-
-        auto res = retry([&]() { return ::pread(fh, data, size, offset); },
-            std::bind(POSIXRetryCondition, _1, "pread"));
-
-        if (res == -1) {
-            LOG_DBG(1) << "Reading from file " << fileId
-                       << " failed with error " << errno;
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.read");
-            return makeFuturePosixException<folly::IOBufQueue>(errno);
-        }
-
-        buf.postallocate(res);
-
-        LOG_DBG(2) << "Read " << res << " bytes from file " << fileId;
-
-        ONE_METRIC_TIMERCTX_STOP(timer, res);
-
-        return folly::makeFuture(std::move(buf));
-    });
+    return opScheduler->schedule(ReadOp{{}, offset, size, std::move(timer)});
 }
 
 folly::Future<std::size_t> PosixFileHandle::write(
     const off_t offset, folly::IOBufQueue buf)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
-
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.posix.write");
-    return folly::via(m_executor.get(), [
-        offset, buf = std::move(buf), uid = m_uid, gid = m_gid, fh = m_fh,
-        fileId = m_fileId, timer = std::move(timer)
-    ] {
-        UserCtxSetter userCTX{uid, gid};
-        if (!userCTX.valid())
-            return makeFuturePosixException<std::size_t>(EDOM);
-
-        auto res = ::lseek(fh, offset, SEEK_SET);
-        if (res == -1)
-            return makeFuturePosixException<std::size_t>(errno);
-
-        if (buf.empty())
-            return folly::makeFuture<std::size_t>(0);
-
-        auto iov = buf.front()->getIov();
-        auto iov_size = iov.size();
-        auto size = 0;
-
-        LOG_DBG(2) << "Attempting to write " << buf.chainLength()
-                   << " bytes at offset " << offset << " to file " << fileId;
-
-        for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
-            res = retry(
-                [&]() {
-                    return ::writev(fh, iov.data() + iov_off,
-                        std::min<std::size_t>(IOV_MAX, iov_size - iov_off));
-                },
-                [](int result) { return result != -1; });
-
-            if (res == -1) {
-                LOG_DBG(1) << "Writing to file " << fileId
-                           << " failed with error " << errno;
-                ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.write");
-                return makeFuturePosixException<std::size_t>(errno);
-            }
-            size += res;
-        }
-
-        LOG_DBG(2) << "Written " << size << " bytes to file " << fileId;
-
-        ONE_METRIC_TIMERCTX_STOP(timer, size);
-
-        return folly::makeFuture<std::size_t>(size);
-    });
+    return opScheduler->schedule(
+        WriteOp{{}, offset, std::move(buf), std::move(timer)});
 }
 
 folly::Future<folly::Unit> PosixFileHandle::release()
@@ -291,54 +401,19 @@ folly::Future<folly::Unit> PosixFileHandle::release()
     if (!m_needsRelease.exchange(false))
         return folly::makeFuture();
 
-    return folly::via(m_executor.get(),
-        [ uid = m_uid, gid = m_gid, fh = m_fh, fileId = m_fileId ] {
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.release");
-
-            UserCtxSetter userCTX{uid, gid};
-            if (!userCTX.valid())
-                return makeFuturePosixException(EDOM);
-
-            LOG_DBG(2) << "Closing file " << fileId;
-
-            return setResult("close", close, fh);
-        });
+    return opScheduler->schedule(ReleaseOp{});
 }
 
 folly::Future<folly::Unit> PosixFileHandle::flush()
 {
     LOG_FCALL();
-
-    return folly::via(
-        m_executor.get(), [ uid = m_uid, gid = m_gid, fileId = m_fileId ] {
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.flush");
-
-            UserCtxSetter userCTX{uid, gid};
-            if (!userCTX.valid())
-                return makeFuturePosixException(EDOM);
-
-            LOG_DBG(2) << "Flushing file " << fileId;
-
-            return folly::makeFuture();
-        });
+    return opScheduler->schedule(FlushOp{});
 }
 
 folly::Future<folly::Unit> PosixFileHandle::fsync(bool /*isDataSync*/)
 {
     LOG_FCALL();
-
-    return folly::via(m_executor.get(),
-        [ uid = m_uid, gid = m_gid, fh = m_fh, fileId = m_fileId ] {
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.fsync");
-
-            UserCtxSetter userCTX{uid, gid};
-            if (!userCTX.valid())
-                return makeFuturePosixException(EDOM);
-
-            LOG_DBG(2) << "Syncing file " << fileId;
-
-            return setResult("fsync", ::fsync, fh);
-        });
+    return opScheduler->schedule(FsyncOp{});
 }
 
 PosixHelper::PosixHelper(boost::filesystem::path mountPoint, const uid_t uid,
@@ -522,8 +597,8 @@ folly::Future<folly::Unit> PosixHelper::mknod(const folly::fbstring &fileId,
 
             int res;
 
-            /* On Linux this could just be 'mknod(path, mode, rdev)' but this
-               is more portable */
+            /* On Linux this could just be 'mknod(path, mode, rdev)' but
+               this is more portable */
             if (S_ISREG(mode)) {
                 res = retry(
                     [&]() {
@@ -727,8 +802,8 @@ folly::Future<FileHandlePtr> PosixHelper::open(
         if (res == -1)
             return makeFuturePosixException<FileHandlePtr>(errno);
 
-        auto handle = std::make_shared<PosixFileHandle>(std::move(fileId), uid,
-            gid, res, std::move(executor), std::move(timeout));
+        auto handle = PosixFileHandle::create(std::move(fileId), uid, gid, res,
+            std::move(executor), std::move(timeout));
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
     });
@@ -762,8 +837,8 @@ folly::Future<folly::fbstring> PosixHelper::getxattr(
                     );
                 },
                 std::bind(POSIXRetryCondition, _1, "getxattr"));
-            // If the initial buffer for xattr value was too small, try again
-            // with maximum allowed value
+            // If the initial buffer for xattr value was too small, try
+            // again with maximum allowed value
             if (res == -1 && errno == ERANGE) {
                 buf = folly::IOBuf::create(XATTR_SIZE_MAX);
                 res = retry(

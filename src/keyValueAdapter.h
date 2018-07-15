@@ -63,6 +63,8 @@ public:
 
     const Timeout &timeout() override;
 
+    bool isConcurrencyEnabled() const override { return true; }
+
 private:
     folly::Future<folly::IOBufQueue> readBlocks(
         const off_t offset, const std::size_t size);
