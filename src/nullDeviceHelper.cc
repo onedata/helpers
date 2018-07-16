@@ -33,10 +33,19 @@ inline folly::Future<folly::Unit> setResult(
     return folly::makeFuture();
 }
 
+#define SIMULATE_HANDLE_STORAGE_ISSUES(helper, name, type)                     \
+    {                                                                          \
+        if (helper->simulateTimeout(name)) {                                   \
+            op.promise.setException(makePosixException(EAGAIN));               \
+            return;                                                            \
+        }                                                                      \
+        helper->simulateLatency(name);                                         \
+    }
+
 #define SIMULATE_STORAGE_ISSUES(helper, name, type)                            \
     {                                                                          \
         if (helper->simulateTimeout(name)) {                                   \
-            return one::helpers::makeFuturePosixException<type>(EAGAIN);       \
+            throw one::helpers::makePosixException(EAGAIN);                    \
         }                                                                      \
         helper->simulateLatency(name);                                         \
     }
@@ -51,6 +60,16 @@ std::chrono::time_point<std::chrono::system_clock>
     NullDeviceHelper::m_mountTime = {};
 
 std::vector<uint8_t> NullDeviceFileHandle::nullReadBuffer = {};
+
+std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
+    folly::fbstring fileId, std::shared_ptr<NullDeviceHelper> helper,
+    std::shared_ptr<folly::Executor> executor, Timeout timeout)
+{
+    auto ptr = std::shared_ptr<NullDeviceFileHandle>(new NullDeviceFileHandle(
+        std::move(fileId), std::move(helper), std::move(executor), timeout));
+    ptr->initOpScheduler();
+    return ptr;
+}
 
 NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
     std::shared_ptr<NullDeviceHelper> helper,
@@ -67,129 +86,194 @@ NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
 
 NullDeviceFileHandle::~NullDeviceFileHandle() { LOG_FCALL(); }
 
+NullDeviceFileHandle::OpExec::OpExec(
+    std::shared_ptr<NullDeviceFileHandle> handle)
+    : m_handle{handle}
+{
+}
+
+std::unique_ptr<folly::Unit> NullDeviceFileHandle::OpExec::startDrain()
+{
+    if (auto handle = m_handle.lock()) {
+        return std::make_unique<folly::Unit>();
+    }
+
+    return std::unique_ptr<folly::Unit>{nullptr};
+}
+
+void NullDeviceFileHandle::initOpScheduler()
+{
+    auto self = shared_from_this();
+    opScheduler = FlatOpScheduler<HandleOp, OpExec>::create(
+        m_executor, std::make_shared<OpExec>(self));
+}
+
 folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
     const off_t offset, const std::size_t size)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
-
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.read");
+    return opScheduler->schedule(ReadOp{{}, offset, size, std::move(timer)});
+}
 
-    return folly::via(m_executor.get(), [
-        self = shared_from_this(), offset, size, fileId = m_fileId,
-        timer = std::move(timer), helper = m_helper
-    ] {
-        folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
+{
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
 
-        SIMULATE_STORAGE_ISSUES(helper, "read", folly::IOBufQueue)
+    const auto &size = op.size;
+    const auto &offset = op.offset;
+    const auto &fileId = handle->m_fileId;
+    auto &timer = op.timer;
+    auto &helper = handle->m_helper;
 
-        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
-                   << offset << " from file " << fileId;
+    folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
 
-        if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
-            boost::call_once(
-                [] {
-                    nullReadBuffer.reserve(
-                        NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
-                    std::fill_n(nullReadBuffer.begin(),
-                        NULL_DEVICE_HELPER_READ_PREALLOC_SIZE,
-                        NULL_DEVICE_HELPER_CHAR);
-                },
-                __nullReadBufferInitialized);
-            auto nullBuf =
-                folly::IOBuf::wrapBuffer(nullReadBuffer.data(), size);
-            buf.append(std::move(nullBuf));
-        }
-        else {
-            void *data = buf.preallocate(size, size).first;
-            memset(data, NULL_DEVICE_HELPER_CHAR, size);
-            buf.postallocate(size);
-        }
+    SIMULATE_HANDLE_STORAGE_ISSUES(helper, "read", folly::IOBufQueue)
 
-        LOG_DBG(2) << "Read " << size << " bytes from file " << fileId;
+    LOG_DBG(2) << "Attempting to read " << size << " bytes at offset " << offset
+               << " from file " << fileId;
 
-        self->m_readBytes += size;
+    if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
+        boost::call_once(
+            [] {
+                nullReadBuffer.reserve(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
+                std::fill_n(nullReadBuffer.begin(),
+                    NULL_DEVICE_HELPER_READ_PREALLOC_SIZE,
+                    NULL_DEVICE_HELPER_CHAR);
+            },
+            __nullReadBufferInitialized);
+        auto nullBuf = folly::IOBuf::wrapBuffer(nullReadBuffer.data(), size);
+        buf.append(std::move(nullBuf));
+    }
+    else {
+        void *data = buf.preallocate(size, size).first;
+        memset(data, NULL_DEVICE_HELPER_CHAR, size);
+        buf.postallocate(size);
+    }
 
-        ONE_METRIC_TIMERCTX_STOP(timer, size);
+    LOG_DBG(2) << "Read " << size << " bytes from file " << fileId;
 
-        return folly::makeFuture(std::move(buf));
-    });
+    handle->m_readBytes += size;
+
+    ONE_METRIC_TIMERCTX_STOP(timer, size);
+
+    op.promise.setValue(std::move(buf));
 }
 
 folly::Future<std::size_t> NullDeviceFileHandle::write(
     const off_t offset, folly::IOBufQueue buf)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
-
     auto timer =
         ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.write");
+    return opScheduler->schedule(
+        WriteOp{{}, offset, std::move(buf), std::move(timer)});
+}
 
-    return folly::via(m_executor.get(), [
-        self = shared_from_this(), buf = std::move(buf), fileId = m_fileId,
-        timer = std::move(timer), helper = m_helper
-    ] {
-        SIMULATE_STORAGE_ISSUES(helper, "write", std::size_t)
+void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
+{
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
 
-        std::size_t size = buf.chainLength();
+    auto &buf = op.buf;
+    const auto &fileId = handle->m_fileId;
+    auto &timer = op.timer;
+    auto &helper = handle->m_helper;
 
-        LOG_DBG(2) << "Written " << size << " bytes to file " << fileId;
+    SIMULATE_HANDLE_STORAGE_ISSUES(helper, "write", std::size_t)
 
-        self->m_writtenBytes += size;
+    std::size_t size = buf.chainLength();
 
-        ONE_METRIC_TIMERCTX_STOP(timer, size);
+    LOG_DBG(2) << "Written " << size << " bytes to file " << fileId;
 
-        return folly::makeFuture<std::size_t>(std::move(size));
-    });
+    handle->m_writtenBytes += size;
+
+    ONE_METRIC_TIMERCTX_STOP(timer, size);
+
+    op.promise.setValue(size);
+}
+
+void NullDeviceFileHandle::OpExec::operator()(ReleaseOp &op) const
+{
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
+
+    auto &helper = handle->m_helper;
+    auto &fileId = handle->m_fileId;
+
+    SIMULATE_STORAGE_ISSUES(helper, "release", folly::Unit)
+
+    ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.release");
+
+    LOG_DBG(2) << "Closing file " << fileId;
+
+    op.promise.setValue();
 }
 
 folly::Future<folly::Unit> NullDeviceFileHandle::release()
 {
     LOG_FCALL();
+    return opScheduler->schedule(ReleaseOp{});
+}
 
-    return folly::via(
-        m_executor.get(), [ fileId = m_fileId, helper = m_helper ] {
+void NullDeviceFileHandle::OpExec::operator()(FlushOp &op) const
+{
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
 
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.release");
+    auto &helper = handle->m_helper;
+    auto &fileId = handle->m_fileId;
 
-            SIMULATE_STORAGE_ISSUES(helper, "release", folly::Unit)
+    SIMULATE_STORAGE_ISSUES(helper, "flush", folly::Unit)
 
-            LOG_DBG(2) << "Closing file " << fileId;
+    LOG_DBG(2) << "Flushing file " << fileId;
 
-            return folly::makeFuture();
-        });
+    op.promise.setValue();
 }
 
 folly::Future<folly::Unit> NullDeviceFileHandle::flush()
 {
     LOG_FCALL();
+    return opScheduler->schedule(FlushOp{});
+}
 
-    return folly::via(
-        m_executor.get(), [ fileId = m_fileId, helper = m_helper ] {
+void NullDeviceFileHandle::OpExec::operator()(FsyncOp &op) const
+{
+    auto handle = m_handle.lock();
+    if (!handle) {
+        op.promise.setException(makePosixException(ECANCELED));
+        return;
+    }
 
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.flush");
+    auto &helper = handle->m_helper;
+    auto &fileId = handle->m_fileId;
 
-            SIMULATE_STORAGE_ISSUES(helper, "flush", folly::Unit)
+    ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.fsync");
 
-            LOG_DBG(2) << "Flushing file " << fileId;
+    SIMULATE_STORAGE_ISSUES(helper, "fsync", folly::Unit)
 
-            return folly::makeFuture();
-        });
+    LOG_DBG(2) << "Syncing file " << fileId;
+
+    op.promise.setValue();
 }
 
 folly::Future<folly::Unit> NullDeviceFileHandle::fsync(bool /*isDataSync*/)
 {
     LOG_FCALL();
-
-    return folly::via(
-        m_executor.get(), [ fileId = m_fileId, helper = m_helper ] {
-
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.fsync");
-
-            SIMULATE_STORAGE_ISSUES(helper, "fsync", folly::Unit)
-
-            LOG_DBG(2) << "Syncing file " << fileId;
-
-            return folly::makeFuture();
-        });
+    return opScheduler->schedule(FsyncOp{});
 }
 
 NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
@@ -233,7 +317,8 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
         },
         __nullMountTimeOnceFlag);
 
-    // Precalculate the number of entries per level and total in the filesystem
+    // Precalculate the number of entries per level and total in the
+    // filesystem
     simulatedFilesystemEntryCount();
 }
 
@@ -600,7 +685,7 @@ folly::Future<FileHandlePtr> NullDeviceHelper::open(
 
         SIMULATE_STORAGE_ISSUES(self, "open", FileHandlePtr)
 
-        auto handle = std::make_shared<NullDeviceFileHandle>(
+        auto handle = NullDeviceFileHandle::create(
             std::move(fileId), self, std::move(executor), std::move(timeout));
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
