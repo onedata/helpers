@@ -8,6 +8,7 @@
 #pragma once
 
 #include <boost/variant/apply_visitor.hpp>
+#include <folly/Executor.h>
 #include <folly/FBVector.h>
 #include <folly/SpinLock.h>
 
@@ -35,6 +36,7 @@ public:
     {
         bool shouldIDrain = false;
         auto future = op.promise.getFuture();
+
         {
             folly::SpinLockGuard guard{m_queueLock};
             m_filledQueue.emplace_back(std::forward<Op>(op));
@@ -54,19 +56,22 @@ public:
         auto raii = m_opVisitor->startDrain();
 
         while (true) {
-            m_usedQueue.clear();
             {
                 folly::SpinLockGuard guard{m_queueLock};
                 if (m_filledQueue.empty())
                     break;
 
                 m_usedQueue.swap(m_filledQueue);
+                assert(m_filledQueue.empty());
             }
 
             for (auto &op : m_usedQueue)
                 boost::apply_visitor(*m_opVisitor, op);
+
+            m_usedQueue.clear();
         }
 
+        folly::SpinLockGuard guard{m_queueLock};
         m_drainInProgress = false;
     }
 
