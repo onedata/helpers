@@ -1,3 +1,10 @@
+/**
+ * @file flatOpScheduler.h
+ * @author Konrad Zemek
+ * @copyright (C) 2018 ACK CYFRONET AGH
+ * @copyright This software is released under the MIT license cited in
+ * 'LICENSE.txt'
+ */
 #pragma once
 
 #include <boost/variant/apply_visitor.hpp>
