@@ -4,3 +4,6 @@
 [submodule "appmock"]
 	path = appmock
 	url = ../appmock.git
+[submodule "clproto"]
+	path = clproto
+	url = ../clproto.git
