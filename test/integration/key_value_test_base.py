@@ -27,22 +27,22 @@ def test_unlink_should_delete_data(helper, file_id, server):
 
     assert helper.write(file_id, data, offset) == len(data)
     assert len(server.list(file_id)) > 0
-    helper.unlink(file_id)
+    helper.unlink(file_id, offset+len(data))
     assert len(server.list(file_id)) == 0
 
 
 def test_truncate_should_create_empty_file(helper, file_id):
     for size in range(random_int(), -1, -1):
-        helper.truncate(file_id, size)
-        assert helper.read(file_id, 0, size + 1) == '\0' * size
+        helper.truncate(file_id, size, 0)
+        assert helper.read(file_id, 0, size) == '\0' * size
 
 
 def test_truncate_should_create_empty_multi_block_file(helper, file_id, server):
     blocks_num = 10
     size = blocks_num * BLOCK_SIZE
 
-    helper.truncate(file_id, size)
-    assert helper.read(file_id, 0, size + 1) == '\0' * size
+    helper.truncate(file_id, size, 0)
+    assert helper.read(file_id, 0, size + 1) == '\0' * size + '\0'
     assert len(server.list(file_id)) == 1
 
 
@@ -51,10 +51,9 @@ def test_truncate_should_pad_block(helper, file_id, server):
 
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
     assert len(server.list(file_id)) == 1
-    helper.truncate(file_id, BLOCK_SIZE)
-    assert helper.read(file_id, 0, BLOCK_SIZE + 1) == '\0' * BLOCK_SIZE
+    helper.truncate(file_id, BLOCK_SIZE, len(data)+BLOCK_SIZE)
+    assert helper.read(file_id, 0, BLOCK_SIZE + 1) == '\0' * BLOCK_SIZE + '\0'
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
-
 
 def test_truncate_should_delete_all_blocks(helper, file_id, server):
     blocks_num = 10
@@ -62,8 +61,8 @@ def test_truncate_should_delete_all_blocks(helper, file_id, server):
 
     assert helper.write(file_id, data, 0) == len(data)
     assert len(server.list(file_id)) == blocks_num
-    helper.truncate(file_id, 0)
-    assert helper.read(file_id, 0, len(data)) == ''
+    helper.truncate(file_id, 0, len(data))
+    assert helper.read(file_id, 0, len(data)) == '\0'*len(data)
     assert len(server.list(file_id)) == 0
 
 
@@ -98,4 +97,4 @@ def test_read_should_read_empty_data(helper, file_id):
     offset = random_int()
     size = random_int()
 
-    assert helper.read(file_id, offset, size) == ''
+    assert helper.read(file_id, offset, size) == '\0'*size

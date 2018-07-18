@@ -85,10 +85,11 @@ public:
     folly::Future<FileHandlePtr> open(
         const folly::fbstring &fileId, const int, const Params &) override;
 
-    folly::Future<folly::Unit> unlink(const folly::fbstring &fileId) override;
+    folly::Future<folly::Unit> unlink(
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
-    folly::Future<folly::Unit> truncate(
-        const folly::fbstring &fileId, const off_t size) override;
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev) override

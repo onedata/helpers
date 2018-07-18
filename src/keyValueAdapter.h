@@ -65,7 +65,7 @@ public:
 
 private:
     folly::Future<folly::IOBufQueue> readBlocks(
-        const off_t offset, const std::size_t size, const off_t fileSize);
+        const off_t offset, const std::size_t size);
 
     folly::IOBufQueue readBlock(const uint64_t blockId, const off_t blockOffset,
         const std::size_t size);
@@ -97,6 +97,8 @@ public:
      * @param locks Map of locks used to exclude concurrent operations on the
      * same storage block.
      * @param blockSize Size of storage block.
+     * @param randomAccess Specifies whether the underlying object storage
+     *                     provides random access read/write functionality.
      */
     KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
         std::shared_ptr<folly::Executor> executor,
@@ -106,10 +108,10 @@ public:
         const int flags, const Params &openParams) override;
 
     virtual folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId) override;
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
-    virtual folly::Future<folly::Unit> truncate(
-        const folly::fbstring &fileId, const off_t size) override;
+    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize) override;
 
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev) override

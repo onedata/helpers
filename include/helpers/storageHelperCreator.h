@@ -30,6 +30,7 @@ namespace helpers {
 
 #if WITH_CEPH
 constexpr auto CEPH_HELPER_NAME = "ceph";
+constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
 #endif
 
 constexpr auto POSIX_HELPER_NAME = "posix";
@@ -121,7 +122,7 @@ public:
 #ifdef BUILD_PROXY_IO
     StorageHelperCreator(
 #if WITH_CEPH
-        asio::io_service &cephService,
+        asio::io_service &cephService, asio::io_service &cephRadosService,
 #endif
         asio::io_service &dioService,
 #if WITH_S3
@@ -140,7 +141,7 @@ public:
 #else
     StorageHelperCreator(
 #if WITH_CEPH
-        asio::io_service &cephService,
+        asio::io_service &cephService, asio::io_service &cephRadosService,
 #endif
         asio::io_service &dioService,
 #if WITH_S3
@@ -174,6 +175,7 @@ public:
 private:
 #if WITH_CEPH
     asio::io_service &m_cephService;
+    asio::io_service &m_cephRadosService;
 #endif
     asio::io_service &m_dioService;
 #if WITH_S3

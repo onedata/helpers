@@ -91,7 +91,7 @@ def test_unlink_should_pass_errors(helper):
     file_id = random_str()
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.unlink(file_id)
+        helper.unlink(file_id, 0)
     assert 'No such file or directory' in str(excinfo.value)
 
 
@@ -101,7 +101,7 @@ def test_unlink_should_delete_data(helper):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    helper.unlink(file_id)
+    helper.unlink(file_id, offset+len(data))
 
     with pytest.raises(RuntimeError) as excinfo:
         helper.read(file_id, offset, len(data))
@@ -120,7 +120,7 @@ def test_unlink_should_delete_file_with_dangling_shared_locks(helper):
     assert helper.lock(file_id, cookie1, False) == 0
     assert helper.lock(file_id, cookie2, False) == 0
     assert helper.lock(file_id, cookie3, False) == 0
-    helper.unlink(file_id)
+    helper.unlink(file_id, offset+len(data))
 
     with pytest.raises(RuntimeError) as excinfo:
         helper.read(file_id, offset, len(data))
@@ -135,7 +135,7 @@ def test_unlink_should_delete_file_with_dangling_exclusive_lock(helper):
 
     assert helper.write(file_id, data, offset) == len(data)
     assert helper.lock(file_id, cookie, True) == 0
-    helper.unlink(file_id)
+    helper.unlink(file_id, offset+len(data))
 
     with pytest.raises(RuntimeError) as excinfo:
         helper.read(file_id, offset, len(data))
@@ -146,7 +146,7 @@ def test_truncate_should_truncate_nonexisting_file(helper):
     file_id = random_str()
     data = random_str()
 
-    helper.truncate(file_id, len(data))
+    helper.truncate(file_id, len(data), 0)
     assert len(helper.read(file_id, 0, len(data))) == len(data)
 
 
@@ -156,7 +156,7 @@ def test_truncate_should_truncate_data(helper):
     size = random_int(upper_bound=len(data))
 
     assert helper.write(file_id, data, 0) == len(data)
-    helper.truncate(file_id, size)
+    helper.truncate(file_id, size, len(data))
     assert helper.read(file_id, 0, size) == data[0:size]
 
 
@@ -172,7 +172,7 @@ def test_truncate_should_truncate_file_with_dangling_shared_locks(helper):
     assert helper.lock(file_id, cookie1, False) == 0
     assert helper.lock(file_id, cookie2, False) == 0
     assert helper.lock(file_id, cookie3, False) == 0
-    helper.truncate(file_id, size)
+    helper.truncate(file_id, size, len(data))
     assert helper.read(file_id, 0, size) == data[0:size]
 
 
@@ -184,5 +184,5 @@ def test_truncate_should_truncate_file_with_dangling_exclusive_lock(helper):
 
     assert helper.write(file_id, data, 0) == len(data)
     assert helper.lock(file_id, cookie, True) == 0
-    helper.truncate(file_id, size)
+    helper.truncate(file_id, size, len(data))
     assert helper.read(file_id, 0, size) == data[0:size]

@@ -249,7 +249,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
 @pytest.mark.remove_operations_tests
 def test_unlink_should_pass_errors(helper, file_id):
 
-    helper.unlink(file_id)
+    helper.unlink(file_id, 0)
 
 
 @pytest.mark.links_operations_tests
@@ -299,7 +299,7 @@ def test_truncate_should_not_create_file(helper, file_id):
 
     size = random_int() + 1
 
-    helper.truncate(file_id, size)
+    helper.truncate(file_id, size, 0)
 
 
 @pytest.mark.readwrite_operations_tests

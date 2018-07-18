@@ -373,7 +373,8 @@ public:
             std::make_error_code(std::errc::function_not_supported)});
     }
 
-    virtual folly::Future<folly::Unit> unlink(const folly::fbstring &fileId)
+    virtual folly::Future<folly::Unit> unlink(
+        const folly::fbstring &fileId, const size_t currentSize)
     {
         return folly::makeFuture<folly::Unit>(std::system_error{
             std::make_error_code(std::errc::function_not_supported)});
@@ -420,8 +421,8 @@ public:
             std::make_error_code(std::errc::function_not_supported)});
     }
 
-    virtual folly::Future<folly::Unit> truncate(
-        const folly::fbstring &fileId, const off_t size)
+    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize)
     {
         return folly::makeFuture<folly::Unit>(std::system_error{
             std::make_error_code(std::errc::function_not_supported)});

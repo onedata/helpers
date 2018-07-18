@@ -98,16 +98,10 @@ public:
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
 
-    off_t getObjectsSize(
-        const folly::fbstring &prefix, const std::size_t objectSize) override;
-
-    std::size_t putObject(
-        const folly::fbstring &key, folly::IOBufQueue buf) override;
+    std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
+        const std::size_t offset = 0) override;
 
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
-
-    folly::fbvector<folly::fbstring> listObjects(
-        const folly::fbstring &prefix) override;
 
     const Timeout &timeout() override { return m_timeout; }
 
