@@ -1,26 +1,26 @@
 /**
- * @file s3HelperProxy.cc
- * @author Krzysztof Trzepla
+ * @file cephRadosHelperProxy.cc
+ * @author Bartek Kryza
  * @copyright (C) 2015 ACK CYFRONET AGH
  * @copyright This software is released under the MIT license cited in
  * 'LICENSE.txt'
  */
 
+#include "cephRadosHelper.h"
 #include "communication/etls/utils.h"
-#include "keyValueAdapter.h"
-#include "s3Helper.h"
 
 #include <asio/buffer.hpp>
 #include <asio/io_service.hpp>
 #include <asio/ts/executor.hpp>
-#include <aws/s3/S3Client.h>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
+#include <boost/python/extract.hpp>
+#include <boost/python/raw_function.hpp>
 
-#include <algorithm>
+#include <chrono>
+#include <future>
+#include <string>
 #include <thread>
-#include <unordered_map>
-#include <vector>
 
 using namespace boost::python;
 
@@ -35,22 +35,21 @@ private:
     std::unique_ptr<PyThreadState, decltype(&PyEval_RestoreThread)> threadState;
 };
 
-class S3HelperProxy {
+class CephRadosHelperProxy {
 public:
-    S3HelperProxy(std::string scheme, std::string hostName,
-        std::string bucketName, std::string accessKey, std::string secretKey,
-        int threadNumber, std::size_t blockSize)
+    CephRadosHelperProxy(std::string monHost, std::string username,
+        std::string key, std::string poolName, int threadNumber,
+        std::size_t blockSize)
         : m_service{threadNumber}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::S3Helper>(std::move(hostName),
-                  std::move(bucketName), std::move(accessKey),
-                  std::move(secretKey), scheme == "https"),
+              std::make_shared<one::helpers::CephRadosHelper>(
+                  "ceph", monHost, poolName, username, key),
               std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {
-                one::communication::etls::utils::nameThread("S3HelperProxy");
+                one::communication::etls::utils::nameThread("CRHProxy");
                 m_service.run();
             }};
 
@@ -58,7 +57,7 @@ public:
         });
     }
 
-    ~S3HelperProxy()
+    ~CephRadosHelperProxy()
     {
         m_service.stop();
         for (auto &t : m_workers)
@@ -84,14 +83,14 @@ public:
             .get();
     }
 
-    std::size_t write(std::string fileId, std::string data, int offset)
+    int write(std::string fileId, std::string data, int offset)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
             .then([&](one::helpers::FileHandlePtr handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
-                return handle->write(offset, std::move(buf));
+                return handle->write(offset, std::move(buf)).get();
             })
             .get();
     }
@@ -110,22 +109,23 @@ private:
 };
 
 namespace {
-boost::shared_ptr<S3HelperProxy> create(std::string scheme,
-    std::string hostName, std::string bucketName, std::string accessKey,
-    std::string secretKey, std::size_t threadNumber, std::size_t blockSize)
+boost::shared_ptr<CephRadosHelperProxy> create(std::string monHost,
+    std::string username, std::string key, std::string poolName,
+    std::size_t threadNumber, std::size_t blockSize)
 {
-    return boost::make_shared<S3HelperProxy>(std::move(scheme),
-        std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize);
+    return boost::make_shared<CephRadosHelperProxy>(std::move(monHost),
+        std::move(username), std::move(key), std::move(poolName), threadNumber,
+        blockSize);
 }
-}
+} // namespace
 
-BOOST_PYTHON_MODULE(s3_helper)
+BOOST_PYTHON_MODULE(cephrados_helper)
 {
-    class_<S3HelperProxy, boost::noncopyable>("S3HelperProxy", no_init)
+    class_<CephRadosHelperProxy, boost::noncopyable>(
+        "CephRadosHelperProxy", no_init)
         .def("__init__", make_constructor(create))
-        .def("unlink", &S3HelperProxy::unlink)
-        .def("read", &S3HelperProxy::read)
-        .def("write", &S3HelperProxy::write)
-        .def("truncate", &S3HelperProxy::truncate);
+        .def("unlink", &CephRadosHelperProxy::unlink)
+        .def("read", &CephRadosHelperProxy::read)
+        .def("write", &CephRadosHelperProxy::write)
+        .def("truncate", &CephRadosHelperProxy::truncate);
 }

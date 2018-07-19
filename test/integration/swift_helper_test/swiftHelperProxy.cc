@@ -66,10 +66,10 @@ public:
             t.join();
     }
 
-    void unlink(std::string fileId)
+    void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
-        m_helper->unlink(fileId).get();
+        m_helper->unlink(fileId, size).get();
     }
 
     std::string read(std::string fileId, int offset, int size)
@@ -97,10 +97,10 @@ public:
             .get();
     }
 
-    void truncate(std::string fileId, int offset)
+    void truncate(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
-        m_helper->truncate(fileId, offset).get();
+        m_helper->truncate(fileId, offset, size).get();
     }
 
 private:

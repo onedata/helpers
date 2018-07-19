@@ -137,13 +137,13 @@ public:
     void unlink(std::string fileId)
     {
         ReleaseGIL guard;
-        m_helper.unlink(fileId).get();
+        m_helper.unlink(fileId, 0).get();
     }
 
     void truncate(std::string fileId, int offset)
     {
         ReleaseGIL guard;
-        m_helper.truncate(fileId, offset).get();
+        m_helper.truncate(fileId, offset, 0).get();
     }
 
 private:

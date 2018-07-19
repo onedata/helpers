@@ -209,11 +209,12 @@ public:
         return m_helper->mkdir(fileId, mode);
     }
 
-    folly::Future<folly::Unit> unlink(const folly::fbstring &fileId) override
+    folly::Future<folly::Unit> unlink(
+        const folly::fbstring &fileId, const size_t currentSize) override
     {
-        LOG_FCALL() << LOG_FARG(fileId);
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(currentSize);
 
-        return m_helper->unlink(fileId);
+        return m_helper->unlink(fileId, currentSize);
     }
 
     folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override
@@ -263,12 +264,13 @@ public:
         return m_helper->chown(fileId, uid, gid);
     }
 
-    folly::Future<folly::Unit> truncate(
-        const folly::fbstring &fileId, const off_t size) override
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize) override
     {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size)
+                    << LOG_FARG(currentSize);
 
-        return m_helper->truncate(fileId, size);
+        return m_helper->truncate(fileId, size, currentSize);
     }
 
     folly::Future<folly::fbstring> getxattr(

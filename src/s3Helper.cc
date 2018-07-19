@@ -221,41 +221,12 @@ folly::IOBufQueue S3Helper::getObject(
     return buf;
 }
 
-off_t S3Helper::getObjectsSize(
-    const folly::fbstring &prefix, const std::size_t objectSize)
-{
-    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(objectSize);
-
-    Aws::S3::Model::ListObjectsRequest request;
-    request.SetBucket(m_bucket.c_str());
-    request.SetPrefix(adjustPrefix(prefix).c_str());
-    request.SetDelimiter(OBJECT_DELIMITER);
-    request.SetMaxKeys(1);
-
-    LOG_DBG(2) << "Attempting to get size of object at prefix " << prefix;
-
-    auto outcome = retry([&, request = std::move(request) ]() {
-        return m_client->ListObjects(request);
-    },
-        std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>, _1,
-            "ListObjects"));
-
-    throwOnError("ListObjects", outcome);
-
-    if (outcome.GetResult().GetContents().empty())
-        return 0;
-
-    auto key = folly::fbstring(
-        outcome.GetResult().GetContents().back().GetKey().c_str());
-
-    return getObjectId(std::move(key)) * objectSize +
-        outcome.GetResult().GetContents().back().GetSize();
-}
-
 std::size_t S3Helper::putObject(
-    const folly::fbstring &key, folly::IOBufQueue buf)
+    const folly::fbstring &key, folly::IOBufQueue buf, const std::size_t offset)
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
+
+    assert(offset == 0);
 
     auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
     if (iobuf->isChained()) {
@@ -328,48 +299,5 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         throwOnError("DeleteObjects", outcome);
     }
 }
-
-folly::fbvector<folly::fbstring> S3Helper::listObjects(
-    const folly::fbstring &prefix)
-{
-    LOG_FCALL() << LOG_FARG(prefix);
-
-    Aws::S3::Model::ListObjectsRequest request;
-    request.SetBucket(m_bucket.c_str());
-    request.SetPrefix(adjustPrefix(prefix).c_str());
-    request.SetDelimiter(OBJECT_DELIMITER);
-
-    folly::fbvector<folly::fbstring> keys;
-
-    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.listobjects");
-
-    LOG_DBG(2) << "Retrieving object list for prefix " << prefix;
-
-    while (true) {
-        auto outcome = retry([&, request = std::move(request) ]() {
-            return m_client->ListObjects(request);
-        },
-            std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>, _1,
-                "ListObjects"));
-
-        throwOnError("ListObjects", outcome);
-
-        for (const auto &object : outcome.GetResult().GetContents())
-            keys.emplace_back(object.GetKey().c_str());
-
-        if (!outcome.GetResult().GetIsTruncated())
-            return keys;
-
-        request.SetMarker(outcome.GetResult().GetNextMarker());
-    }
-
-    ONE_METRIC_TIMERCTX_STOP(timer, keys.size());
-
-    LOG_DBG(2) << "Got object list at prefix " << prefix << ": "
-               << LOG_VEC(keys);
-
-    return keys;
-}
-
 } // namespace helpers
 } // namespace one

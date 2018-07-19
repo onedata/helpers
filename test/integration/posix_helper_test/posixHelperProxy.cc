@@ -163,10 +163,10 @@ public:
         m_helper->mkdir(fileId, mode).get();
     }
 
-    void unlink(std::string fileId)
+    void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
-        m_helper->unlink(fileId).get();
+        m_helper->unlink(fileId, size).get();
     }
 
     void rmdir(std::string fileId)
@@ -205,10 +205,10 @@ public:
         m_helper->chown(fileId, uid, gid).get();
     }
 
-    void truncate(std::string fileId, int offset)
+    void truncate(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
-        m_helper->truncate(fileId, offset).get();
+        m_helper->truncate(fileId, offset, size).get();
     }
 
     std::string getxattr(std::string fileId, std::string name)
