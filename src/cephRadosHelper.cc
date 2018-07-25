@@ -107,13 +107,17 @@ folly::IOBufQueue CephRadosHelper::getObject(
 
     auto ret = retry(
         [&, this]() {
-            return m_ioCTX.read(key.toStdString(), data, size, offset);
+            return m_ctx.get()->ioCTX.read(
+                key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "GetObject"));
 
     // Treat non-existent object as empty read
-    if (ret == -ENOENT)
+    if (ret == -ENOENT) {
+        LOG_DBG(2) << "Failed reading object " << key
+                   << " - object does not exist.";
         ret = 0;
+    }
 
     if (ret < 0) {
         LOG_DBG(1) << "Reading from object " << key << " failed with error "
@@ -150,7 +154,10 @@ std::size_t CephRadosHelper::putObject(
     LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
 
     auto ret = retry(
-        [&]() { return m_ioCTX.write(key.toStdString(), data, size, offset); },
+        [&]() {
+            return m_ctx.get()->ioCTX.write(
+                key.toStdString(), data, size, offset);
+        },
         std::bind(CephRadosRetryCondition, _1, "PutObject"));
 
     ONE_METRIC_TIMERCTX_STOP(timer, size);
@@ -176,13 +183,16 @@ void CephRadosHelper::deleteObjects(
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
         for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
-            auto ret =
-                retry([&]() { return m_ioCTX.remove(key.toStdString()); },
-                    std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
+            auto ret = retry(
+                [&]() { return m_ctx.get()->ioCTX.remove(key.toStdString()); },
+                std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
 
             // Ignore non-existent object errors
-            if (ret == -ENOENT)
+            if (ret == -ENOENT) {
+                LOG_DBG(2) << "Failed removing object " << key
+                           << " - object does not exist.";
                 ret = 0;
+            }
 
             if (ret < 0)
                 throwOnError("RemoveObject", ret);
@@ -194,41 +204,43 @@ void CephRadosHelper::connect()
 {
     std::lock_guard<std::mutex> guard{m_connectionMutex};
 
-    if (m_connected)
+    if (m_ctx.get()->connected)
         return;
 
-    int ret = m_cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
+    int ret = m_ctx.get()->cluster.init2(
+        m_userName.c_str(), m_clusterName.c_str(), 0);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't initialize the cluster handle.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_cluster.conf_set("mon host", m_monHost.c_str());
+    ret = m_ctx.get()->cluster.conf_set("mon host", m_monHost.c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set monitor host configuration "
                       "variable.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_cluster.conf_set("key", m_key.c_str());
+    ret = m_ctx.get()->cluster.conf_set("key", m_key.c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set key configuration variable.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_cluster.connect();
+    ret = m_ctx.get()->cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_cluster.ioctx_create(m_poolName.c_str(), m_ioCTX);
+    ret = m_ctx.get()->cluster.ioctx_create(
+        m_poolName.c_str(), m_ctx.get()->ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    m_connected = true;
+    m_ctx.get()->connected = true;
 }
 } // namespace helpers
 } // namespace one
