@@ -13,6 +13,7 @@
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
 
+#include <folly/ThreadLocal.h>
 #include <rados/librados.hpp>
 
 #include <map>
@@ -60,6 +61,12 @@ private:
     asio::io_service &m_service;
 };
 
+struct CephRadosCtx {
+    librados::IoCtx ioCTX;
+    bool connected = false;
+    librados::Rados cluster;
+};
+
 /**
  * The CephRadosHelper class provides access to Ceph object storage directly
  * using the RADOS API.
@@ -100,10 +107,8 @@ private:
 
     Timeout m_timeout;
 
-    librados::Rados m_cluster;
-    librados::IoCtx m_ioCTX;
     std::mutex m_connectionMutex;
-    bool m_connected = false;
+    folly::ThreadLocal<CephRadosCtx> m_ctx;
 };
 } // namespace helpers
 } // namespace one
