@@ -6,6 +6,9 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
 import sys
+import threading
+import random
+from Queue import Queue, Empty
 
 import pytest
 
@@ -18,6 +21,7 @@ from cephrados_helper import CephRadosHelperProxy
 from key_value_test_base import *
 from io_perf_test_base import *
 
+VALIDATE_PATTERN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"*20
 
 @pytest.fixture(scope='module')
 def server(request):
@@ -60,3 +64,43 @@ def server(request):
 def helper(server):
     return CephRadosHelperProxy(server.mon_host, server.username, server.key,
                            server.pool_name, THREAD_NUMBER, BLOCK_SIZE)
+
+
+def read_and_validate_block(h, results, file_id, iteration_count, offset_range):
+    for _ in range(iteration_count):
+        offset = random.randint(0, offset_range)
+        moff = offset % len(VALIDATE_PATTERN)
+        block = h.read(file_id, offset, len(VALIDATE_PATTERN))
+        if block != VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff]:
+            results.put(block + "!=" + VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff])
+            return
+
+
+def test_multithread_read_should_work(helper, file_id):
+    blocks_num = 1024
+    data = VALIDATE_PATTERN
+    threads_num = 8
+    iteration_count = 1000
+    threads = []
+    results = Queue(threads_num)
+
+    # Prepare the test file
+    for i in range(blocks_num):
+        assert helper.write(file_id, data, i*len(data)) == len(data)
+
+    for _ in range(threads_num):
+        t = threading.Thread(target=read_and_validate_block,
+                args=(helper, results, file_id, iteration_count,
+                      len(data)*(blocks_num-1)))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    while True:
+        try:
+            res = results.get(block=False)
+            assert res == ""
+        except Empty:
+            break
