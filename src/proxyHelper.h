@@ -48,6 +48,8 @@ public:
 
     const Timeout &timeout() override { return m_timeout; }
 
+    bool isConcurrencyEnabled() const override { return true; }
+
 private:
     folly::fbstring m_storageId;
     communication::Communicator &m_communicator;

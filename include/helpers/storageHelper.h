@@ -316,6 +316,8 @@ public:
 
     virtual folly::Future<folly::Unit> flushUnderlying() { return flush(); }
 
+    virtual bool isConcurrencyEnabled() const { return false; }
+
 protected:
     folly::fbstring m_fileId;
     Params m_openParams;

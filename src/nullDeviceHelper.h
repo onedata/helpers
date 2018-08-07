@@ -12,8 +12,11 @@
 #include "helpers/storageHelper.h"
 
 #include "asioExecutor.h"
+#include "flatOpScheduler.h"
+#include "monitoring/monitoring.h"
 
 #include <asio.hpp>
+#include <boost/variant.hpp>
 #include <folly/Executor.h>
 #include <fuse.h>
 
@@ -44,7 +47,7 @@ public:
      * @param helper Shared ptr to underlying helper.
      * @param executor Executor for driving async file operations.
      */
-    NullDeviceFileHandle(folly::fbstring fileId,
+    static std::shared_ptr<NullDeviceFileHandle> create(folly::fbstring fileId,
         std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
@@ -74,9 +77,56 @@ public:
 
     std::size_t writtenBytes() const { return m_writtenBytes.load(); }
 
+    bool isConcurrencyEnabled() const override { return true; }
+
 private:
+    NullDeviceFileHandle(folly::fbstring fileId,
+        std::shared_ptr<NullDeviceHelper> helper,
+        std::shared_ptr<folly::Executor> executor,
+        Timeout timeout = ASYNC_OPS_TIMEOUT);
+
+    void initOpScheduler();
+
+    struct ReadOp {
+        folly::Promise<folly::IOBufQueue> promise;
+        off_t offset;
+        std::size_t size;
+        std::shared_ptr<cppmetrics::core::TimerContextBase> timer;
+    };
+    struct WriteOp {
+        folly::Promise<std::size_t> promise;
+        off_t offset;
+        folly::IOBufQueue buf;
+        std::shared_ptr<cppmetrics::core::TimerContextBase> timer;
+    };
+    struct FsyncOp {
+        folly::Promise<folly::Unit> promise;
+    };
+    struct FlushOp {
+        folly::Promise<folly::Unit> promise;
+    };
+    struct ReleaseOp {
+        folly::Promise<folly::Unit> promise;
+    };
+    using HandleOp =
+        boost::variant<ReadOp, WriteOp, FsyncOp, FlushOp, ReleaseOp>;
+
+    friend struct OpExec;
+    struct OpExec : public boost::static_visitor<> {
+        OpExec(std::shared_ptr<NullDeviceFileHandle>);
+        std::unique_ptr<folly::Unit> startDrain();
+        void operator()(ReadOp &) const;
+        void operator()(WriteOp &) const;
+        void operator()(FsyncOp &) const;
+        void operator()(FlushOp &) const;
+        void operator()(ReleaseOp &) const;
+        bool m_validCtx = false;
+        std::weak_ptr<NullDeviceFileHandle> m_handle;
+    };
+
     std::shared_ptr<NullDeviceHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
+    std::shared_ptr<FlatOpScheduler<HandleOp, OpExec>> opScheduler;
     Timeout m_timeout;
 
     // The total number of bytes read since the file was opened

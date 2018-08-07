@@ -12,10 +12,14 @@
 #include "helpers/storageHelper.h"
 
 #include "asioExecutor.h"
+#include "flatOpScheduler.h"
+#include "monitoring/monitoring.h"
 
 #include <asio.hpp>
 #include <boost/filesystem/path.hpp>
+#include <boost/variant.hpp>
 #include <folly/Executor.h>
+#include <folly/io/IOBufQueue.h>
 
 #include <fuse.h>
 #include <sys/types.h>
@@ -24,6 +28,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <queue>
 #include <string>
 #include <unordered_map>
 
@@ -31,6 +36,21 @@ namespace one {
 namespace helpers {
 
 constexpr auto POSIX_HELPER_MOUNT_POINT_ARG = "mountPoint";
+
+class UserCtxSetter {
+public:
+    UserCtxSetter(const uid_t uid, const gid_t gid);
+    ~UserCtxSetter();
+    bool valid() const;
+
+private:
+    const uid_t m_uid;
+    const gid_t m_gid;
+    const uid_t m_prevUid;
+    const gid_t m_prevGid;
+    const uid_t m_currUid;
+    const gid_t m_currGid;
+};
 
 /**
  * The @c FileHandle implementation for POSIX storage helper.
@@ -45,8 +65,9 @@ public:
      * @param fileHandle POSIX file descriptor for the open file.
      * @param executor Executor for driving async file operations.
      */
-    PosixFileHandle(folly::fbstring fileId, const uid_t uid, const gid_t gid,
-        const int fileHandle, std::shared_ptr<folly::Executor> executor,
+    static std::shared_ptr<PosixFileHandle> create(folly::fbstring fileId,
+        const uid_t uid, const gid_t gid, const int fileHandle,
+        std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
     /**
@@ -72,11 +93,67 @@ public:
 
     bool needsDataConsistencyCheck() override { return true; }
 
+    bool isConcurrencyEnabled() const override { return true; }
+
 private:
+    /**
+     * Constructor.
+     * @param fileId Path to the file under the root path.
+     * @param uid UserID under which the helper will work.
+     * @param gid GroupID under which the helper will work.
+     * @param fileHandle POSIX file descriptor for the open file.
+     * @param executor Executor for driving async file operations.
+     */
+    PosixFileHandle(folly::fbstring fileId, const uid_t uid, const gid_t gid,
+        const int fileHandle, std::shared_ptr<folly::Executor> executor,
+        Timeout timeout = ASYNC_OPS_TIMEOUT);
+
+    void initOpScheduler(std::shared_ptr<PosixFileHandle>);
+
     uid_t m_uid;
     gid_t m_gid;
     int m_fh;
+
+    struct ReadOp {
+        folly::Promise<folly::IOBufQueue> promise;
+        off_t offset;
+        std::size_t size;
+        std::shared_ptr<cppmetrics::core::TimerContextBase> timer;
+    };
+    struct WriteOp {
+        folly::Promise<std::size_t> promise;
+        off_t offset;
+        folly::IOBufQueue buf;
+        std::shared_ptr<cppmetrics::core::TimerContextBase> timer;
+    };
+    struct FsyncOp {
+        folly::Promise<folly::Unit> promise;
+    };
+    struct FlushOp {
+        folly::Promise<folly::Unit> promise;
+    };
+    struct ReleaseOp {
+        folly::Promise<folly::Unit> promise;
+    };
+    using HandleOp =
+        boost::variant<ReadOp, WriteOp, FsyncOp, FlushOp, ReleaseOp>;
+
+    friend struct OpExec;
+    struct OpExec : public boost::static_visitor<> {
+        OpExec(std::shared_ptr<PosixFileHandle>);
+        std::unique_ptr<UserCtxSetter> startDrain();
+        void operator()(ReadOp &) const;
+        void operator()(WriteOp &) const;
+        void operator()(FsyncOp &) const;
+        void operator()(FlushOp &) const;
+        void operator()(ReleaseOp &) const;
+        bool m_validCtx = false;
+        std::weak_ptr<PosixFileHandle> m_handle;
+    };
+
     std::shared_ptr<folly::Executor> m_executor;
+    std::shared_ptr<FlatOpScheduler<HandleOp, OpExec>> opScheduler;
+
     Timeout m_timeout;
     std::atomic_bool m_needsRelease{true};
 };
