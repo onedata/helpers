@@ -7,7 +7,6 @@
  */
 
 #include "cephRadosHelper.h"
-#include "communication/etls/utils.h"
 
 #include <asio/buffer.hpp>
 #include <asio/io_service.hpp>
@@ -16,6 +15,7 @@
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
+#include <folly/ThreadName.h>
 
 #include <chrono>
 #include <future>
@@ -49,7 +49,7 @@ public:
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {
-                one::communication::etls::utils::nameThread("CRHProxy");
+                folly::setThreadName("CRHProxy");
                 m_service.run();
             }};
 

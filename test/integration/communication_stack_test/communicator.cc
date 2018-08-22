@@ -1,5 +1,6 @@
 #include "communication/communicator.h"
 #include "communication/declarations.h"
+#include "helpers/init.h"
 #include "messages/clientHandshakeRequest.h"
 #include "messages/clientMessage.h"
 #include "messages/serverMessage.h"
@@ -109,8 +110,8 @@ class CommunicatorProxy {
 public:
     CommunicatorProxy(const std::size_t connectionsNumber,
         std::size_t workersNumber, std::string host, const unsigned short port)
-        : m_communicator{connectionsNumber, workersNumber, std::move(host),
-              port, false, createConnection}
+        : m_communicator{connectionsNumber, workersNumber, host, port, false,
+              true /*, createConnection*/}
     {
         m_communicator.setScheduler(std::make_shared<Scheduler>(1));
     }
@@ -172,6 +173,8 @@ boost::shared_ptr<CommunicatorProxy> create(
     const unsigned int connectionsNumber, const unsigned int workersNumber,
     std::string host, const unsigned short port)
 {
+    helpers::init();
+
     return boost::make_shared<CommunicatorProxy>(
         connectionsNumber, workersNumber, std::move(host), port);
 }

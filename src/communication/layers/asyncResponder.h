@@ -10,12 +10,12 @@
 #define HELPERS_COMMUNICATION_LAYERS_ASYNC_RESPONDER_H
 
 #include "communication/declarations.h"
-#include "communication/etls/utils.h"
 #include "logging.h"
 
 #include <asio/io_service.hpp>
 #include <asio/post.hpp>
 #include <asio/ts/executor.hpp>
+#include <folly/ThreadName.h>
 
 #include <functional>
 #include <memory>
@@ -76,7 +76,7 @@ template <class LowerLayer> auto AsyncResponder<LowerLayer>::connect()
 
     m_thread = std::thread{[this] {
         LOG_DBG(1) << "Creating AsyncResponder thread";
-        etls::utils::nameThread("AsyncResponder");
+        folly::setThreadName("AsyncResponder");
         m_ioService.run();
     }};
 

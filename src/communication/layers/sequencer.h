@@ -10,6 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_SEQUENCER_H
 
 #include "communication/declarations.h"
+#include "logging.h"
 #include "scheduler.h"
 
 #include <tbb/concurrent_hash_map.h>
@@ -172,7 +173,7 @@ public:
      * streams.
      * @see ConnectionPool::connect()
      */
-    auto connect();
+    void connect();
 
 private:
     void sendMessageStreamReset();
@@ -244,11 +245,11 @@ void Sequencer<LowerLayer, Scheduler>::setScheduler(
 }
 
 template <class LowerLayer, class Scheduler>
-auto Sequencer<LowerLayer, Scheduler>::connect()
+void Sequencer<LowerLayer, Scheduler>::connect()
 {
+    LowerLayer::connect();
     sendMessageStreamReset();
     schedulePeriodicMessageRequest();
-    return LowerLayer::connect();
 }
 
 template <class LowerLayer, class Scheduler>

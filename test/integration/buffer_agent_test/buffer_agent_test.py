@@ -182,7 +182,8 @@ def test_should_flush_writes_on_close(file_id, parameters, storage_id, endpoint,
     handle = helper.open(file_id, parameters)
 
     helper.write(handle, data, offset)
-    assert 0 == endpoint.all_messages_count()
+    # Account for message_stream_reset message
+    assert 0 == endpoint.all_messages_count()-1
 
     with reply(endpoint, server_message) as queue:
         helper.release(handle)
