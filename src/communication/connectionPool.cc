@@ -38,7 +38,6 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_workersNumber{workersNumber}
     , m_host{host}
     , m_port{port}
-    , m_address{m_host, m_port}
     , m_verifyServerCertificate{verifyServerCertificate}
     , m_clprotoUpgrade{clprotoUpgrade}
     , m_connected{false}
@@ -85,7 +84,9 @@ void ConnectionPool::connect()
 
     m_client->sslContext(createSSLContext());
 
-    std::string host = m_address.getAddressStr();
+    // Initialize SocketAddres from host and port provided on the command line.
+    // If necessary, DNS lookup will be performed...
+    m_address.setFromHostPort(m_host, m_port);
 
     m_client->connect(m_address)
         .then([this] {
