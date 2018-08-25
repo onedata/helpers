@@ -245,7 +245,12 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
 
     LOG_DBG(3) << "Attempting to send message of size " << message.size();
 
-    assert(m_client->getPipeline()->getTransport()->good());
+    if (!m_client->getPipeline()->getTransport()->good()) {
+        folly::via(m_executor.get(), [c = std::move(callback)]() {
+            c(std::make_error_code(std::errc::connection_aborted));
+        });
+        return;
+    }
 
     m_client->getPipeline()
         ->write(std::move(message))
@@ -270,22 +275,14 @@ void ConnectionPool::stop()
     if (!m_connected)
         return;
 
-    auto pipeline = m_client->getPipeline();
-    if (!pipeline)
-        return;
-
-    auto transport = pipeline->getTransport();
-    if (!transport)
-        return;
-
-    auto base = transport->getEventBase();
-    if (!base)
+    if (!m_client->getPipeline())
         return;
 
     m_connected = false;
 
-    base->runInEventBaseThread(
-        [this, transport]() mutable { transport->close(); });
+    folly::via(m_executor.get(),
+        [this]() mutable { return m_client->getPipeline()->close(); })
+        .get();
 
     m_executor->stop();
 }

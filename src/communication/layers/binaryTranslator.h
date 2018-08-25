@@ -106,7 +106,7 @@ auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
         LOG_DBG(2) << "Received low level message of size: " << message.size();
         auto serverMsg = std::make_unique<clproto::ServerMessage>();
         if (serverMsg->ParseFromString(message)) {
-            LOG(ERROR) << "Received clproto message: "
+            LOG_DBG(3) << "Received clproto message: "
                        << serverMsg->DebugString();
 
             if (serverMsg->has_processing_status()) {
@@ -128,7 +128,7 @@ template <class LowerLayer>
 auto BinaryTranslator<LowerLayer>::send(
     ClientMessagePtr message, Callback callback, const int retries)
 {
-    LOG(ERROR) << "Sending clproto message: " << message->DebugString();
+    LOG_DBG(33) << "Sending clproto message: " << message->DebugString();
 
     /// @todo Possible optimization point here [static thread-local string]
     return LowerLayer::send(

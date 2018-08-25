@@ -115,7 +115,6 @@ public:
      */
     virtual ~ConnectionPool();
 
-
 private:
     /**
      * Stops the @c ConnectionPool operations.
