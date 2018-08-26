@@ -16,6 +16,11 @@ namespace one {
 namespace communication {
 namespace codec {
 
+/**
+ * @c PacketEncoder is responsible for encoding messages in packet
+ * format, i.e. prepending 4-byte field length to data frames in network
+ * byte order.
+ */
 class PacketEncoder : public wangle::OutboundBytesToBytesHandler {
 public:
     explicit PacketEncoder(uint32_t lengthFieldLength = 4)

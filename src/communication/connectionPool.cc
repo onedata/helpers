@@ -72,6 +72,8 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
             ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
+    SSL_CTX_set_default_verify_paths(context->getSSLCtx());
+
     return context;
 }
 
@@ -210,6 +212,7 @@ void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
     std::function<void(std::error_code)> onHandshakeDone)
 {
     LOG_FCALL();
+
     m_pipelineFactory->setHandshake(
         getHandshake, onHandshakeResponse, onHandshakeDone);
     m_getHandshake = std::move(getHandshake);

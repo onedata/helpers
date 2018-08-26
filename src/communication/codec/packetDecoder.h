@@ -47,13 +47,16 @@ public:
             result = buf.split(messageLength);
 
             std::string data((const char *)result->data(), result->length());
-            LOG_DBG(4) << "Received packet message: " << LOG_ERL_BIN(data);
+
             return true;
         }
         else {
-            LOG_DBG(3) << "Waiting for remaining "
-                       << messageLength - buf.chainLength()
+            auto remainingBytes =
+                m_lengthFieldLength + messageLength - buf.chainLength();
+
+            LOG_DBG(3) << "Waiting for remaining " << remainingBytes
                        << " bytes of message";
+
             return false;
         }
     }

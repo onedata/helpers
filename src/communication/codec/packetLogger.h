@@ -17,6 +17,10 @@ namespace one {
 namespace communication {
 namespace codec {
 
+/**
+ * @c PacketLogger is an optional handler for the communication pipeline
+ * which allows logging of incoming and outgoing raw messages.
+ */
 class PacketLogger : public wangle::HandlerAdapter<folly::IOBufQueue &,
                          std::unique_ptr<folly::IOBuf>> {
 public:
