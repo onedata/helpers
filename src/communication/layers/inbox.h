@@ -173,10 +173,6 @@ void Inbox<LowerLayer>::communicate(
                 m_callbacks.erase(acc);
                 cb(ec, {});
             }
-            else {
-                LOG(ERROR) << "Message with id: " << messageId
-                           << " not found in inbox";
-            }
         }
     };
 
@@ -204,6 +200,8 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
         typename decltype(m_callbacks)::accessor acc;
         const bool handled = m_callbacks.find(acc, message->message_id());
 
+        std::string messageId = message->message_id();
+
         for (const auto &sub : m_subscriptions)
             if (sub.predicate(*message, handled))
                 sub.callback(*message);
@@ -216,15 +214,11 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
                 system_clock::now() - acc->second.sendTime);
 
             LOG(INFO) << "Response to message " << messageName
-                      << "(id: " << message->message_id() << ") took "
-                      << rtt.count() << " ms";
+                      << "(id: " << messageId << ") received in " << rtt.count()
+                      << " ms";
 
             m_callbacks.erase(acc);
             callback({}, std::move(message));
-        }
-        else {
-            LOG(ERROR) << "Message with id: " << message->message_id()
-                       << " not found in inbox";
         }
 
     });
