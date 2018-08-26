@@ -10,9 +10,9 @@
 #include <boost/variant/apply_visitor.hpp>
 #include <folly/Executor.h>
 #include <folly/FBVector.h>
-#include <folly/SpinLock.h>
 
 #include <memory>
+#include <mutex>
 
 namespace one {
 namespace helpers {
@@ -27,8 +27,7 @@ public:
         std::shared_ptr<folly::Executor> executor,
         std::shared_ptr<OpVisitor> opVisitor)
     {
-        return std::shared_ptr<This>(
-            new FlatOpScheduler<OpVariant, OpVisitor>{executor, opVisitor});
+        return std::shared_ptr<This>(new This{executor, opVisitor});
     }
 
     template <typename Op>
@@ -38,7 +37,7 @@ public:
         auto future = op.promise.getFuture();
 
         {
-            folly::SpinLockGuard guard{m_queueLock};
+            std::lock_guard<std::mutex> guard{m_queueMutex};
             m_filledQueue.emplace_back(std::forward<Op>(op));
             shouldIDrain = !m_drainInProgress;
             m_drainInProgress = true;
@@ -56,13 +55,14 @@ public:
         auto raii = m_opVisitor->startDrain();
 
         while (true) {
+            assert(m_usedQueue.empty());
             {
-                folly::SpinLockGuard guard{m_queueLock};
-                if (m_filledQueue.empty())
-                    break;
-
+                std::lock_guard<std::mutex> guard{m_queueMutex};
+                if (m_filledQueue.empty()) {
+                    m_drainInProgress = false;
+                    return;
+                }
                 m_usedQueue.swap(m_filledQueue);
-                assert(m_filledQueue.empty());
             }
 
             for (auto &op : m_usedQueue)
@@ -70,22 +70,19 @@ public:
 
             m_usedQueue.clear();
         }
-
-        folly::SpinLockGuard guard{m_queueLock};
-        m_drainInProgress = false;
     }
 
 private:
     FlatOpScheduler(std::shared_ptr<folly::Executor> executor,
         std::shared_ptr<OpVisitor> opVisitor)
         : m_executor{std::move(executor)}
-        , m_opVisitor{opVisitor}
+        , m_opVisitor{std::move(opVisitor)}
     {
     }
 
     std::shared_ptr<folly::Executor> m_executor;
     std::shared_ptr<OpVisitor> m_opVisitor;
-    folly::SpinLock m_queueLock;
+    std::mutex m_queueMutex;
     bool m_drainInProgress = false;
     folly::fbvector<OpVariant> m_filledQueue;
     folly::fbvector<OpVariant> m_usedQueue;
