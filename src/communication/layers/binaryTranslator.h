@@ -128,7 +128,7 @@ template <class LowerLayer>
 auto BinaryTranslator<LowerLayer>::send(
     ClientMessagePtr message, Callback callback, const int retries)
 {
-    LOG_DBG(33) << "Sending clproto message: " << message->DebugString();
+    LOG_DBG(3) << "Sending clproto message: " << message->DebugString();
 
     /// @todo Possible optimization point here [static thread-local string]
     return LowerLayer::send(

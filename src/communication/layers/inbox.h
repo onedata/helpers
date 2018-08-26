@@ -89,8 +89,13 @@ public:
     void setOnMessageCallback(std::function<void(ServerMessagePtr)>) = delete;
 
 private:
-    tbb::concurrent_hash_map<std::string, std::shared_ptr<CommunicateCallback>>
-        m_callbacks;
+    struct CommunicateCallbackData {
+        std::shared_ptr<CommunicateCallback> callback;
+        std::chrono::time_point<std::chrono::system_clock> sendTime;
+        std::string messageName;
+    };
+
+    tbb::concurrent_hash_map<std::string, CommunicateCallbackData> m_callbacks;
 
     std::uint64_t m_seed = initializeMsgIdSeed();
     /// The counter will loop after sending ~65000 messages, providing us with
@@ -112,17 +117,59 @@ void Inbox<LowerLayer>::communicate(
     {
         typename decltype(m_callbacks)::accessor acc;
         m_callbacks.insert(acc, messageId);
-        acc->second =
-            std::make_shared<CommunicateCallback>(std::move(callback));
+
+        std::string messageName{"client_message"};
+
+        if (message->has_fuse_request()) {
+            auto fuseRequest = message->fuse_request();
+            if (fuseRequest.has_file_request()) {
+                auto fileRequest = fuseRequest.file_request();
+                auto fileRequestCase = fileRequest.file_request_case();
+                messageName = "fuse_request.file_request." +
+                    fileRequest.GetDescriptor()
+                        ->FindOneofByName("file_request")
+                        ->field(fileRequestCase -
+                            one::clproto::FileRequest::FileRequestCase::
+                                kGetFileAttr)
+                        ->name() +
+                    "[" + std::to_string(fileRequestCase) + "]";
+            }
+        }
+        else if (message->GetDescriptor()->FindOneofByName("message_body")) {
+            auto messageBodyCase = message->message_body_case();
+            if (messageBodyCase) {
+                messageName =
+                    message->GetDescriptor()
+                        ->FindOneofByName("message_body")
+                        ->field(messageBodyCase -
+                            one::clproto::ClientMessage::MessageBodyCase::
+                                kClientHandshakeRequest)
+                        ->name() +
+                    "[" + std::to_string(message->message_body_case()) + "]";
+            }
+        }
+
+        acc->second = CommunicateCallbackData{
+            std::make_shared<CommunicateCallback>(std::move(callback)),
+            std::chrono::system_clock::now(), messageName};
     }
 
-    auto sendCallback =
+    auto sendErrorCallback =
         [ this, messageId = std::move(messageId) ](const std::error_code &ec)
     {
         if (ec) {
             typename decltype(m_callbacks)::accessor acc;
             if (m_callbacks.find(acc, messageId)) {
-                auto cb = std::move(*acc->second);
+                auto cb = std::move(*(acc->second.callback));
+                auto messageName = std::move(acc->second.messageName);
+                using namespace std::chrono;
+                auto rtt = duration_cast<milliseconds>(
+                    system_clock::now() - acc->second.sendTime);
+
+                LOG(INFO) << "Sending message " << messageName
+                          << "(id: " << messageId
+                          << ") failed with error: " << ec;
+
                 m_callbacks.erase(acc);
                 cb(ec, {});
             }
@@ -133,7 +180,7 @@ void Inbox<LowerLayer>::communicate(
         }
     };
 
-    LowerLayer::send(std::move(message), std::move(sendCallback), retries);
+    LowerLayer::send(std::move(message), std::move(sendErrorCallback), retries);
 }
 
 template <class LowerLayer>
@@ -162,7 +209,16 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
                 sub.callback(*message);
 
         if (handled) {
-            auto callback = std::move(*acc->second);
+            auto callback = std::move(*(acc->second.callback));
+            auto messageName = std::move(acc->second.messageName);
+            using namespace std::chrono;
+            auto rtt = duration_cast<milliseconds>(
+                system_clock::now() - acc->second.sendTime);
+
+            LOG(INFO) << "Response to message " << messageName
+                      << "(id: " << message->message_id() << ") took "
+                      << rtt.count() << " ms";
+
             m_callbacks.erase(acc);
             callback({}, std::move(message));
         }
