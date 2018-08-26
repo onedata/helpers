@@ -174,7 +174,7 @@ void Inbox<LowerLayer>::communicate(
                 cb(ec, {});
             }
             else {
-                LOG_DBG(1) << "Message with id: " << messageId
+                LOG(ERROR) << "Message with id: " << messageId
                            << " not found in inbox";
             }
         }
@@ -222,6 +222,11 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
             m_callbacks.erase(acc);
             callback({}, std::move(message));
         }
+        else {
+            LOG(ERROR) << "Message with id: " << message->message_id()
+                       << " not found in inbox";
+        }
+
     });
 
     return LowerLayer::connect();
