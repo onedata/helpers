@@ -24,12 +24,12 @@ def endpoint(appmock_client):
 
 @pytest.fixture
 def com3(endpoint):
-    return communication_stack.Communicator(3, 1, endpoint.ip, endpoint.port)
+    return communication_stack.Communicator(3, 1, endpoint.ip, endpoint.port, False)
 
 
 @pytest.fixture
 def com1(endpoint):
-    return communication_stack.Communicator(1, 1, endpoint.ip, endpoint.port)
+    return communication_stack.Communicator(1, 1, endpoint.ip, endpoint.port, True)
 
 
 @pytest.mark.performance(
@@ -48,6 +48,7 @@ def com1(endpoint):
     })
 def test_send(result, msg_num, msg_size, endpoint, com3):
     """Sends multiple messages using communicator."""
+
     com3.connect()
     msg = random_str(msg_size)
 
@@ -84,10 +85,10 @@ def test_send(result, msg_num, msg_size, endpoint, com3):
             'parameters': [Parameter.msg_num(50), Parameter.msg_size(1, 'MB')]
         }
     })
-def test_communicate(result, msg_num, msg_size, endpoint, com1):
+def test_communicate(result, msg_num, msg_size, endpoint, com3):
     """Sends multiple messages and receives replies using communicator."""
 
-    com1.connect()
+    com3.connect()
 
     endpoint.wait_for_connections(accept_more=True)
     msg = random_str(msg_size)
@@ -95,7 +96,7 @@ def test_communicate(result, msg_num, msg_size, endpoint, com1):
     communicate_time = Duration()
     for _ in xrange(msg_num):
         with measure(communicate_time):
-            request = com1.communicate(msg)
+            request = com3.communicate(msg)
 
         reply = communication_stack.prepareReply(request, msg)
 
@@ -104,7 +105,7 @@ def test_communicate(result, msg_num, msg_size, endpoint, com1):
             endpoint.send(reply)
 
         with measure(communicate_time):
-            assert reply == com1.communicateReceive()
+            assert reply == com3.communicateReceive()
 
     result.set([
         Parameter.communicate_time(communicate_time),

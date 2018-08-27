@@ -17,8 +17,13 @@ namespace codec {
 class CLProtoMessageHandler : public wangle::InboundHandler<std::string> {
 public:
     CLProtoMessageHandler(std::function<void(std::string)> onMessage)
-        : m_onMessage{onMessage}
+        : m_onMessage{std::move(onMessage)}
     {
+    }
+
+    void setEOFCallback(std::function<void(void)> eofCallback)
+    {
+        m_eofCallback = eofCallback;
     }
 
     void read(Context *, std::string msg) override { m_onMessage(msg); }
@@ -31,11 +36,14 @@ public:
 
     void readEOF(Context *ctx) override
     {
-        LOG_DBG(1) << "EOF on clproto socket - closing pipeline...";
+        LOG(ERROR) << "EOF on clproto socket - closing pipeline...";
+        if (m_eofCallback)
+            m_eofCallback();
     }
 
 private:
     std::function<void(std::string)> m_onMessage;
+    std::function<void(void)> m_eofCallback;
 };
 }
 }

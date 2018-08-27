@@ -120,32 +120,36 @@ void Inbox<LowerLayer>::communicate(
 
         std::string messageName{"client_message"};
 
-        if (message->has_fuse_request()) {
-            auto fuseRequest = message->fuse_request();
-            if (fuseRequest.has_file_request()) {
-                auto fileRequest = fuseRequest.file_request();
-                auto fileRequestCase = fileRequest.file_request_case();
-                messageName = "fuse_request.file_request." +
-                    fileRequest.GetDescriptor()
-                        ->FindOneofByName("file_request")
-                        ->field(fileRequestCase -
-                            one::clproto::FileRequest::FileRequestCase::
-                                kGetFileAttr)
-                        ->name() +
-                    "[" + std::to_string(fileRequestCase) + "]";
+        if (VLOG_IS_ON(3)) {
+            if (message->has_fuse_request()) {
+                auto fuseRequest = message->fuse_request();
+                if (fuseRequest.has_file_request()) {
+                    auto fileRequest = fuseRequest.file_request();
+                    auto fileRequestCase = fileRequest.file_request_case();
+                    messageName = "fuse_request.file_request." +
+                        fileRequest.GetDescriptor()
+                            ->FindOneofByName("file_request")
+                            ->field(fileRequestCase -
+                                one::clproto::FileRequest::FileRequestCase::
+                                    kGetFileAttr)
+                            ->name() +
+                        " [" + std::to_string(fileRequestCase) + "]";
+                }
             }
-        }
-        else if (message->GetDescriptor()->FindOneofByName("message_body")) {
-            auto messageBodyCase = message->message_body_case();
-            if (messageBodyCase) {
-                messageName =
-                    message->GetDescriptor()
-                        ->FindOneofByName("message_body")
-                        ->field(messageBodyCase -
-                            one::clproto::ClientMessage::MessageBodyCase::
-                                kClientHandshakeRequest)
-                        ->name() +
-                    "[" + std::to_string(message->message_body_case()) + "]";
+            else if (message->GetDescriptor()->FindOneofByName(
+                         "message_body")) {
+                auto messageBodyCase = message->message_body_case();
+                if (messageBodyCase) {
+                    messageName =
+                        message->GetDescriptor()
+                            ->FindOneofByName("message_body")
+                            ->field(messageBodyCase -
+                                one::clproto::ClientMessage::MessageBodyCase::
+                                    kClientHandshakeRequest)
+                            ->name() +
+                        " [" + std::to_string(message->message_body_case()) +
+                        "]";
+                }
             }
         }
 
@@ -208,19 +212,21 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
 
         if (handled) {
             auto callback = std::move(*(acc->second.callback));
-            auto messageName = std::move(acc->second.messageName);
-            using namespace std::chrono;
-            auto rtt = duration_cast<milliseconds>(
-                system_clock::now() - acc->second.sendTime);
 
-            LOG(INFO) << "Response to message " << messageName
-                      << "(id: " << messageId << ") received in " << rtt.count()
-                      << " ms";
+            if (VLOG_IS_ON(3)) {
+                auto messageName = std::move(acc->second.messageName);
+                using namespace std::chrono;
+                auto rtt = duration_cast<milliseconds>(
+                    system_clock::now() - acc->second.sendTime);
+
+                LOG_DBG(3) << "Response to message " << messageName
+                           << "(id: " << messageId << ") received in "
+                           << rtt.count() << " ms";
+            }
 
             m_callbacks.erase(acc);
             callback({}, std::move(message));
         }
-
     });
 
     return LowerLayer::connect();

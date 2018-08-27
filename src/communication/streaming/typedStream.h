@@ -163,9 +163,7 @@ template <class Communicator> void TypedStream<Communicator>::close()
 {
     LOG_FCALL();
 
-    // TODO: Move this call before desctructor so that the
-    // connection still exists
-    // send(messages::EndOfStream{});
+    send(messages::EndOfStream{});
 }
 
 template <class Communicator> void TypedStream<Communicator>::reset()

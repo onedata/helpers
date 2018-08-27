@@ -54,8 +54,8 @@ public:
                     "Invalid response from server during clproto upgrade."));
         }
         else {
-            LOG_DBG(1) << "Received valid clproto response: " << bufStringView;
-            LOG_DBG(1) << "Switching socket protocol to clproto";
+            LOG_DBG(3) << "Received valid clproto response: " << bufStringView;
+            LOG_DBG(2) << "Switching socket protocol to clproto";
 
             // Clear the buffer for consecutive clproto messages
             buf.clear();

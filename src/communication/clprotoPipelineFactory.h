@@ -41,10 +41,28 @@ using CLProtoPipeline = wangle::Pipeline<folly::IOBufQueue &, std::string>;
  */
 class CLProtoClientBootstrap : public wangle::ClientBootstrap<CLProtoPipeline> {
 public:
-    void makePipeline(std::shared_ptr<folly::AsyncSocket> socket) override
-    {
-        wangle::ClientBootstrap<CLProtoPipeline>::makePipeline(socket);
-    }
+    CLProtoClientBootstrap(const uint32_t id, const bool performCLProtoUpgrade,
+        const bool performCLProtoHandshake);
+
+    void makePipeline(std::shared_ptr<folly::AsyncSocket> socket) override;
+
+    folly::Future<folly::Unit> connect(
+        const folly::fbstring &host, const int port);
+
+    bool connected();
+
+    void setEOFCallback(std::function<void(void)> eofCallback);
+
+    uint32_t connectionId() const;
+
+private:
+    const uint32_t m_connectionId;
+    const bool m_performCLProtoUpgrade;
+    const bool m_performCLProtoHandshake;
+
+    std::function<void(void)> m_eofCallback;
+
+    std::atomic<size_t> m_reconnectAttempt;
 };
 
 /**

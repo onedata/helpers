@@ -23,7 +23,7 @@ class ConnectionPoolProxy {
 public:
     ConnectionPoolProxy(const std::size_t conn, const std::size_t workers,
         std::string host, const unsigned short port)
-        : m_pool{conn, workers, std::move(host), port, false, false}
+        : m_pool{conn, workers, std::move(host), port, false, false, false}
     {
         m_pool.setOnMessageCallback([this](std::string msg) {
             m_messages.emplace(std::move(msg));

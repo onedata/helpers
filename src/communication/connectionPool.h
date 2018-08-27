@@ -11,6 +11,8 @@
 #include "clprotoPipelineFactory.h"
 #include "logging.h"
 
+#include <tbb/concurrent_queue.h>
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -51,12 +53,15 @@ public:
      * @param port Port number of the remote endpoint.
      * @param verifyServerCertificate Specifies whether to verify server's
      * SSL certificate.
-     * that is then maintained by the @c ConnectionPool.
+     * @param clprotoUpgrade Flag determining whether connections should request
+     * upgrade to clproto protocol after connection.
+     * @param clprotoHandshake Flag determining whether connections should
+     * perform clproto handshake after upgrading to clproto.
      */
     ConnectionPool(const std::size_t connectionsNumber,
         const std::size_t workersNumber, std::string host,
         const unsigned short port, const bool verifyServerCertificate,
-        const bool clprotoUpgrade = true);
+        const bool clprotoUpgrade = true, const bool clprotoHandshake = true);
 
     /**
      * Creates connections to the remote endpoint specified in the constructor.
@@ -115,37 +120,42 @@ public:
      */
     virtual ~ConnectionPool();
 
-private:
     /**
      * Stops the @c ConnectionPool operations.
      * All connections are dropped. This method exists to break the wait of any
-     * threads waiting in @c send. It is designed to be called by the destructor
-     * or after a failure to connect internally by the connection pool.
+     * threads waiting in @c send.
      */
     void stop();
 
+private:
     const std::size_t m_connectionsNumber;
     const std::size_t m_workersNumber;
-    std::string m_host;
+    const std::string m_host;
     const unsigned short m_port;
-    folly::SocketAddress m_address;
     const bool m_verifyServerCertificate;
     const bool m_clprotoUpgrade;
+    const bool m_clprotoHandshake;
+
     std::shared_ptr<const cert::CertificateData> m_certificateData;
 
+    // Application level flag determining whether the connection pool is
+    // connected or not. It does not mean that the connections are active as
+    // they may have failed. This flag is set to true after first successfull
+    // connection, and reset only after stop() is called.
     std::atomic<bool> m_connected;
 
-    std::function<std::string()> m_getHandshake;
-    std::function<std::error_code(std::string)> m_onHandshakeResponse;
-    std::function<void(std::error_code)> m_onHandshakeDone;
-
-    std::function<void(std::string)> m_onMessage = [](auto) {};
+    // Shared executor for the connection pool
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
-    std::shared_ptr<CLProtoClientBootstrap> m_client;
+
+    // Pipeline factory for creating wangle handler pipelines for each
+    // connection
     std::shared_ptr<CLProtoPipelineFactory> m_pipelineFactory;
 
-    std::string makeUpgradeRequest();
-    std::string makeHandshake();
+    // Fixed pool of connection instances
+    std::vector<std::shared_ptr<CLProtoClientBootstrap>> m_connections;
+
+    // Queue of pointers to currently idle connections from the fixed pool
+    tbb::concurrent_bounded_queue<CLProtoClientBootstrap *> m_idleConnections;
 };
 
 } // namespace communication

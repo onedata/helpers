@@ -44,6 +44,8 @@ public:
 
     folly::Future<folly::Unit> done() { return m_promise.getFuture(); }
 
+    std::string getHandshake() { return m_getHandshake(); }
+
 private:
     folly::Promise<folly::Unit> m_promise;
     std::function<std::string()> m_getHandshake;

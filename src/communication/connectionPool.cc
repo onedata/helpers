@@ -19,7 +19,9 @@
 
 #include <algorithm>
 #include <array>
+#include <folly/Executor.h>
 #include <folly/Range.h>
+#include <folly/executors/GlobalExecutor.h>
 #include <folly/io/IOBuf.h>
 #include <iterator>
 #include <tuple>
@@ -33,30 +35,31 @@ namespace communication {
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const std::size_t workersNumber, std::string host,
     const unsigned short port, const bool verifyServerCertificate,
-    const bool clprotoUpgrade)
+    const bool clprotoUpgrade, const bool clprotoHandshake)
     : m_connectionsNumber{connectionsNumber}
     , m_workersNumber{workersNumber}
     , m_host{host}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
     , m_clprotoUpgrade{clprotoUpgrade}
+    , m_clprotoHandshake{clprotoHandshake}
     , m_connected{false}
     , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(1)}
-    , m_client{std::make_shared<CLProtoClientBootstrap>()}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
 
     m_pipelineFactory =
         std::make_shared<CLProtoPipelineFactory>(m_clprotoUpgrade);
-    m_client->group(m_executor);
-    m_client->pipelineFactory(m_pipelineFactory);
-}
 
-std::string ConnectionPool::makeHandshake()
-{
-    auto handshake = m_getHandshake();
-    return handshake;
+    for (unsigned int i = 0; i < m_connectionsNumber; i++) {
+        auto client = std::make_shared<CLProtoClientBootstrap>(
+            i, m_clprotoUpgrade, m_clprotoHandshake);
+        client->group(m_executor);
+        client->pipelineFactory(m_pipelineFactory);
+        client->sslContext(createSSLContext());
+        m_connections.emplace_back(std::move(client));
+    }
 }
 
 std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
@@ -72,7 +75,10 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
             ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
-    SSL_CTX_set_default_verify_paths(context->getSSLCtx());
+    auto sslCtx = context->getSSLCtx();
+    SSL_CTX_set_default_verify_paths(sslCtx);
+    SSL_CTX_set_session_cache_mode(
+        sslCtx, SSL_CTX_get_session_cache_mode(sslCtx) | SSL_SESS_CACHE_CLIENT);
 
     return context;
 }
@@ -84,127 +90,23 @@ void ConnectionPool::connect()
     if (m_connected)
         return;
 
-    m_client->sslContext(createSSLContext());
+    folly::fbvector<folly::Future<folly::Unit>> connectionFutures;
 
-    // Initialize SocketAddres from host and port provided on the command line.
-    // If necessary, DNS lookup will be performed...
-    m_address.setFromHostPort(m_host, m_port);
+    for (auto &client : m_connections) {
+        connectionFutures.emplace_back(client->connect(m_host, m_port).then([
+            this, clientPtr = client.get()
+        ]() { m_idleConnections.emplace(clientPtr); }));
+    }
 
-    m_client->connect(m_address)
-        .then([this] {
-            auto transport = m_client->getPipeline()->getTransport();
-
-            assert(transport->good());
-
-            return via(m_executor.get(),
-                // After connection, attempt to upgrade the connection to
-                // clproto if required for this connection
-                [this, transport] {
-                    auto sock = std::dynamic_pointer_cast<folly::AsyncSocket>(
-                        transport);
-
-                    assert(sock);
-
-                    sock->setNoDelay(true);
-
-                    if (m_clprotoUpgrade) {
-                        LOG_DBG(2) << "Sending clproto upgrade request to "
-                                   << m_address.describe();
-
-                        auto upgradeRequest =
-                            m_client->getPipeline()
-                                ->getHandler<
-                                    codec::CLProtoUpgradeResponseHandler>()
-                                ->makeUpgradeRequest(m_host);
-
-                        // CLProto upgrade request must go over raw socket
-                        // without length field prepended
-                        return m_client->getPipeline()
-                            ->getContext<wangle::EventBaseHandler>()
-                            ->fireWrite(std::move(upgradeRequest));
-                    }
-                    else
-                        return folly::makeFuture();
-                })
-                // Wait for the clproto upgrade response from server
-                .then(m_executor.get(),
-                    [this] {
-                        if (m_clprotoUpgrade) {
-                            LOG_DBG(3) << "CLProtoUpgradeResponseHandler - "
-                                          "waiting for response";
-
-                            return m_client->getPipeline()
-                                ->getHandler<
-                                    codec::CLProtoUpgradeResponseHandler>()
-                                ->done();
-                        }
-                        else
-                            return folly::makeFuture();
-                    })
-                // Once upgrade is finished successfully, remove the
-                // clproto upgrade handler
-                .then(m_executor.get(),
-                    [this] {
-                        LOG_DBG(3) << "Removing clproto upgrade handler";
-
-                        auto pipeline = m_client->getPipeline();
-                        if (m_clprotoUpgrade) {
-                            pipeline->remove<
-                                codec::CLProtoUpgradeResponseHandler>();
-                        }
-                        pipeline->finalize();
-                    })
-                // If CLProto handshake is provider, perform handshake
-                // before handling any other requests
-                .then(m_executor.get(),
-                    [this] {
-                        if (m_getHandshake) {
-                            auto handshake = m_getHandshake();
-
-                            LOG_DBG(3) << "Sending handshake message (length = "
-                                       << handshake.size() << ")" << handshake;
-
-                            return m_client->getPipeline()->write(
-                                std::move(handshake));
-                        }
-                        else
-                            return folly::makeFuture();
-                    })
-                .then(m_executor.get(),
-                    [this] {
-                        if (m_getHandshake) {
-                            LOG_DBG(3) << "Handshake sent - waiting for reply";
-
-                            return m_client->getPipeline()
-                                ->getHandler<
-                                    codec::CLProtoHandshakeResponseHandler>()
-                                ->done();
-                        }
-                        else
-                            return folly::makeFuture();
-                    })
-                // Once upgrade is finished successfully, remove the
-                // clproto upgrade handler
-                .then(m_executor.get(),
-                    [this] {
-                        if (m_getHandshake) {
-                            LOG_DBG(3) << "Removing clproto handshake handler";
-
-                            auto pipeline = m_client->getPipeline();
-                            if (m_getHandshake) {
-                                pipeline->remove<
-                                    codec::CLProtoHandshakeResponseHandler>();
-                            }
-                            pipeline->finalize();
-                        }
-                        m_connected = true;
-                    })
-                .onError([this](folly::exception_wrapper ew) {
-                    stop();
-                    return folly::makeFuture<folly::Unit>(std::move(ew));
-                });
+    folly::collectAll(connectionFutures)
+        .then([this]() { m_connected = true; })
+        .onError([this](folly::exception_wrapper ew) {
+            LOG(WARNING) << "Connection to " << m_host << ":" << m_port
+                         << " failed with error: " << ew.what();
         })
         .get();
+
+    LOG(INFO) << "All connections ready";
 }
 
 void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
@@ -213,11 +115,12 @@ void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
 {
     LOG_FCALL();
 
-    m_pipelineFactory->setHandshake(
-        getHandshake, onHandshakeResponse, onHandshakeDone);
-    m_getHandshake = std::move(getHandshake);
-    m_onHandshakeResponse = std::move(onHandshakeResponse);
-    m_onHandshakeDone = std::move(onHandshakeDone);
+    if (!m_clprotoHandshake)
+        throw std::invalid_argument("CLProto handshake was explicitly disabled "
+                                    "for this connection pool");
+
+    m_pipelineFactory->setHandshake(std::move(getHandshake),
+        std::move(onHandshakeResponse), std::move(onHandshakeDone));
 }
 
 void ConnectionPool::setOnMessageCallback(
@@ -225,8 +128,7 @@ void ConnectionPool::setOnMessageCallback(
 {
     LOG_FCALL();
 
-    m_pipelineFactory->setOnMessageCallback(onMessage);
-    m_onMessage = onMessage;
+    m_pipelineFactory->setOnMessageCallback(std::move(onMessage));
 }
 
 void ConnectionPool::setCertificateData(
@@ -242,27 +144,72 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
     LOG_FCALL() << LOG_FARG(message.size());
 
     if (!m_connected) {
-        LOG(WARNING)
-            << "Connection pool already stopped - cannot send message...";
+        LOG_DBG(1) << "Connection pool stopped - cannot send message...";
+        callback(std::make_error_code(std::errc::connection_aborted));
         return;
     }
 
     LOG_DBG(3) << "Attempting to send message of size " << message.size();
 
-    if (!m_client->getPipeline()->getTransport()->good()) {
-        folly::via(m_executor.get(), [c = std::move(callback)]() {
-            c(std::make_error_code(std::errc::connection_aborted));
-        });
+    CLProtoClientBootstrap *client = nullptr;
+    try {
+        LOG_DBG(3) << "Waiting for idle connection to become available";
+
+        while (!client || !client->connected()) {
+            if (!m_connected) {
+                LOG_DBG(1)
+                    << "Connection pool stopped - cannot send message...";
+                folly::via(folly::getCPUExecutor().get(),
+                    [callback = std::move(callback)] {
+                        callback(std::make_error_code(
+                            std::errc::connection_aborted));
+                    });
+
+                return;
+            }
+
+            m_idleConnections.pop(client);
+
+            // If the client connection failed, try to reconnect
+            // asynchronously
+            if (!client->connected() && m_connected) {
+                client->connect(m_host, m_port).then(m_executor.get(), [
+                    this, client, executor = m_executor
+                ]() {
+                    if (m_connected)
+                        m_idleConnections.emplace(client);
+                    else
+                        client->getPipeline()->close();
+                });
+                client = nullptr;
+            }
+        }
+
+        LOG_DBG(3) << "Retrieved active connection " << client->connectionId()
+                   << " from connection pool";
+    }
+    catch (const tbb::user_abort &) {
+        // We have aborted the wait by calling stop()
+        LOG_DBG(2) << "Waiting for connection from connection pool aborted";
+        callback(std::make_error_code(std::errc::connection_aborted));
         return;
     }
 
-    m_client->getPipeline()
-        ->write(std::move(message))
-        .then(m_executor.get(),
-            [c = std::move(callback)] { c(std::error_code{}); })
-        .get();
+    if (!client->getPipeline()->getTransport()->good()) {
+        callback(std::make_error_code(std::errc::connection_aborted));
+        return;
+    }
 
-    LOG_DBG(3) << "Message sent";
+    client->getPipeline()
+        ->write(std::move(message))
+        .then(folly::getCPUExecutor().get(),
+            [c = std::move(callback)] { c(std::error_code{}); })
+        .then(m_executor.get(), [this, client]() {
+            m_idleConnections.emplace(client);
+            LOG_DBG(3) << "Message sent";
+        });
+
+    LOG_DBG(3) << "Message queued";
 }
 
 ConnectionPool::~ConnectionPool()
@@ -279,16 +226,23 @@ void ConnectionPool::stop()
     if (!m_connected)
         return;
 
-    if (!m_client->getPipeline())
-        return;
-
     m_connected = false;
 
-    folly::via(m_executor.get(),
-        [this]() mutable { return m_client->getPipeline()->close(); })
-        .get();
+    m_idleConnections.clear();
 
-    m_executor->stop();
+    // Cancel any threads waiting on m_idleConnections.pop()
+    m_idleConnections.abort();
+
+    for (auto client : m_connections) {
+        if (!client->getPipeline() || !client->connected())
+            continue;
+
+        folly::via(m_executor.get(),
+            [client]() mutable { return client->getPipeline()->close(); })
+            .get();
+    }
+
+    m_executor->join();
 }
 
 } // namespace communication
