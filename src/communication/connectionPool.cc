@@ -90,21 +90,23 @@ void ConnectionPool::connect()
     if (m_connected)
         return;
 
-    folly::fbvector<folly::Future<folly::Unit>> connectionFutures;
-
     for (auto &client : m_connections) {
-        connectionFutures.emplace_back(client->connect(m_host, m_port).then([
-            this, clientPtr = client.get()
-        ]() { m_idleConnections.emplace(clientPtr); }));
+        client->connect(m_host, m_port)
+            .then(m_executor.get(), [ this, clientPtr = client.get() ]() {
+                m_idleConnections.emplace(clientPtr);
+            })
+            .onError([this](std::exception &e) {
+                close();
+                throw e;
+            })
+            .onError([this](folly::exception_wrapper ew) {
+                close();
+                ew.throw_exception();
+            })
+            .get();
     }
 
-    folly::collectAll(connectionFutures)
-        .then([this]() { m_connected = true; })
-        .onError([this](folly::exception_wrapper ew) {
-            LOG(WARNING) << "Connection to " << m_host << ":" << m_port
-                         << " failed with error: " << ew.what();
-        })
-        .get();
+    m_connected = true;
 
     LOG(INFO) << "All connections ready";
 }
@@ -228,6 +230,13 @@ void ConnectionPool::stop()
 
     m_connected = false;
 
+    close();
+
+    m_executor->join();
+}
+
+void ConnectionPool::close()
+{
     m_idleConnections.clear();
 
     // Cancel any threads waiting on m_idleConnections.pop()
@@ -241,8 +250,6 @@ void ConnectionPool::stop()
             [client]() mutable { return client->getPipeline()->close(); })
             .get();
     }
-
-    m_executor->join();
 }
 
 } // namespace communication

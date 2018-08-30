@@ -32,14 +32,13 @@ namespace communication {
 static const std::vector<int> CLIENT_RECONNECT_DELAYS{0, 100, 1000, 1000, 1000,
     1000, 5000, 5000, 5000, 15'000, 15'000, 15'000, 60'000};
 
-static const auto CLIENT_CONNECT_TIMEOUT = std::chrono::seconds{20};
+static const auto CLIENT_CONNECT_TIMEOUT = std::chrono::seconds{10};
 
 CLProtoClientBootstrap::CLProtoClientBootstrap(const uint32_t id,
     const bool performCLProtoUpgrade, const bool performCLProtoHandshake)
     : m_connectionId{id}
     , m_performCLProtoUpgrade{performCLProtoUpgrade}
     , m_performCLProtoHandshake{performCLProtoHandshake}
-    , m_reconnectAttempt{0}
 {
 }
 
@@ -56,10 +55,8 @@ void CLProtoClientBootstrap::setEOFCallback(
 }
 
 folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
-    const folly::fbstring &host, const int port)
+    const folly::fbstring &host, const int port, size_t reconnectAttempt)
 {
-    auto reconnectAttempt = m_reconnectAttempt++;
-
     auto reconnectDelay = CLIENT_RECONNECT_DELAYS.at(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
@@ -82,11 +79,17 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                     return folly::makeFuture();
             })
         .delayed(std::chrono::milliseconds{reconnectDelay})
-        .then(group_.get(), [this, host, port] {
+        .then(group_.get(), [this, host, port, reconnectAttempt] {
             // Initialize SocketAddres from host and port provided on the
             // command line. If necessary, DNS lookup will be performed...
             folly::SocketAddress address;
-            address.setFromHostPort(host.c_str(), port);
+            try {
+                address.setFromHostPort(host.c_str(), port);
+            }
+            catch (std::system_error &e) {
+                LOG(ERROR) << "Cannot resolve host address: " << host;
+                throw;
+            }
 
             auto executor = group_.get();
 
@@ -218,24 +221,28 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
                             LOG_DBG(1) << "CLProto connection with id "
                                        << connectionId() << " established";
-
-                            // Reset the reconnect attempt counter
-                            m_reconnectAttempt = 1;
                         });
                 })
-                .onError(
-                    [this, host, port, executor](folly::exception_wrapper ew) {
+                .onError([this, host, port, executor, reconnectAttempt](
+                             folly::exception_wrapper ew) {
+                    if (!reconnectAttempt) {
+                        LOG(ERROR) << "Failed connecting to Oneprovider at "
+                                   << host << ":" << port;
+                        ew.throw_exception();
+                    }
+                    else {
                         LOG_DBG(1) << "Reconnect attempt failed: " << ew.what()
                                    << ". Retrying...";
 
                         // onError() doesn't keep the executor, so we have to
                         // wrap it in via
-                        return folly::via(executor, [this, host, port] {
-                            return connect(host, port).then([]() {
-                                return folly::makeFuture();
+                        return folly::via(
+                            executor, [this, host, port, reconnectAttempt] {
+                                return connect(host, port, reconnectAttempt + 1)
+                                    .then([]() { return folly::makeFuture(); });
                             });
-                        });
-                    });
+                    }
+                });
         });
 }
 

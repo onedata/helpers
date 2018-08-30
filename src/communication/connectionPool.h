@@ -128,6 +128,11 @@ public:
     void stop();
 
 private:
+    /**
+     * Close connections and handler pipelines.
+     */
+    void close();
+
     const std::size_t m_connectionsNumber;
     const std::size_t m_workersNumber;
     const std::string m_host;

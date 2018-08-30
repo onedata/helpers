@@ -46,8 +46,8 @@ public:
 
     void makePipeline(std::shared_ptr<folly::AsyncSocket> socket) override;
 
-    folly::Future<folly::Unit> connect(
-        const folly::fbstring &host, const int port);
+    folly::Future<folly::Unit> connect(const folly::fbstring &host,
+        const int port, size_t reconnectAttempt = 0);
 
     bool connected();
 
@@ -61,8 +61,6 @@ private:
     const bool m_performCLProtoHandshake;
 
     std::function<void(void)> m_eofCallback;
-
-    std::atomic<size_t> m_reconnectAttempt;
 };
 
 /**
