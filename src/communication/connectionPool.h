@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "clprotoClientBootstrap.h"
 #include "clprotoPipelineFactory.h"
 #include "logging.h"
 

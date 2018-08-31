@@ -46,8 +46,6 @@ public:
             buf.trimStart(m_lengthFieldLength);
             result = buf.split(messageLength);
 
-            std::string data((const char *)result->data(), result->length());
-
             return true;
         }
         else {
@@ -62,7 +60,7 @@ public:
     }
 
 private:
-    uint32_t m_lengthFieldLength;
+    const uint32_t m_lengthFieldLength;
 };
 }
 }

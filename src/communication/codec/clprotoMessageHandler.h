@@ -14,6 +14,10 @@ namespace one {
 namespace communication {
 namespace codec {
 
+/**
+ * @c CLProtoMessageHandler is responsible for running clproto message callbacks
+ * after receiving entire messages.
+ */
 class CLProtoMessageHandler : public wangle::InboundHandler<std::string> {
 public:
     CLProtoMessageHandler(std::function<void(std::string)> onMessage)
@@ -26,7 +30,10 @@ public:
         m_eofCallback = eofCallback;
     }
 
-    void read(Context *, std::string msg) override { m_onMessage(msg); }
+    void read(Context *, std::string msg) override
+    {
+        m_onMessage(std::move(msg));
+    }
 
     void readException(Context *ctx, folly::exception_wrapper e) override
     {

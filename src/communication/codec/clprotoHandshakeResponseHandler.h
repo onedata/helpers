@@ -15,6 +15,10 @@ namespace one {
 namespace communication {
 namespace codec {
 
+/**
+ * @c CLProtoHandshakeResponseHandler is responsible for awaiting on a clproto
+ * handshake response message from the server.
+ */
 class CLProtoHandshakeResponseHandler
     : public wangle::InboundHandler<std::string> {
 public:
@@ -32,7 +36,7 @@ public:
         LOG_DBG(1) << "Received clproto handshake response";
 
         if (m_promise.isFulfilled()) {
-            ctx->fireRead(message);
+            ctx->fireRead(std::move(message));
             return;
         }
 

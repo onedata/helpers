@@ -19,6 +19,11 @@ static const std::string CLPROTO_UPGRADE_ENDPOINT{"/clproto"};
 static const std::string CLPROTO_UPGRADE_RESPONSE_STATUS{
     "HTTP/1.1 101 Switching Protocols"};
 
+/**
+ * @c CLProtoUpgradeResponseHandler is responsible for reading the inbound data
+ * stream on the socket after the clproto upgrade has been sent until the HTTP
+ * response header is returned from the server.
+ */
 class CLProtoUpgradeResponseHandler
     : public wangle::HandlerAdapter<folly::IOBufQueue &,
           std::unique_ptr<folly::IOBuf>> {
