@@ -9,7 +9,7 @@
 #include "scheduler.h"
 #include "logging.h"
 
-#include "communication/etls/utils.h"
+#include <folly/ThreadName.h>
 
 #include <algorithm>
 
@@ -48,7 +48,7 @@ void Scheduler::start()
 
     std::generate_n(std::back_inserter(m_workers), m_threadNumber, [=] {
         std::thread t{[=] {
-            communication::etls::utils::nameThread("Scheduler");
+            folly::setThreadName("Scheduler");
             m_ioService.run();
         }};
 

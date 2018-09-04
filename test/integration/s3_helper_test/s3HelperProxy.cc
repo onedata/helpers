@@ -6,7 +6,6 @@
  * 'LICENSE.txt'
  */
 
-#include "communication/etls/utils.h"
 #include "keyValueAdapter.h"
 #include "s3Helper.h"
 
@@ -16,6 +15,7 @@
 #include <aws/s3/S3Client.h>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
+#include <folly/ThreadName.h>
 
 #include <algorithm>
 #include <thread>
@@ -50,7 +50,7 @@ public:
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {
-                one::communication::etls::utils::nameThread("S3HelperProxy");
+                folly::setThreadName("S3HelperProxy");
                 m_service.run();
             }};
 

@@ -11,11 +11,9 @@
 
 #include "helpers/storageHelper.h"
 
-#include "asioExecutor.h"
 #include "flatOpScheduler.h"
 #include "monitoring/monitoring.h"
 
-#include <asio.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/variant.hpp>
 #include <folly/Executor.h>
@@ -31,6 +29,11 @@
 #include <queue>
 #include <string>
 #include <unordered_map>
+
+#undef signal_set
+
+#include "asioExecutor.h"
+#include <asio.hpp>
 
 namespace one {
 namespace helpers {

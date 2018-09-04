@@ -8,12 +8,6 @@ include_directories(SYSTEM
 
 include_directories(include)
 
-file(COPY communication/etls/server.pem communication/etls/server.key
-        DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-
-file(COPY communication/etls/server.pem communication/etls/server.key
-        DESTINATION ${PROJECT_BINARY_DIR})
-
 file(GLOB_RECURSE HELPER_TEST_HEADERS include/*.h)
 add_library(testRunner OBJECT testRunner.cc)
 add_dependencies(testRunner gmock gtest)

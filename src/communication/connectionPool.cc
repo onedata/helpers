@@ -9,16 +9,20 @@
 #include "connectionPool.h"
 
 #include "cert/certificateData.h"
-#include "etls/utils.h"
+#include "codec/clprotoHandshakeResponseHandler.h"
+#include "codec/clprotoMessageHandler.h"
+#include "codec/clprotoUpgradeResponseHandler.h"
+#include "codec/packetDecoder.h"
+#include "codec/packetEncoder.h"
+#include "codec/packetLogger.h"
 #include "exception.h"
-#include "logging.h"
-
-#include <asio.hpp>
-#include <asio/ssl.hpp>
-#include <openssl/ssl.h>
 
 #include <algorithm>
 #include <array>
+#include <folly/Executor.h>
+#include <folly/Range.h>
+#include <folly/executors/GlobalExecutor.h>
+#include <folly/io/IOBuf.h>
 #include <iterator>
 #include <tuple>
 
@@ -31,157 +35,81 @@ namespace communication {
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const std::size_t workersNumber, std::string host,
     const unsigned short port, const bool verifyServerCertificate,
-    ConnectionFactory connectionFactory)
+    const bool clprotoUpgrade, const bool clprotoHandshake)
     : m_connectionsNumber{connectionsNumber}
     , m_workersNumber{workersNumber}
-    , m_host{std::move(host)}
+    , m_host{host}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
-    , m_connectionFactory{std::move(connectionFactory)}
+    , m_clprotoUpgrade{clprotoUpgrade}
+    , m_clprotoHandshake{clprotoHandshake}
+    , m_connected{false}
+    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(1)}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
 
-    for (std::size_t i = 0; i < m_workersNumber; i++) {
-        m_poolWorkers.emplace_back([&, tid = i ] {
-            etls::utils::nameThread("CPWorker-" + std::to_string(tid));
-            m_ioService.run();
-        });
+    m_pipelineFactory =
+        std::make_shared<CLProtoPipelineFactory>(m_clprotoUpgrade);
+
+    for (unsigned int i = 0; i < m_connectionsNumber; i++) {
+        auto client = std::make_shared<CLProtoClientBootstrap>(
+            i, m_clprotoUpgrade, m_clprotoHandshake);
+        client->group(m_executor);
+        client->pipelineFactory(m_pipelineFactory);
+        client->sslContext(createSSLContext());
+        m_connections.emplace_back(std::move(client));
     }
+}
+
+std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
+{
+    auto context =
+        std::make_shared<folly::SSLContext>(folly::SSLContext::TLSv1_2);
+
+    context->authenticate(m_verifyServerCertificate, false);
+
+    folly::ssl::setSignatureAlgorithms<folly::ssl::SSLCommonOptions>(*context);
+
+    context->setVerificationOption(m_verifyServerCertificate
+            ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
+            : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
+
+    auto sslCtx = context->getSSLCtx();
+    SSL_CTX_set_default_verify_paths(sslCtx);
+    SSL_CTX_set_session_cache_mode(
+        sslCtx, SSL_CTX_get_session_cache_mode(sslCtx) | SSL_SESS_CACHE_CLIENT);
+
+    return context;
 }
 
 void ConnectionPool::connect()
 {
     LOG_FCALL();
 
-    m_context->set_options(asio::ssl::context::default_workarounds |
-        asio::ssl::context::no_sslv2 | asio::ssl::context::no_sslv3 |
-        asio::ssl::context::no_tlsv1 | asio::ssl::context::no_tlsv1_1 |
-        asio::ssl::context::single_dh_use);
+    if (m_connected)
+        return;
 
-    m_context->set_default_verify_paths();
-    m_context->set_verify_mode(m_verifyServerCertificate
-            ? asio::ssl::verify_peer
-            : asio::ssl::verify_none);
-
-    SSL_CTX *ssl_ctx = m_context->native_handle();
-    auto mode = SSL_CTX_get_session_cache_mode(ssl_ctx) | SSL_SESS_CACHE_CLIENT;
-
-    SSL_CTX_set_session_cache_mode(ssl_ctx, mode);
-
-    if (m_certificateData)
-        m_certificateData->initContext(*m_context);
-
-    std::generate_n(
-        std::back_inserter(m_connections), m_connectionsNumber, [&] {
-            auto connection = m_connectionFactory(m_host, m_port, m_ioService,
-                m_context, asio::bind_executor(m_ioService, m_onMessage),
-                std::bind(&ConnectionPool::onConnectionReady, this, _1),
-                m_getHandshake, m_onHandshakeResponse, m_onHandshakeDone);
-
-            LOG_DBG(1) << "Creating connection in connection pool to "
-                       << m_host;
-
-            connection->connect();
-
-            return connection;
-        });
+    for (auto &client : m_connections) {
+        client->connect(m_host, m_port)
+            .then(m_executor.get(), [ this, clientPtr = client.get() ]() {
+                m_idleConnections.emplace(clientPtr);
+            })
+            .onError([this](std::exception &e) {
+                close();
+                throw e;
+            })
+            .onError([this](folly::exception_wrapper ew) {
+                close();
+                ew.throw_exception();
+            })
+            .get();
+    }
 
     m_connected = true;
+
+    LOG(INFO) << "All connections ready";
 }
-
-std::string ConnectionPool::makeHttpRequest(const std::string &token,
-    const std::string &type, const std::string &endpoint,
-    const std::string &contentType, const std::string &body)
-{
-    asio::io_service io_service;
-
-    using asio::ip::tcp;
-
-    // Get a list of endpoints corresponding to the server name.
-    tcp::resolver resolver(io_service);
-    tcp::resolver::query query(m_host, "https");
-    tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
-
-    // Try each endpoint until we successfully establish a connection.
-    asio::ssl::stream<tcp::socket> socket(io_service, *m_context);
-    asio::connect(socket.lowest_layer(), endpoint_iterator);
-    socket.lowest_layer().set_option(tcp::no_delay(true));
-    socket.handshake(asio::ssl::stream_base::client);
-
-    // Form the request. We specify the "Connection: close" header so that the
-    // server will close the socket after transmitting the response. This will
-    // allow us to treat all data up until the EOF as the content.
-    asio::streambuf request;
-    std::ostream requestStream(&request);
-    requestStream << type << " " << endpoint << " HTTP/1.1\r\n";
-    requestStream << "Host: " << m_host << "\r\n";
-    requestStream << "User-agent: Oneclient\r\n";
-    requestStream << "Accept: */*\r\n";
-    requestStream << "X-Auth-Token: " << token << "\r\n";
-    if (contentType.size() > 0)
-        requestStream << "Content-type: " << contentType << "\r\n";
-    requestStream << "Content-length: " << std::to_string(body.size())
-                  << "\r\n";
-    requestStream << "\r\n";
-    if (body.size() > 0)
-        requestStream << body;
-    requestStream.flush();
-
-    // Send the request.
-    asio::write(socket, request);
-
-    // Read the response status line. The response streambuf will automatically
-    // grow to accommodate the entire line. The growth may be limited by passing
-    // a maximum size to the streambuf constructor.
-    asio::streambuf response;
-    asio::read_until(socket, response, "\r\n");
-
-    // Check that response is OK.
-    std::istream response_stream(&response);
-    std::string http_version;
-    response_stream >> http_version;
-    unsigned int status_code;
-    response_stream >> status_code;
-    std::string status_message;
-    std::getline(response_stream, status_message);
-    if (!response_stream || http_version.substr(0, 5) != "HTTP/") {
-        LOG(ERROR) << "Invalid HTTP REST response";
-        throw std::runtime_error("Invalid HTTP REST response");
-    }
-    if (!(status_code == 200 || status_code == 204)) {
-        LOG(ERROR) << "HTTP REST response returned with status code: "
-                   << status_code << "\n";
-        throw std::runtime_error(
-            "HTTP REST error: " + std::to_string(status_code));
-    }
-
-    // Read the response headers, which are terminated by a blank line.
-    asio::read_until(socket, response, "\r\n\r\n");
-
-    // Process the response headers.
-    std::string header;
-    while (std::getline(response_stream, header) && header != "\r")
-        LOG_DBG(3) << "Received HTTP REST response header: " << header << "\n";
-
-    std::stringstream responseContent;
-
-    // Write whatever content we already have to output.
-    if (response.size() > 0)
-        responseContent << &response;
-
-    // Read until EOF, writing data to output as we go.
-    asio::error_code error;
-    while (asio::read(socket, response, asio::transfer_at_least(1), error))
-        responseContent << &response;
-
-    if (error != asio::error::eof)
-        throw std::runtime_error(error.category().name());
-
-    return responseContent.str();
-}
-
-asio::io_service &ConnectionPool::ioService() { return m_ioService; }
 
 void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
     std::function<std::error_code(std::string)> onHandshakeResponse,
@@ -189,9 +117,12 @@ void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
 {
     LOG_FCALL();
 
-    m_getHandshake = std::move(getHandshake);
-    m_onHandshakeResponse = std::move(onHandshakeResponse);
-    m_onHandshakeDone = std::move(onHandshakeDone);
+    if (!m_clprotoHandshake)
+        throw std::invalid_argument("CLProto handshake was explicitly disabled "
+                                    "for this connection pool");
+
+    m_pipelineFactory->setHandshake(std::move(getHandshake),
+        std::move(onHandshakeResponse), std::move(onHandshakeDone));
 }
 
 void ConnectionPool::setOnMessageCallback(
@@ -199,7 +130,7 @@ void ConnectionPool::setOnMessageCallback(
 {
     LOG_FCALL();
 
-    m_onMessage = std::move(onMessage);
+    m_pipelineFactory->setOnMessageCallback(std::move(onMessage));
 }
 
 void ConnectionPool::setCertificateData(
@@ -214,41 +145,73 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
 {
     LOG_FCALL() << LOG_FARG(message.size());
 
-    LOG_DBG(2) << "Attempting to send message of size " << message.size();
-
     if (!m_connected) {
+        LOG_DBG(1) << "Connection pool stopped - cannot send message...";
+        callback(std::make_error_code(std::errc::connection_aborted));
         return;
     }
 
-    Connection *conn = nullptr;
+    LOG_DBG(3) << "Attempting to send message of size " << message.size();
+
+    CLProtoClientBootstrap *client = nullptr;
     try {
-        LOG_DBG(2) << "Waiting for idle connection to become available";
-        while (!conn || !conn->connected()) {
-            m_idleConnections.pop(conn);
+        LOG_DBG(3) << "Waiting for idle connection to become available";
+
+        while (!client || !client->connected()) {
+            if (!m_connected) {
+                LOG_DBG(1)
+                    << "Connection pool stopped - cannot send message...";
+                folly::via(folly::getCPUExecutor().get(),
+                    [callback = std::move(callback)] {
+                        callback(std::make_error_code(
+                            std::errc::connection_aborted));
+                    });
+
+                return;
+            }
+
+            m_idleConnections.pop(client);
+
+            // If the client connection failed, try to reconnect
+            // asynchronously
+            if (!client->connected() && m_connected) {
+                client->connect(m_host, m_port).then(m_executor.get(), [
+                    this, client, executor = m_executor
+                ]() {
+                    if (m_connected)
+                        m_idleConnections.emplace(client);
+                    else
+                        client->getPipeline()->close();
+                });
+                client = nullptr;
+            }
         }
-        LOG_DBG(2) << "Retrieved active connection from connection pool";
+
+        LOG_DBG(3) << "Retrieved active connection " << client->connectionId()
+                   << " from connection pool";
     }
     catch (const tbb::user_abort &) {
         // We have aborted the wait by calling stop()
-        LOG(ERROR) << "Waiting for connection from connection pool aborted";
+        LOG_DBG(2) << "Waiting for connection from connection pool aborted";
+        callback(std::make_error_code(std::errc::connection_aborted));
         return;
     }
 
-    // There might be a case that the connection has failed between
-    // inserting it into ready queue and popping it here; that's ok
-    // since connection will fail the send instead of erroring out.
-    conn->send(std::move(message), std::move(callback));
+    if (!client->getPipeline()->getTransport()->good()) {
+        callback(std::make_error_code(std::errc::connection_aborted));
+        return;
+    }
 
-    LOG_DBG(2) << "Message sent";
-}
+    client->getPipeline()
+        ->write(std::move(message))
+        .then(folly::getCPUExecutor().get(),
+            [c = std::move(callback)] { c(std::error_code{}); })
+        .then(m_executor.get(), [this, client]() {
+            m_idleConnections.emplace(client);
+            LOG_DBG(3) << "Message sent";
+        });
 
-void ConnectionPool::onConnectionReady(Connection &conn)
-{
-    LOG_FCALL();
-
-    LOG_DBG(2) << "Connection ready - adding to idle connection pool";
-
-    m_idleConnections.emplace(&conn);
+    LOG_DBG(3) << "Message queued";
 }
 
 ConnectionPool::~ConnectionPool()
@@ -262,21 +225,31 @@ void ConnectionPool::stop()
 {
     LOG_FCALL();
 
-    LOG_DBG(1) << "Stopping connection pool...";
+    if (!m_connected)
+        return;
 
     m_connected = false;
-    m_connections.clear();
+
+    close();
+
+    m_executor->join();
+}
+
+void ConnectionPool::close()
+{
+    m_idleConnections.clear();
+
+    // Cancel any threads waiting on m_idleConnections.pop()
     m_idleConnections.abort();
 
-    if (!m_ioService.stopped())
-        m_ioService.stop();
+    for (auto client : m_connections) {
+        if (!client->getPipeline() || !client->connected())
+            continue;
 
-    for (auto &worker : m_poolWorkers) {
-        if (worker.joinable())
-            worker.join();
+        folly::via(m_executor.get(),
+            [client]() mutable { return client->getPipeline()->close(); })
+            .get();
     }
-
-    LOG_DBG(1) << "Connection pool stopped";
 }
 
 } // namespace communication

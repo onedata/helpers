@@ -11,17 +11,20 @@
 
 #include "helpers/storageHelper.h"
 
-#include "asioExecutor.h"
 #include "flatOpScheduler.h"
 #include "monitoring/monitoring.h"
 
-#include <asio.hpp>
 #include <boost/variant.hpp>
 #include <folly/Executor.h>
 #include <fuse.h>
 
 #include <chrono>
 #include <random>
+
+#undef signal_set
+
+#include "asioExecutor.h"
+#include <asio.hpp>
 
 namespace one {
 namespace helpers {

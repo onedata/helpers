@@ -13,6 +13,7 @@
 #include "monitoring/monitoring.h"
 #include "monitoring/monitoringConfiguration.h"
 #include <folly/Singleton.h>
+#include <folly/ssl/Init.h>
 
 namespace one {
 namespace helpers {
@@ -24,6 +25,8 @@ void init()
     LOG_FCALL();
 
     folly::SingletonVault::singleton()->registrationComplete();
+
+    folly::ssl::init();
 }
 
 void configureMonitoring(

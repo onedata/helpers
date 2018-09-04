@@ -6,7 +6,6 @@
  * 'LICENSE.txt'
  */
 
-#include "communication/etls/utils.h"
 #include "keyValueAdapter.h"
 #include "swiftHelper.h"
 

@@ -35,8 +35,7 @@ class ProxyHelperProxy {
 public:
     ProxyHelperProxy(
         std::string storageId, std::string host, const unsigned short port)
-        : m_communicator{1, 1, host, port, false,
-              one::communication::createConnection}
+        : m_communicator{1, 1, host, port, false, true, false}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
         , m_helper{std::make_shared<one::helpers::ProxyHelper>(
               storageId, m_communicator)}
