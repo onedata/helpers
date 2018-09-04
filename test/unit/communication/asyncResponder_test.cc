@@ -7,8 +7,11 @@
  */
 
 #include "communication/layers/asyncResponder.h"
+#include "helpers/init.h"
 #include "testUtils.h"
 
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/GlobalExecutor.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -36,6 +39,8 @@ struct AsyncResponderTest : public ::testing::Test {
 
 TEST_F(AsyncResponderTest, messageShouldBeHandledInAThread)
 {
+    helpers::init();
+
     std::function<void(ServerMessagePtr)> onMessageCallback;
     EXPECT_CALL(responder.mock, connect());
     EXPECT_CALL(responder.mock, setOnMessageCallback(_))

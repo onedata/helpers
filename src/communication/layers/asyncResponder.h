@@ -10,12 +10,10 @@
 #define HELPERS_COMMUNICATION_LAYERS_ASYNC_RESPONDER_H
 
 #include "communication/declarations.h"
-#include "communication/etls/utils.h"
 #include "logging.h"
 
-#include <asio/io_service.hpp>
-#include <asio/post.hpp>
-#include <asio/ts/executor.hpp>
+#include <folly/ThreadName.h>
+#include <folly/executors/GlobalExecutor.h>
 
 #include <functional>
 #include <memory>
@@ -53,33 +51,12 @@ public:
      */
     auto setOnMessageCallback(
         std::function<void(ServerMessagePtr)> onMessageCallback);
-
-private:
-    asio::io_service m_ioService;
-    std::unique_ptr<asio::executor_work_guard<asio::io_service::executor_type>>
-        m_work;
-    std::thread m_thread;
 };
 
-template <class LowerLayer> AsyncResponder<LowerLayer>::~AsyncResponder()
-{
-    m_ioService.stop();
-    if (m_thread.joinable())
-        m_thread.join();
-}
+template <class LowerLayer> AsyncResponder<LowerLayer>::~AsyncResponder() {}
 
 template <class LowerLayer> auto AsyncResponder<LowerLayer>::connect()
 {
-    m_work = std::make_unique<
-        asio::executor_work_guard<asio::io_service::executor_type>>(
-        asio::make_work_guard(m_ioService));
-
-    m_thread = std::thread{[this] {
-        LOG_DBG(1) << "Creating AsyncResponder thread";
-        etls::utils::nameThread("AsyncResponder");
-        m_ioService.run();
-    }};
-
     return LowerLayer::connect();
 }
 
@@ -90,9 +67,8 @@ auto AsyncResponder<LowerLayer>::setOnMessageCallback(
     return LowerLayer::setOnMessageCallback(
         [ this, onMessageCallback = std::move(onMessageCallback) ](
             ServerMessagePtr serverMsg) mutable {
-
-            asio::post(
-                m_ioService, [&, serverMsg = std::move(serverMsg) ]() mutable {
+            folly::getIOExecutor()->add(
+                [&, serverMsg = std::move(serverMsg) ]() mutable {
                     onMessageCallback(std::move(serverMsg));
                 });
         });

@@ -50,6 +50,7 @@ find_package(OpenSSL REQUIRED)
 # Setup Folly
 message(STATUS "Checking for Folly...")
 find_package(Folly REQUIRED)
+find_package(Wangle REQUIRED)
 find_library(LIBEVENT_LIBRARY event)
 find_library(IBERTY_LIBRARY iberty)
 find_library(DOUBLE_CONVERSION_LIBRARY double-conversion)
@@ -57,6 +58,7 @@ set(FOLLY_LIBRARIES
     ${FOLLY_LIBRARIES}
     ${LIBEVENT_LIBRARY}
     ${IBERTY_LIBRARY}
+    ${WANGLE_LIBRARY}
     ${DOUBLE_CONVERSION_LIBRARY})
 
 # Setup Boost
