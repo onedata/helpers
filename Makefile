@@ -80,6 +80,10 @@ coverage:
 clean:
 	rm -rf debug release
 
+.PHONY: clang-tidy
+clang-tidy: debug
+	cmake --build debug --target clang-tidy
+
 .PHONY: clang-format
 clang-format:
 	docker run --rm -e CHOWNUID=${UID} -v ${PWD}:/root/sources onedata/clang-format-check:1.1
