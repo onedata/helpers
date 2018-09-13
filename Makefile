@@ -81,7 +81,7 @@ clean:
 	rm -rf debug release
 
 .PHONY: clang-tidy
-clang-tidy: debug
+clang-tidy:
 	cmake --build debug --target clang-tidy
 
 .PHONY: clang-format

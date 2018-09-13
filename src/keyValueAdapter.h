@@ -67,7 +67,7 @@ public:
 
 private:
     folly::Future<folly::IOBufQueue> readBlocks(
-        const off_t offset, const std::size_t size);
+        const off_t offset, const std::size_t requestedSize);
 
     folly::IOBufQueue readBlock(const uint64_t blockId, const off_t blockOffset,
         const std::size_t size);

@@ -195,10 +195,6 @@ add_library(helpersStatic STATIC ${HELPERS_SOURCES})
 target_include_directories(helpersStatic SYSTEM PUBLIC ${HELPERS_SYSTEM_INCLUDE_DIRS})
 target_include_directories(helpersStatic PUBLIC ${HELPERS_INCLUDE_DIRS})
 set_target_properties(helpersStatic PROPERTIES OUTPUT_NAME helpers)
-#if(CLANG_TIDY_EXE)
-  #set_target_properties(
-      #helpersStatic PROPERTIES )
-#endif()
 
 #
 # Add helper libraries when building with each helper
@@ -244,12 +240,14 @@ if(CLANG_TIDY)
     ProcessorCount(CLANG_TIDY_PARALLEL_JOBS)
     message(STATUS
         "run-clang-tidy script found: ${CLANG_TIDY} - adding target clang-tidy")
-    set(CLANG_TIDY_SOURCE_FILTER "src/*nullDeviceHelper.cc")
-    file(GLOB_RECURSE CLANG_TIDY_SOURCES 
+    set(CLANG_TIDY_SOURCE_FILTER "src/*.cc")
+    file(GLOB_RECURSE CLANG_TIDY_SOURCES
          "${CMAKE_CURRENT_SOURCE_DIR}/${CLANG_TIDY_SOURCE_FILTER}")
     add_custom_target(clang-tidy COMMAND ${CLANG_TIDY}
         -export-fixes clang-tidy-suggested-fixes.yaml
-        -j ${CLANG_TIDY_PARALLEL_JOBS} ${CLANG_TIDY_SOURCES})
+        -j ${CLANG_TIDY_PARALLEL_JOBS}
+        -extra-arg=-DTBB_USE_GLIBCXX_VERSION=50400
+        ${CLANG_TIDY_SOURCES})
 else(CLANG_TIDY)
     message(STATUS "run-clang-tidy script not found - target clang-tidy not available")
 endif(CLANG_TIDY)

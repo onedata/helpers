@@ -21,6 +21,7 @@
 #include <wangle/codec/LengthFieldPrepender.h>
 #include <wangle/codec/StringCodec.h>
 
+#include <utility>
 #include <vector>
 
 namespace one {
@@ -34,7 +35,7 @@ CLProtoPipelineFactory::CLProtoPipelineFactory(const bool clprotoUpgrade)
 void CLProtoPipelineFactory::setOnMessageCallback(
     std::function<void(std::string)> onMessage)
 {
-    m_onMessage = onMessage;
+    m_onMessage = std::move(onMessage);
 }
 
 void CLProtoPipelineFactory::setHandshake(
@@ -42,9 +43,9 @@ void CLProtoPipelineFactory::setHandshake(
     std::function<std::error_code(std::string)> onHandshakeResponse,
     std::function<void(std::error_code)> onHandshakeDone)
 {
-    m_getHandshake = getHandshake;
-    m_onHandshakeResponse = onHandshakeResponse;
-    m_onHandshakeDone = onHandshakeDone;
+    m_getHandshake = std::move(getHandshake);
+    m_onHandshakeResponse = std::move(onHandshakeResponse);
+    m_onHandshakeDone = std::move(onHandshakeDone);
 }
 
 CLProtoPipeline::Ptr CLProtoPipelineFactory::newPipeline(
@@ -82,5 +83,5 @@ CLProtoPipeline::Ptr CLProtoPipelineFactory::newPipeline(
 
     return pipeline;
 }
-}
-}
+} // namespace communication
+} // namespace one

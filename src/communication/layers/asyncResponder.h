@@ -64,14 +64,14 @@ template <class LowerLayer>
 auto AsyncResponder<LowerLayer>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
-    return LowerLayer::setOnMessageCallback(
-        [ this, onMessageCallback = std::move(onMessageCallback) ](
-            ServerMessagePtr serverMsg) mutable {
-            folly::getIOExecutor()->add(
-                [&, serverMsg = std::move(serverMsg) ]() mutable {
-                    onMessageCallback(std::move(serverMsg));
-                });
-        });
+    return LowerLayer::setOnMessageCallback([onMessageCallback =
+                                                 std::move(onMessageCallback)](
+        ServerMessagePtr serverMsg) mutable {
+        folly::getIOExecutor()->add(
+            [&, serverMsg = std::move(serverMsg) ]() mutable {
+                onMessageCallback(std::move(serverMsg));
+            });
+    });
 }
 
 } // namespace layers

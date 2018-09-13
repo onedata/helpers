@@ -16,9 +16,9 @@
 namespace one {
 namespace monitoring {
 
-GraphiteMetricsCollector::GraphiteMetricsCollector() {}
+GraphiteMetricsCollector::GraphiteMetricsCollector() = default;
 
-GraphiteMetricsCollector::~GraphiteMetricsCollector() {}
+GraphiteMetricsCollector::~GraphiteMetricsCollector() = default;
 
 void GraphiteMetricsCollector::initialize()
 {
@@ -37,18 +37,18 @@ void GraphiteMetricsCollector::initialize()
         GraphiteMonitoringConfiguration::GraphiteProtocol::TCP) {
         LOG_DBG(1) << "Creating TCP Graphite reporter to "
                    << conf->graphiteHostname << ":" << conf->graphitePort;
-        m_sender.reset(new graphite::GraphiteSenderTCP(
-            conf->graphiteHostname, conf->graphitePort));
+        m_sender = std::make_shared<graphite::GraphiteSenderTCP>(
+            conf->graphiteHostname, conf->graphitePort);
     }
     else {
         LOG_DBG(1) << "Creating UDP Graphite reporter to "
                    << conf->graphiteHostname << ":" << conf->graphitePort;
-        m_sender.reset(new graphite::GraphiteSenderUDP(
-            conf->graphiteHostname, conf->graphitePort));
+        m_sender = std::make_shared<graphite::GraphiteSenderUDP>(
+            conf->graphiteHostname, conf->graphitePort);
     }
 
-    m_reporter.reset(new graphite::GraphiteReporter(
-        getRegistry(), m_sender, conf->namespacePrefix));
+    m_reporter = std::make_shared<graphite::GraphiteReporter>(
+        getRegistry(), m_sender, conf->namespacePrefix);
 
     m_reporter->setReportingLevel(conf->reportingLevel);
 }

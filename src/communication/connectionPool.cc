@@ -26,20 +26,17 @@
 #include <folly/io/IOBuf.h>
 #include <iterator>
 #include <tuple>
-
-using namespace std::placeholders;
-using namespace std::literals::chrono_literals;
+#include <utility>
 
 namespace one {
 namespace communication {
 
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
-    const std::size_t workersNumber, std::string host,
-    const unsigned short port, const bool verifyServerCertificate,
-    const bool clprotoUpgrade, const bool clprotoHandshake)
+    const std::size_t /*workersNumber*/, std::string host, const uint16_t port,
+    const bool verifyServerCertificate, const bool clprotoUpgrade,
+    const bool clprotoHandshake)
     : m_connectionsNumber{connectionsNumber}
-    , m_workersNumber{workersNumber}
-    , m_host{host}
+    , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
     , m_clprotoUpgrade{clprotoUpgrade}
@@ -83,15 +80,14 @@ bool ConnectionPool::setupOpenSSLCABundlePath(SSL_CTX *ctx)
         });
 
     if (it != caBundlePossibleLocations.end()) {
-        if (!SSL_CTX_load_verify_locations(ctx, it->c_str(), nullptr)) {
+        if (SSL_CTX_load_verify_locations(ctx, it->c_str(), nullptr) == 0) {
             LOG(ERROR)
                 << "Invalid CA bundle at " << *it
                 << ". Certificate server verification may not work properly...";
             return false;
         }
-        else {
-            return true;
-        }
+
+        return true;
     }
 
     return false;
@@ -114,6 +110,8 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
     if (!setupOpenSSLCABundlePath(sslCtx)) {
         SSL_CTX_set_default_verify_paths(sslCtx);
     }
+
+    // NOLINTNEXTLINE
     SSL_CTX_set_session_cache_mode(
         sslCtx, SSL_CTX_get_session_cache_mode(sslCtx) | SSL_SESS_CACHE_CLIENT);
 
@@ -124,10 +122,12 @@ void ConnectionPool::connect()
 {
     LOG_FCALL();
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     if (m_connected)
         return;
 
     for (auto &client : m_connections) {
+        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         client->connect(m_host, m_port)
             .then(m_executor.get(), [ this, clientPtr = client.get() ]() {
                 m_idleConnections.emplace(clientPtr);
@@ -148,9 +148,10 @@ void ConnectionPool::connect()
     LOG(INFO) << "All connections ready";
 }
 
-void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
-    std::function<std::error_code(std::string)> onHandshakeResponse,
-    std::function<void(std::error_code)> onHandshakeDone)
+void ConnectionPool::setHandshake(
+    const std::function<std::string()> &getHandshake,
+    const std::function<std::error_code(std::string)> &onHandshakeResponse,
+    const std::function<void(std::error_code)> &onHandshakeDone)
 {
     LOG_FCALL();
 
@@ -158,27 +159,28 @@ void ConnectionPool::setHandshake(std::function<std::string()> getHandshake,
         throw std::invalid_argument("CLProto handshake was explicitly disabled "
                                     "for this connection pool");
 
-    m_pipelineFactory->setHandshake(std::move(getHandshake),
-        std::move(onHandshakeResponse), std::move(onHandshakeDone));
+    m_pipelineFactory->setHandshake(
+        getHandshake, onHandshakeResponse, onHandshakeDone);
 }
 
 void ConnectionPool::setOnMessageCallback(
-    std::function<void(std::string)> onMessage)
+    const std::function<void(std::string)> &onMessage)
 {
     LOG_FCALL();
 
-    m_pipelineFactory->setOnMessageCallback(std::move(onMessage));
+    m_pipelineFactory->setOnMessageCallback(onMessage);
 }
 
 void ConnectionPool::setCertificateData(
-    std::shared_ptr<cert::CertificateData> certificateData)
+    const std::shared_ptr<cert::CertificateData> &certificateData)
 {
     LOG_FCALL();
 
-    m_certificateData = std::move(certificateData);
+    m_certificateData = certificateData;
 }
 
-void ConnectionPool::send(std::string message, Callback callback, const int)
+void ConnectionPool::send(
+    const std::string &message, const Callback &callback, const int /*unused*/)
 {
     LOG_FCALL() << LOG_FARG(message.size());
 
@@ -194,15 +196,14 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
     try {
         LOG_DBG(3) << "Waiting for idle connection to become available";
 
-        while (!client || !client->connected()) {
+        while ((client == nullptr) || !client->connected()) {
             if (!m_connected) {
                 LOG_DBG(1)
                     << "Connection pool stopped - cannot send message...";
-                folly::via(folly::getCPUExecutor().get(),
-                    [callback = std::move(callback)] {
-                        callback(std::make_error_code(
-                            std::errc::connection_aborted));
-                    });
+                folly::via(folly::getCPUExecutor().get(), [callback] {
+                    callback(
+                        std::make_error_code(std::errc::connection_aborted));
+                });
 
                 return;
             }
@@ -216,6 +217,7 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
                     this, client, executor = m_executor
                 ]() {
                     if (m_connected)
+                        // NOLINTNEXTLINE
                         m_idleConnections.emplace(client);
                     else
                         client->getPipeline()->close();
@@ -240,11 +242,11 @@ void ConnectionPool::send(std::string message, Callback callback, const int)
     }
 
     client->getPipeline()
-        ->write(std::move(message))
+        ->write(message)
         .then(folly::getCPUExecutor().get(),
-            [c = std::move(callback)] { c(std::error_code{}); })
+            [callback] { callback(std::error_code{}); })
         .then(m_executor.get(), [this, client]() {
-            m_idleConnections.emplace(client);
+            m_idleConnections.emplace(client); // NOLINT
             LOG_DBG(3) << "Message sent";
         });
 
@@ -279,8 +281,8 @@ void ConnectionPool::close()
     // Cancel any threads waiting on m_idleConnections.pop()
     m_idleConnections.abort();
 
-    for (auto client : m_connections) {
-        if (!client->getPipeline() || !client->connected())
+    for (const auto &client : m_connections) {
+        if ((client->getPipeline() == nullptr) || !client->connected())
             continue;
 
         folly::via(m_executor.get(),

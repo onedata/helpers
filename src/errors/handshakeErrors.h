@@ -47,7 +47,7 @@ public:
  * @param code an instance of @c ErrorCode
  * @return standard library error code instance
  */
-std::error_code makeErrorCode(ErrorCode code);
+std::error_code makeErrorCode(ErrorCode e);
 
 } // namespace handshake
 } // namespace errors

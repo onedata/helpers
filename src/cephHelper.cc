@@ -17,17 +17,17 @@
 namespace one {
 namespace helpers {
 
-using namespace std::placeholders;
-
-// Retry only in case one of these errors occured
-const std::set<int> CEPH_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
-    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
-    ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED,
-    ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
-    ECANCELED};
+using std::placeholders::_1;
 
 inline bool CephRetryCondition(int result, const std::string &operation)
 {
+    // Retry only in case one of these errors occured
+    const static std::set<int> CEPH_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES,
+        EBUSY, EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK,
+        ENONET, ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH,
+        ECONNABORTED, ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO,
+        ENOMEDIUM, ECANCELED};
+
     auto ret = (CEPH_RETRY_ERRORS.find(-result) == CEPH_RETRY_ERRORS.end());
 
     if (!ret) {
@@ -119,8 +119,8 @@ folly::Future<std::size_t> CephFileHandle::write(
 
         for (auto &byteRange : *buf.front())
             data.append(ceph::buffer::create_static(byteRange.size(),
-                reinterpret_cast<char *>(
-                    const_cast<unsigned char *>(byteRange.data()))));
+                reinterpret_cast<char *>(                             // NOLINT
+                    const_cast<unsigned char *>(byteRange.data())))); // NOLINT
 
         LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
                    << offset << " to file " << m_fileId;
@@ -158,7 +158,7 @@ CephHelper::CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
     , m_userName{std::move(userName)}
     , m_key{std::move(key)}
     , m_executor{std::move(executor)}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(clusterName) << LOG_FARG(monHost)
                 << LOG_FARG(poolName) << LOG_FARG(userName) << LOG_FARG(key);
@@ -170,8 +170,8 @@ CephHelper::~CephHelper()
     m_ioCTX.close();
 }
 
-folly::Future<FileHandlePtr> CephHelper::open(
-    const folly::fbstring &fileId, const int, const Params &)
+folly::Future<FileHandlePtr> CephHelper::open(const folly::fbstring &fileId,
+    const int /*flags*/, const Params & /*openParams*/)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
@@ -304,7 +304,7 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
 
         LOG_DBG(2) << "Got extended attribute with value: " << xattrValue;
 
-        return folly::makeFuture<folly::fbstring>(std::move(xattrValue));
+        return folly::makeFuture<folly::fbstring>(xattrValue);
     });
 }
 
@@ -437,6 +437,7 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return connect().then([
         this, fileId, s = std::weak_ptr<CephHelper>{shared_from_this()}
     ] {
@@ -560,9 +561,9 @@ folly::Future<folly::Unit> CephHelper::connect()
             }
 
             // TODO: VFS-3780
-            m_radosStriper.set_object_layout_stripe_unit(4 * 1024 * 1024);
-            m_radosStriper.set_object_layout_stripe_count(8);
-            m_radosStriper.set_object_layout_object_size(16 * 1024 * 1024);
+            m_radosStriper.set_object_layout_stripe_unit(m_stripeUnit);
+            m_radosStriper.set_object_layout_stripe_count(m_stripeCount);
+            m_radosStriper.set_object_layout_object_size(m_objectSize);
 
             LOG_DBG(1) << "Successfully connected to Ceph at: " << m_monHost;
 

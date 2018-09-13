@@ -14,6 +14,7 @@
 #include "flatOpScheduler.h"
 #include "monitoring/monitoring.h"
 
+#include <boost/thread/once.hpp>
 #include <boost/variant.hpp>
 #include <folly/Executor.h>
 #include <fuse.h>
@@ -116,13 +117,13 @@ private:
 
     friend struct OpExec;
     struct OpExec : public boost::static_visitor<> {
-        OpExec(std::shared_ptr<NullDeviceFileHandle>);
+        OpExec(const std::shared_ptr<NullDeviceFileHandle> &handle);
         std::unique_ptr<folly::Unit> startDrain();
-        void operator()(ReadOp &) const;
-        void operator()(WriteOp &) const;
-        void operator()(FsyncOp &) const;
-        void operator()(FlushOp &) const;
-        void operator()(ReleaseOp &) const;
+        void operator()(ReadOp &op) const;
+        void operator()(WriteOp &op) const;
+        void operator()(FsyncOp &op) const;
+        void operator()(FlushOp &op) const;
+        void operator()(ReleaseOp &op) const;
         bool m_validCtx = false;
         std::weak_ptr<NullDeviceFileHandle> m_handle;
     };
@@ -139,7 +140,8 @@ private:
 
     // Use a preallocated, prefilled buffer for reads to avoid the cost of
     // memset on each read call.
-    static std::vector<uint8_t> nullReadBuffer;
+    static std::vector<uint8_t> m_nullReadBuffer;
+    static boost::once_flag m_nullReadBufferInitialized;
 };
 
 /**
@@ -166,10 +168,9 @@ public:
      *                                     files per second
      * @param executor Executor for driving async file operations.
      */
-    NullDeviceHelper(const int latencyMin, const int latencyMax,
-        const double timeoutProbabilty, folly::fbstring filter,
-        std::vector<std::pair<long int, long int>>
-            simulatedFilesystemParameters,
+    NullDeviceHelper(int latencyMin, int latencyMax, double timeoutProbability,
+        const folly::fbstring &filter,
+        std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
         double simulatedFilesystemGrowSpeed,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
@@ -186,7 +187,8 @@ public:
         const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
+        const mode_t unmaskedMode, const FlagsSet &flags,
+        const dev_t rdev) override;
 
     folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override;
@@ -232,22 +234,22 @@ public:
 
     const Timeout &timeout() override { return m_timeout; }
 
-    bool applies(folly::fbstring operationName);
+    bool applies(const folly::fbstring &operationName);
 
     bool randomTimeout();
 
     int randomLatency();
 
-    bool simulateTimeout(std::string operationName);
+    bool simulateTimeout(const std::string &operationName);
 
-    void simulateLatency(std::string operationName);
+    void simulateLatency(const std::string &operationName);
 
     bool isSimulatedFilesystem() const;
 
     /**
      * Returns the simulated filesystem parameters
      */
-    std::vector<std::pair<long int, long int>>
+    std::vector<std::pair<int64_t, int64_t>>
     simulatedFilesystemParameters() const;
 
     /**
@@ -317,14 +319,14 @@ private:
 
     std::vector<std::string> m_filter;
 
-    std::vector<std::pair<long int, long int>> m_simulatedFilesystemParameters;
+    std::vector<std::pair<int64_t, int64_t>> m_simulatedFilesystemParameters;
     double m_simulatedFilesystemGrowSpeed;
 
     bool m_simulatedFilesystemLevelEntryCountReady;
     std::vector<size_t> m_simulatedFilesystemLevelEntryCount;
 
     bool m_simulatedFilesystemEntryCountReady;
-    size_t m_simulatedFilesystemEntryCount;
+    size_t m_simulatedFilesystemEntryCount{};
 
     static std::chrono::time_point<std::chrono::system_clock> m_mountTime;
 
@@ -332,6 +334,8 @@ private:
 
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
+
+    static boost::once_flag m_nullMountTimeOnceFlag;
 };
 
 /**
@@ -348,7 +352,7 @@ public:
     {
     }
 
-    static std::vector<std::pair<long int, long int>>
+    static std::vector<std::pair<int64_t, int64_t>>
     parseSimulatedFilesystemParameters(const std::string &params);
 
     std::shared_ptr<StorageHelper> createStorageHelper(

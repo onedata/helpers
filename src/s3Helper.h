@@ -91,7 +91,7 @@ public:
      * should be used to sign requests.
      * @param timeout Asynchronous operations timeout.
      */
-    S3Helper(folly::fbstring hostName, folly::fbstring bucketName,
+    S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
         folly::fbstring accessKey, folly::fbstring secretKey,
         const bool useHttps = true, Timeout timeout = ASYNC_OPS_TIMEOUT);
 
@@ -99,7 +99,7 @@ public:
         const std::size_t size) override;
 
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
-        const std::size_t offset = 0) override;
+        const std::size_t offset) override;
 
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 

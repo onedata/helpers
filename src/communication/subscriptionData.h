@@ -15,7 +15,7 @@ namespace one {
 
 namespace clproto {
 class ServerMessage;
-}
+} // namespace clproto
 
 namespace communication {
 
@@ -30,15 +30,14 @@ struct SubscriptionData {
 public:
     /**
      * Constructor.
-     * @param predicate The predicate to determine if the @p callback should
+     * @param p The predicate to determine if the @p callback should
      * be called. The boolean parameter states whether the message was
      * handled by the inbox.
-     * @param callback The callback to be called if the @p predicate returns
+     * @param c The callback to be called if the @p predicate returns
      * true.
      */
-    SubscriptionData(
-        std::function<bool(const ServerMessage &, const bool)> predicate,
-        std::function<void(const ServerMessage &)> callback);
+    SubscriptionData(std::function<bool(const ServerMessage &, const bool)> p,
+        std::function<void(const ServerMessage &)> c);
 
     SubscriptionData() = default;
 
@@ -46,12 +45,12 @@ public:
      * The stored predicate.
      */
     std::function<bool(const ServerMessage &, const bool)> predicate =
-        [](auto &, auto) { return false; };
+        [](auto & /*unused*/, auto /*unused*/) { return false; };
 
     /**
      * The stored callback.
      */
-    std::function<void(const ServerMessage &)> callback;
+    std::function<void(const ServerMessage & /*unused*/)> callback;
 };
 
 } // namespace communication

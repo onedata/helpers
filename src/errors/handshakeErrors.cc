@@ -52,7 +52,7 @@ std::string HandshakeErrorCategory::message(int ev) const
 std::error_code makeErrorCode(ErrorCode e)
 {
     static HandshakeErrorCategory errorCategory{};
-    return std::error_code(static_cast<int>(e), errorCategory);
+    return {static_cast<int>(e), errorCategory};
 }
 
 } // namespace handshake

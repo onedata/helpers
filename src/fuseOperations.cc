@@ -25,7 +25,7 @@ void activateFuseSession()
 bool fuseInterrupted()
 {
     LOG_FCALL();
-    return fuseSessionActive && fuse_interrupted();
+    return fuseSessionActive && (fuse_interrupted() != 0);
 }
 
 } // namespace helpers

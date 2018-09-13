@@ -29,7 +29,7 @@ namespace communication {
 
 namespace cert {
 class CertificateData;
-}
+} // namespace cert
 
 /**
  * A @c ConnectionPool is responsible for managing connection pipeline
@@ -59,10 +59,12 @@ public:
      * @param clprotoHandshake Flag determining whether connections should
      * perform clproto handshake after upgrading to clproto.
      */
-    ConnectionPool(const std::size_t connectionsNumber,
-        const std::size_t workersNumber, std::string host,
-        const unsigned short port, const bool verifyServerCertificate,
-        const bool clprotoUpgrade = true, const bool clprotoHandshake = true);
+    ConnectionPool(std::size_t connectionsNumber, std::size_t workersNumber,
+        std::string host, uint16_t port, bool verifyServerCertificate,
+        bool clprotoUpgrade = true, bool clprotoHandshake = true);
+
+    ConnectionPool(const ConnectionPool &) = delete;
+    ConnectionPool &operator=(const ConnectionPool &) = delete;
 
     /**
      * Creates connections to the remote endpoint specified in the constructor.
@@ -83,22 +85,23 @@ public:
      * @note This method is separated from constructor so that the handshake
      * messages can be translated by other communication layers.
      */
-    void setHandshake(std::function<std::string()> getHandshake,
-        std::function<std::error_code(std::string)> onHandshakeResponse,
-        std::function<void(std::error_code)> onHandshakeDone);
+    void setHandshake(const std::function<std::string()> &getHandshake,
+        const std::function<std::error_code(std::string)> &onHandshakeResponse,
+        const std::function<void(std::error_code)> &onHandshakeDone);
 
     /**
      * Sets a function to handle received messages.
      * @param onMessage The function handling received messages.
      */
-    void setOnMessageCallback(std::function<void(std::string)> onMessage);
+    void setOnMessageCallback(
+        const std::function<void(std::string)> &onMessage);
 
     /**
      * Sets certificate data to be used to authorize the client.
      * @param certificateData The certificate data to set.
      */
     void setCertificateData(
-        std::shared_ptr<cert::CertificateData> certificateData);
+        const std::shared_ptr<cert::CertificateData> &certificateData);
 
     /**
      * Initialize the SSL context for communication sockets.
@@ -113,7 +116,8 @@ public:
      * @param callback Callback function that is called on send success or
      * error.
      */
-    void send(std::string message, Callback callback, const int = int{});
+    void send(const std::string &message, const Callback &callback,
+        int /*unused*/ = int{});
 
     /**
      * Destructor.
@@ -144,9 +148,8 @@ private:
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
     const std::size_t m_connectionsNumber;
-    const std::size_t m_workersNumber;
     const std::string m_host;
-    const unsigned short m_port;
+    const uint16_t m_port;
     const bool m_verifyServerCertificate;
     const bool m_clprotoUpgrade;
     const bool m_clprotoHandshake;
@@ -167,10 +170,10 @@ private:
     std::shared_ptr<CLProtoPipelineFactory> m_pipelineFactory;
 
     // Fixed pool of connection instances
-    std::vector<std::shared_ptr<CLProtoClientBootstrap>> m_connections;
+    std::vector<std::shared_ptr<CLProtoClientBootstrap>> m_connections{};
 
     // Queue of pointers to currently idle connections from the fixed pool
-    tbb::concurrent_bounded_queue<CLProtoClientBootstrap *> m_idleConnections;
+    tbb::concurrent_bounded_queue<CLProtoClientBootstrap *> m_idleConnections{};
 };
 
 } // namespace communication

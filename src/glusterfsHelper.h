@@ -137,7 +137,7 @@ public:
      * @param executor Executor that will drive the helper's async operations.
      * @param timeout Operation timeout.
      */
-    GlusterFSHelper(boost::filesystem::path mountPoint, const uid_t uid,
+    GlusterFSHelper(const boost::filesystem::path &mountPoint, const uid_t uid,
         const gid_t gid, folly::fbstring hostname, int port,
         folly::fbstring volume, folly::fbstring transport,
         folly::fbstring xlatorOptions,
@@ -156,7 +156,8 @@ public:
         const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
+        const mode_t unmaskedMode, const FlagsSet &flags,
+        const dev_t rdev) override;
 
     folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override;
@@ -259,20 +260,23 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {
-        const auto &mountPoint = getParam(parameters, "mountPoint", "");
+        const auto &mountPoint =
+            getParam<std::string>(parameters, "mountPoint", "");
         const auto &uid = getParam<int>(parameters, "uid", -1);
         const auto &gid = getParam<int>(parameters, "gid", -1);
-        const auto &hostname = getParam(parameters, "hostname");
+        const auto &hostname = getParam<std::string>(parameters, "hostname");
         const auto &port = getParam<int>(parameters, "port", 24007);
-        const auto &volume = getParam(parameters, "volume");
-        const auto &transport = getParam(parameters, "transport", "tcp");
-        const auto &xlatorOptions = getParam(parameters, "xlatorOptions", "");
+        const auto &volume = getParam<std::string>(parameters, "volume");
+        const auto &transport =
+            getParam<std::string>(parameters, "transport", "tcp");
+        const auto &xlatorOptions =
+            getParam<std::string>(parameters, "xlatorOptions", "");
 
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
 
-        return std::make_shared<GlusterFSHelper>(mountPoint.toStdString(), uid,
-            gid, hostname, port, volume, transport, xlatorOptions,
+        return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
+            port, volume, transport, xlatorOptions,
             std::make_shared<AsioExecutor>(m_service), std::move(timeout));
     }
 

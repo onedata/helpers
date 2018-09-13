@@ -56,7 +56,7 @@ folly::IOBufQueue fillToSize(folly::IOBufQueue buf, const std::size_t size)
 
     if (buf.chainLength() < size) {
         const std::size_t fillLength = size - buf.chainLength();
-        char *data = static_cast<char *>(buf.allocate(fillLength));
+        auto data = static_cast<char *>(buf.allocate(fillLength));
         std::fill(data, data + fillLength, 0);
     }
     return buf;
@@ -84,6 +84,7 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(
         m_executor.get(), [ this, offset, size, self = shared_from_this() ] {
             return readBlocks(offset, size);

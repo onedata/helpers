@@ -84,7 +84,17 @@ public:
      * @return Number of bytes that has been successfully saved on the storage.
      */
     virtual std::size_t putObject(const folly::fbstring &key,
-        folly::IOBufQueue buf, const std::size_t offset = 0) = 0;
+        folly::IOBufQueue buf, const std::size_t offset) = 0;
+
+    /**
+     * @param key Sequence of characters identifying value on the storage.
+     * @param buf Buffer containing bytes of an object to be stored.
+     * @return Number of bytes that has been successfully saved on the storage.
+     */
+    std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf)
+    {
+        return putObject(key, std::move(buf), 0);
+    };
 
     /**
      * @param keys Vector of keys of objects to be deleted.

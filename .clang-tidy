@@ -1,5 +1,6 @@
 Checks: >-
   *,
+  -abseil*,
   -android*,
   -*braces-around-statements,
   -cert-err58-cpp,

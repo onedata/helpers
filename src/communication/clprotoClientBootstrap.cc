@@ -21,16 +21,18 @@
 #include <wangle/codec/LengthFieldPrepender.h>
 #include <wangle/codec/StringCodec.h>
 
+#include <utility>
+
 namespace one {
 namespace communication {
 
 /**
  * List of consecutive socket reconnection delays in milliseconds.
  */
-static const std::vector<int> CLIENT_RECONNECT_DELAYS{0, 100, 1000, 1000, 1000,
-    1000, 5000, 5000, 5000, 15'000, 15'000, 15'000, 60'000};
+static const std::array<int, 13> CLIENT_RECONNECT_DELAYS{0, 100, 1000, 1000,
+    1000, 1000, 5000, 5000, 5000, 15'000, 15'000, 15'000, 60'000};
 
-static const auto CLIENT_CONNECT_TIMEOUT = std::chrono::seconds{10};
+static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 10;
 
 CLProtoClientBootstrap::CLProtoClientBootstrap(const uint32_t id,
     const bool performCLProtoUpgrade, const bool performCLProtoHandshake)
@@ -49,7 +51,7 @@ void CLProtoClientBootstrap::makePipeline(
 void CLProtoClientBootstrap::setEOFCallback(
     std::function<void(void)> eofCallback)
 {
-    m_eofCallback = eofCallback;
+    m_eofCallback = std::move(eofCallback);
 }
 
 folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
@@ -58,7 +60,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     auto reconnectDelay = CLIENT_RECONNECT_DELAYS.at(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
-    if (!reconnectAttempt) {
+    if (reconnectAttempt == 0u) {
         LOG_DBG(1) << "Creating new connection with id " << connectionId()
                    << " to " << host.toStdString() << ":" << port;
     }
@@ -70,17 +72,15 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
     auto executor = group_.get();
 
-    assert(executor);
-
     return folly::via(executor)
         .then(executor,
             [this, reconnectAttempt] {
                 // If this is a reconnect attempt and the pipeline still exists,
                 // close it first
-                if (reconnectAttempt && getPipeline())
+                if ((reconnectAttempt != 0u) && (getPipeline() != nullptr))
                     return getPipeline()->close();
-                else
-                    return folly::makeFuture();
+
+                return folly::makeFuture();
             })
         .delayed(std::chrono::milliseconds{reconnectDelay})
         .then(executor, [this, host, port, reconnectAttempt, executor] {
@@ -96,17 +96,13 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
             }
 
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
-                address, CLIENT_CONNECT_TIMEOUT)
-                .then([
-                    this, addressStr = address.describe(), host, port, executor
-                ](CLProtoPipeline * pipeline) {
-                    assert(pipeline);
-                    assert(pipeline->getTransport());
-                    assert(pipeline->getTransport()->good());
-
+                address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
+                .then([ this, addressStr = address.describe(), host, executor ](
+                    CLProtoPipeline * pipeline) {
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
+                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     return via(executor,
                         // After connection, attempt to upgrade the connection
                         // to clproto if required for this connection
@@ -114,8 +110,6 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                             auto sock =
                                 std::dynamic_pointer_cast<folly::AsyncSocket>(
                                     pipeline->getTransport());
-
-                            assert(sock);
 
                             sock->setNoDelay(true);
 
@@ -137,8 +131,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                     ->getContext<wangle::EventBaseHandler>()
                                     ->fireWrite(std::move(upgradeRequest));
                             }
-                            else
-                                return folly::makeFuture();
+
+                            return folly::makeFuture();
                         })
                         // Wait for the clproto upgrade response from server
                         .then(executor,
@@ -153,8 +147,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                                 CLProtoUpgradeResponseHandler>()
                                         ->done();
                                 }
-                                else
-                                    return folly::makeFuture();
+
+                                return folly::makeFuture();
                             })
                         // Once upgrade is finished successfully, remove the
                         // clproto upgrade handler
@@ -178,8 +172,6 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                         codec::
                                             CLProtoHandshakeResponseHandler>();
 
-                                    assert(handshakeHandler);
-
                                     auto handshake =
                                         handshakeHandler->getHandshake();
 
@@ -192,8 +184,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                     return pipeline->write(
                                         std::move(handshake));
                                 }
-                                else
-                                    return folly::makeFuture();
+
+                                return folly::makeFuture();
                             })
                         .then(executor,
                             [this, pipeline] {
@@ -206,8 +198,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                                 CLProtoHandshakeResponseHandler>()
                                         ->done();
                                 }
-                                else
-                                    return folly::makeFuture();
+
+                                return folly::makeFuture();
                             })
                         // Once upgrade is finished successfully, remove the
                         // clproto upgrade handler
@@ -227,7 +219,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                 })
                 .onError([this, host, port, executor, reconnectAttempt](
                              folly::exception_wrapper ew) {
-                    if (!reconnectAttempt) {
+                    if (reconnectAttempt == 0u) {
                         LOG(ERROR) << "Failed connecting to Oneprovider at "
                                    << host << ":" << port;
                         ew.throw_exception();
@@ -240,6 +232,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                         // wrap it in via
                         return folly::via(
                             executor, [this, host, port, reconnectAttempt] {
+                                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                                 return connect(host, port, reconnectAttempt + 1)
                                     .then([]() { return folly::makeFuture(); });
                             });
@@ -250,7 +243,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
 bool CLProtoClientBootstrap::connected()
 {
-    if (!getPipeline())
+    if (getPipeline() == nullptr)
         return false;
 
     if (!getPipeline()->getTransport())
@@ -260,5 +253,5 @@ bool CLProtoClientBootstrap::connected()
 }
 
 uint32_t CLProtoClientBootstrap::connectionId() const { return m_connectionId; }
-}
-}
+} // namespace communication
+} // namespace one
