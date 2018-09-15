@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <boost/filesystem.hpp>
 #include <folly/Executor.h>
 #include <folly/Range.h>
 #include <folly/executors/GlobalExecutor.h>
@@ -62,6 +63,40 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     }
 }
 
+bool ConnectionPool::setupOpenSSLCABundlePath(SSL_CTX *ctx)
+{
+    std::deque<std::string> caBundlePossibleLocations{
+        "/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-bundle.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/pki/tls/certs/ca-bundle.trust.crt",
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"};
+
+    if (auto sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
+        caBundlePossibleLocations.push_front(sslCertFileEnv);
+    }
+
+    auto it = std::find_if(caBundlePossibleLocations.begin(),
+        caBundlePossibleLocations.end(), [](const auto &path) {
+            namespace bf = boost::filesystem;
+            return bf::exists(path) &&
+                (bf::is_regular_file(path) || bf::is_symlink(path));
+        });
+
+    if (it != caBundlePossibleLocations.end()) {
+        if (!SSL_CTX_load_verify_locations(ctx, it->c_str(), nullptr)) {
+            LOG(ERROR)
+                << "Invalid CA bundle at " << *it
+                << ". Certificate server verification may not work properly...";
+            return false;
+        }
+        else {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
 {
     auto context =
@@ -76,7 +111,9 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
     auto sslCtx = context->getSSLCtx();
-    SSL_CTX_set_default_verify_paths(sslCtx);
+    if (!setupOpenSSLCABundlePath(sslCtx)) {
+        SSL_CTX_set_default_verify_paths(sslCtx);
+    }
     SSL_CTX_set_session_cache_mode(
         sslCtx, SSL_CTX_get_session_cache_mode(sslCtx) | SSL_SESS_CACHE_CLIENT);
 
