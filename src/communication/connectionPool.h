@@ -134,6 +134,15 @@ private:
      */
     void close();
 
+    /**
+     * Setup trusted CA certificates by trying to find a CA file in on of common
+     * locations, otherwise ask OpenSSL to set up default paths.
+     * @param ctx OpenSSL context
+     * @return True when CA file was found and loaded successfuly, false
+     * otherwise
+     */
+    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+
     const std::size_t m_connectionsNumber;
     const std::size_t m_workersNumber;
     const std::string m_host;
