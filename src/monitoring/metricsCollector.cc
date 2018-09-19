@@ -21,9 +21,9 @@ class GraphiteMetricsCollector;
 std::shared_ptr<MetricsCollector> MetricsCollector::m_singleton{nullptr};
 bool MetricsCollector::m_isEnabled{false};
 
-MetricsCollector::MetricsCollector() {}
+MetricsCollector::MetricsCollector() = default;
 
-MetricsCollector::~MetricsCollector() {}
+MetricsCollector::~MetricsCollector() = default;
 
 void MetricsCollector::setConfiguration(
     std::shared_ptr<MonitoringConfiguration> monitoringConfiguration)

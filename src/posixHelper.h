@@ -143,7 +143,7 @@ private:
 
     friend struct OpExec;
     struct OpExec : public boost::static_visitor<> {
-        OpExec(std::shared_ptr<PosixFileHandle>);
+        OpExec(const std::shared_ptr<PosixFileHandle> &);
         std::unique_ptr<UserCtxSetter> startDrain();
         void operator()(ReadOp &) const;
         void operator()(WriteOp &) const;
@@ -192,7 +192,8 @@ public:
         const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
+        const mode_t unmaskedMode, const FlagsSet &flags,
+        const dev_t rdev) override;
 
     folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override;

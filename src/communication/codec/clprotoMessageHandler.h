@@ -20,7 +20,7 @@ namespace codec {
  */
 class CLProtoMessageHandler : public wangle::InboundHandler<std::string> {
 public:
-    CLProtoMessageHandler(std::function<void(std::string)> onMessage)
+    explicit CLProtoMessageHandler(std::function<void(std::string)> onMessage)
         : m_onMessage{std::move(onMessage)}
     {
     }
@@ -30,18 +30,18 @@ public:
         m_eofCallback = eofCallback;
     }
 
-    void read(Context *, std::string msg) override
+    void read(Context * /*ctx*/, std::string msg) override
     {
         m_onMessage(std::move(msg));
     }
 
-    void readException(Context *ctx, folly::exception_wrapper e) override
+    void readException(Context * /*ctx*/, folly::exception_wrapper e) override
     {
         LOG(ERROR) << "Unexpected error on clproto socket: "
                    << folly::exceptionStr(e);
     }
 
-    void readEOF(Context *ctx) override
+    void readEOF(Context * /*ctx*/) override
     {
         LOG(ERROR) << "EOF on clproto socket - closing pipeline...";
         if (m_eofCallback)
@@ -52,6 +52,6 @@ private:
     std::function<void(std::string)> m_onMessage;
     std::function<void(void)> m_eofCallback;
 };
-}
-}
-}
+} // namespace codec
+} // namespace communication
+} // namespace one

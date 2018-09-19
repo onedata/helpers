@@ -13,8 +13,8 @@ namespace communication {
 namespace cert {
 
 FilesystemCertificate::FilesystemCertificate(
-    std::string certPath, std::string keyPath, KeyFormat kf)
-    : CertificateData{kf}
+    std::string certPath, std::string keyPath, KeyFormat keyFormat)
+    : CertificateData{keyFormat}
     , m_certPath{std::move(certPath)}
     , m_keyPath{std::move(keyPath)}
 {

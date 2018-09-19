@@ -63,7 +63,7 @@ std::error_code getReturnCode(const Outcome &outcome)
     if (search != g_errors.end())
         error = search->second;
 
-    return std::error_code(static_cast<int>(error), std::system_category());
+    return {static_cast<int>(error), std::system_category()};
 }
 
 template <typename Outcome>
@@ -73,8 +73,8 @@ void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
     if (!code)
         return;
 
-    auto msg = operation.toStdString() +
-        "': " + outcome.GetError().GetMessage().c_str();
+    auto msg =
+        operation.toStdString() + "': " + outcome.GetError().GetMessage();
 
     LOG_DBG(1) << "Operation " << operation << " failed with message " << msg;
 
@@ -109,13 +109,11 @@ bool S3RetryCondition(const T &outcome, const std::string &operation)
 namespace one {
 namespace helpers {
 
-using namespace std::placeholders;
-
 S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     folly::fbstring accessKey, folly::fbstring secretKey, const bool useHttps,
     Timeout timeout)
     : m_bucket{std::move(bucketName)}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(bucketName)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
@@ -173,6 +171,7 @@ folly::IOBufQueue S3Helper::getObject(
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
     request.SetResponseStreamFactory([ data = data, size ] {
+        // NOLINTNEXTLINE
         auto stream = new std::stringstream;
 #if !defined(__APPLE__)
         /**
@@ -195,8 +194,8 @@ folly::IOBufQueue S3Helper::getObject(
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->GetObject(request);
     },
-        std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>, _1,
-            "GetObject"));
+        std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
+            std::placeholders::_1, "GetObject"));
 
     auto code = getReturnCode(outcome);
 
@@ -226,7 +225,7 @@ std::size_t S3Helper::putObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
 
-    assert(offset == 0);
+    assert(offset == 0); // NOLINT
 
     auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
     if (iobuf->isChained()) {
@@ -257,8 +256,8 @@ std::size_t S3Helper::putObject(
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->PutObject(request);
     },
-        std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>, _1,
-            "PutObject"));
+        std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>,
+            std::placeholders::_1, "PutObject"));
 
     ONE_METRIC_TIMERCTX_STOP(timer, size);
 
@@ -294,7 +293,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
             return m_client->DeleteObjects(request);
         },
             std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectsOutcome>,
-                _1, "DeleteObjects"));
+                std::placeholders::_1, "DeleteObjects"));
 
         throwOnError("DeleteObjects", outcome);
     }

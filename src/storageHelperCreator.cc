@@ -76,7 +76,7 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
     m_nullDeviceService{nullDeviceService}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
-    , m_bufferLimits{std::move(bufferLimits)}
+    , m_bufferLimits{bufferLimits}
     , m_communicator{communicator}
 {
 }

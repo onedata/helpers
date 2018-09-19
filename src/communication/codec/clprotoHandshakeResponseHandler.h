@@ -27,11 +27,11 @@ public:
         std::function<void(std::error_code)> onHandshakeDone)
         : m_getHandshake{std::move(getHandshake)}
         , m_onHandshakeResponse{std::move(onHandshakeResponse)}
-        , m_onHandshakeDone{onHandshakeDone}
+        , m_onHandshakeDone{std::move(onHandshakeDone)}
     {
     }
 
-    void read(Context *ctx, std::string message)
+    void read(Context *ctx, std::string message) override
     {
         LOG_DBG(1) << "Received clproto handshake response";
 
@@ -65,6 +65,6 @@ private:
     std::function<std::error_code(std::string)> m_onHandshakeResponse;
     std::function<void(std::error_code)> m_onHandshakeDone;
 };
-}
-}
-}
+} // namespace codec
+} // namespace communication
+} // namespace one

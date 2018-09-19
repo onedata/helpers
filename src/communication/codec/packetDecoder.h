@@ -28,8 +28,8 @@ public:
     {
     }
 
-    bool decode(Context *ctx, folly::IOBufQueue &buf,
-        std::unique_ptr<folly::IOBuf> &result, size_t &) override
+    bool decode(Context * /*ctx*/, folly::IOBufQueue &buf,
+        std::unique_ptr<folly::IOBuf> &result, size_t & /*unused*/) override
     {
         // Here we always assume that the head of the buffer is at
         // the beggining of the frame length field, i.e. the first 4
@@ -48,20 +48,19 @@ public:
 
             return true;
         }
-        else {
-            auto remainingBytes =
-                m_lengthFieldLength + messageLength - buf.chainLength();
 
-            LOG_DBG(3) << "Waiting for remaining " << remainingBytes
-                       << " bytes of message";
+        auto remainingBytes =
+            m_lengthFieldLength + messageLength - buf.chainLength();
 
-            return false;
-        }
+        LOG_DBG(3) << "Waiting for remaining " << remainingBytes
+                   << " bytes of message";
+
+        return false;
     }
 
 private:
     const uint32_t m_lengthFieldLength;
 };
-}
-}
-}
+} // namespace codec
+} // namespace communication
+} // namespace one

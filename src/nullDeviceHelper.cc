@@ -14,14 +14,14 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/any.hpp>
 #include <boost/filesystem.hpp>
-#include <boost/thread/once.hpp>
-#include <errno.h>
+#include <cerrno>
 #include <folly/io/IOBuf.h>
 #include <fuse.h>
 
 #include <cstring>
 #include <map>
 #include <string>
+#include <utility>
 
 template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setResult(
@@ -35,31 +35,34 @@ inline folly::Future<folly::Unit> setResult(
 
 #define SIMULATE_HANDLE_STORAGE_ISSUES(helper, name, type)                     \
     {                                                                          \
-        if (helper->simulateTimeout(name)) {                                   \
+        if ((helper)->simulateTimeout(name)) {                                 \
             op.promise.setException(makePosixException(EAGAIN));               \
             return;                                                            \
         }                                                                      \
-        helper->simulateLatency(name);                                         \
+        (helper)->simulateLatency(name);                                       \
     }
 
 #define SIMULATE_STORAGE_ISSUES(helper, name, type)                            \
     {                                                                          \
-        if (helper->simulateTimeout(name)) {                                   \
+        if ((helper)->simulateTimeout(name)) {                                 \
             throw one::helpers::makePosixException(EAGAIN);                    \
         }                                                                      \
-        helper->simulateLatency(name);                                         \
+        (helper)->simulateLatency(name);                                       \
     }
 
 namespace one {
 namespace helpers {
-
 constexpr auto NULL_DEVICE_HELPER_READ_PREALLOC_SIZE = 150 * 1024 * 1024;
-static boost::once_flag __nullReadBufferInitialized = BOOST_ONCE_INIT;
-static boost::once_flag __nullMountTimeOnceFlag = BOOST_ONCE_INIT;
+constexpr auto NULL_DEVICE_HELPER_READLINK_SIZE = 10;
+constexpr auto NULL_DEVICE_HELPER_READXATTR_SIZE = 10;
+
+boost::once_flag NullDeviceFileHandle::m_nullReadBufferInitialized =
+    BOOST_ONCE_INIT;
+boost::once_flag NullDeviceHelper::m_nullMountTimeOnceFlag = BOOST_ONCE_INIT;
+std::vector<uint8_t> NullDeviceFileHandle::m_nullReadBuffer = {};
+// NOLINTNEXTLINE
 std::chrono::time_point<std::chrono::system_clock>
     NullDeviceHelper::m_mountTime = {};
-
-std::vector<uint8_t> NullDeviceFileHandle::nullReadBuffer = {};
 
 std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
     folly::fbstring fileId, std::shared_ptr<NullDeviceHelper> helper,
@@ -75,19 +78,28 @@ NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
     std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : FileHandle{std::move(fileId)}
-    , m_helper{helper}
+    , m_helper{std::move(helper)}
     , m_executor{std::move(executor)}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
     , m_readBytes{0}
     , m_writtenBytes{0}
 {
     LOG_FCALL() << LOG_FARG(fileId);
+
+    // Initilize the read buffer
+    boost::call_once(
+        [] {
+            m_nullReadBuffer.reserve(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
+            std::fill_n(m_nullReadBuffer.begin(),
+                NULL_DEVICE_HELPER_READ_PREALLOC_SIZE, NULL_DEVICE_HELPER_CHAR);
+        },
+        m_nullReadBufferInitialized);
 }
 
 NullDeviceFileHandle::~NullDeviceFileHandle() { LOG_FCALL(); }
 
 NullDeviceFileHandle::OpExec::OpExec(
-    std::shared_ptr<NullDeviceFileHandle> handle)
+    const std::shared_ptr<NullDeviceFileHandle> &handle)
     : m_handle{handle}
 {
 }
@@ -138,15 +150,7 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
                << " from file " << fileId;
 
     if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
-        boost::call_once(
-            [] {
-                nullReadBuffer.reserve(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
-                std::fill_n(nullReadBuffer.begin(),
-                    NULL_DEVICE_HELPER_READ_PREALLOC_SIZE,
-                    NULL_DEVICE_HELPER_CHAR);
-            },
-            __nullReadBufferInitialized);
-        auto nullBuf = folly::IOBuf::wrapBuffer(nullReadBuffer.data(), size);
+        auto nullBuf = folly::IOBuf::wrapBuffer(m_nullReadBuffer.data(), size);
         buf.append(std::move(nullBuf));
     }
     else {
@@ -277,22 +281,22 @@ folly::Future<folly::Unit> NullDeviceFileHandle::fsync(bool /*isDataSync*/)
 }
 
 NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
-    const double timeoutProbability, folly::fbstring filter,
-    std::vector<std::pair<long int, long int>> simulatedFilesystemParameters,
+    const double timeoutProbability, const folly::fbstring &filter,
+    std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
     double simulatedFilesystemGrowSpeed,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : m_latencyGenerator{std::bind(
           std::uniform_int_distribution<>(latencyMin, latencyMax),
-          std::default_random_engine())}
+          std::default_random_engine(std::random_device{}()))}
     , m_timeoutGenerator{std::bind(std::uniform_real_distribution<>(0.0, 1.0),
-          std::default_random_engine())}
+          std::default_random_engine(std::random_device{}()))}
     , m_timeoutProbability{timeoutProbability}
-    , m_simulatedFilesystemParameters{simulatedFilesystemParameters}
+    , m_simulatedFilesystemParameters{std::move(simulatedFilesystemParameters)}
     , m_simulatedFilesystemGrowSpeed{simulatedFilesystemGrowSpeed}
     , m_simulatedFilesystemLevelEntryCountReady{false}
     , m_simulatedFilesystemEntryCountReady{false}
     , m_executor{std::move(executor)}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(latencyMin) << LOG_FARG(latencyMax)
                 << LOG_FARG(timeoutProbability) << LOG_FARG(filter);
@@ -315,7 +319,7 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
         []() {
             NullDeviceHelper::m_mountTime = std::chrono::system_clock::now();
         },
-        __nullMountTimeOnceFlag);
+        m_nullMountTimeOnceFlag);
 
     // Precalculate the number of entries per level and total in the
     // filesystem
@@ -327,87 +331,90 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(
-        m_executor.get(), [ this, fileId, self = shared_from_this() ] {
+    return folly::via(m_executor.get(), [
+        this, fileId, self = shared_from_this()
+    ] {
 
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getattr");
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getattr");
 
-            SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
+        SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
 
-            LOG_DBG(2) << "Attempting to stat file " << fileId;
+        LOG_DBG(2) << "Attempting to stat file " << fileId;
 
-            struct stat stbuf = {};
-            stbuf.st_gid = 0;
-            stbuf.st_uid = 0;
+        constexpr auto ST_MODE_MASK = 0777;
+        constexpr auto ST_SIZE_KB = 1024;
 
-            if (isSimulatedFilesystem()) {
+        struct stat stbuf = {};
+        stbuf.st_gid = 0;
+        stbuf.st_uid = 0;
+
+        if (isSimulatedFilesystem()) {
 #if !defined(__APPLE__)
-                std::vector<std::string> pathTokens;
-                auto fileIdStr = fileId.toStdString();
-                folly::split("/", fileIdStr, pathTokens, true);
-                auto level = pathTokens.size();
+            std::vector<std::string> pathTokens;
+            auto fileIdStr = fileId.toStdString();
+            folly::split("/", fileIdStr, pathTokens, true);
+            auto level = pathTokens.size();
 
-                if (level == 0) {
-                    stbuf.st_mode = 0777 | S_IFDIR;
-                }
-                else {
-                    auto pathLeaf = std::stol(pathTokens[level - 1]);
-
-                    if (pathLeaf <
-                        std::get<0>(
-                            m_simulatedFilesystemParameters[level - 1])) {
-                        stbuf.st_mode = 0777 | S_IFDIR;
-                    }
-                    else {
-                        stbuf.st_mode = 0777 | S_IFREG;
-                        stbuf.st_size = pathLeaf * 1024;
-                    }
-                }
-
-                stbuf.st_ino = simulatedFilesystemFileDist(pathTokens) + 2;
-
-                stbuf.st_ctim.tv_sec =
-                    std::chrono::system_clock::to_time_t(m_mountTime);
-                stbuf.st_ctim.tv_nsec = 0;
-
-                if (m_simulatedFilesystemGrowSpeed == 0.0) {
-                    stbuf.st_mtim.tv_sec =
-                        std::chrono::system_clock::to_time_t(m_mountTime);
-                    stbuf.st_mtim.tv_nsec = 0;
-                }
-                else {
-                    if (stbuf.st_mode & S_IFDIR) {
-                        auto now = std::chrono::system_clock::now();
-                        auto mtimeMax = m_mountTime +
-                            std::chrono::seconds(
-                                (long int)(m_simulatedFilesystemEntryCount /
-                                    m_simulatedFilesystemGrowSpeed));
-
-                        if (now < mtimeMax)
-                            stbuf.st_mtim.tv_sec =
-                                std::chrono::system_clock::to_time_t(now);
-                        else
-                            stbuf.st_mtim.tv_sec =
-                                std::chrono::system_clock::to_time_t(mtimeMax);
-                    }
-                    else {
-                        stbuf.st_mtim.tv_sec =
-                            std::chrono::system_clock::to_time_t(m_mountTime +
-                                std::chrono::seconds((long int)(stbuf.st_ino /
-                                    m_simulatedFilesystemGrowSpeed)));
-                    }
-                    stbuf.st_mtim.tv_nsec = 0;
-                }
-#endif
+            if (level == 0) {
+                stbuf.st_mode = ST_MODE_MASK | S_IFDIR;
             }
             else {
-                stbuf.st_ino = 1;
-                stbuf.st_mode = 0777 | S_IFREG;
-                stbuf.st_size = 0;
+                auto pathLeaf = std::stol(pathTokens[level - 1]);
+
+                if (pathLeaf <
+                    std::get<0>(m_simulatedFilesystemParameters[level - 1])) {
+                    stbuf.st_mode = ST_MODE_MASK | S_IFDIR;
+                }
+                else {
+                    stbuf.st_mode = ST_MODE_MASK | S_IFREG;
+                    stbuf.st_size = pathLeaf * ST_SIZE_KB;
+                }
             }
 
-            return folly::makeFuture(stbuf);
-        });
+            stbuf.st_ino = simulatedFilesystemFileDist(pathTokens) + 2;
+
+            stbuf.st_ctim.tv_sec =
+                std::chrono::system_clock::to_time_t(m_mountTime);
+            stbuf.st_ctim.tv_nsec = 0;
+
+            if (m_simulatedFilesystemGrowSpeed == 0.0) {
+                stbuf.st_mtim.tv_sec =
+                    std::chrono::system_clock::to_time_t(m_mountTime);
+                stbuf.st_mtim.tv_nsec = 0;
+            }
+            else {
+                if ((stbuf.st_mode & S_IFDIR) != 0u) {
+                    auto now = std::chrono::system_clock::now();
+                    auto mtimeMax = m_mountTime +
+                        std::chrono::seconds(static_cast<int64_t>(
+                            m_simulatedFilesystemEntryCount /
+                            m_simulatedFilesystemGrowSpeed));
+
+                    if (now < mtimeMax)
+                        stbuf.st_mtim.tv_sec =
+                            std::chrono::system_clock::to_time_t(now);
+                    else
+                        stbuf.st_mtim.tv_sec =
+                            std::chrono::system_clock::to_time_t(mtimeMax);
+                }
+                else {
+                    stbuf.st_mtim.tv_sec = std::chrono::system_clock::to_time_t(
+                        m_mountTime +
+                        std::chrono::seconds(static_cast<int64_t>(
+                            stbuf.st_ino / m_simulatedFilesystemGrowSpeed)));
+                }
+                stbuf.st_mtim.tv_nsec = 0;
+            }
+#endif
+        }
+        else {
+            stbuf.st_ino = 1;
+            stbuf.st_mode = ST_MODE_MASK | S_IFREG;
+            stbuf.st_size = 0;
+        }
+
+        return folly::makeFuture(stbuf);
+    });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::access(
@@ -507,7 +514,8 @@ folly::Future<folly::fbstring> NullDeviceHelper::readlink(
 
         LOG_DBG(2) << "Attempting to read link " << fileId;
 
-        auto target = folly::fbstring(10, NULL_DEVICE_HELPER_CHAR);
+        auto target = folly::fbstring(
+            NULL_DEVICE_HELPER_READLINK_SIZE, NULL_DEVICE_HELPER_CHAR);
 
         LOG_DBG(2) << "Read link " << fileId << " - resolves to " << target;
 
@@ -517,7 +525,7 @@ folly::Future<folly::fbstring> NullDeviceHelper::readlink(
 
 folly::Future<folly::Unit> NullDeviceHelper::mknod(
     const folly::fbstring &fileId, const mode_t unmaskedMode,
-    const FlagsSet &flags, const dev_t rdev)
+    const FlagsSet &flags, const dev_t /*rdev*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(unmaskedMode)
                 << LOG_FARG(flagsToMask(flags));
@@ -672,7 +680,8 @@ folly::Future<folly::Unit> NullDeviceHelper::truncate(
 }
 
 folly::Future<FileHandlePtr> NullDeviceHelper::open(
-    const folly::fbstring &fileId, const int flags, const Params &)
+    const folly::fbstring &fileId, const int flags,
+    const Params & /*openParams*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
 
@@ -686,7 +695,7 @@ folly::Future<FileHandlePtr> NullDeviceHelper::open(
         SIMULATE_STORAGE_ISSUES(self, "open", FileHandlePtr)
 
         auto handle = NullDeviceFileHandle::create(
-            std::move(fileId), self, std::move(executor), std::move(timeout));
+            fileId, self, std::move(executor), timeout);
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
     });
@@ -704,8 +713,8 @@ folly::Future<folly::fbstring> NullDeviceHelper::getxattr(
 
             SIMULATE_STORAGE_ISSUES(self, "getxattr", folly::fbstring)
 
-            return folly::makeFuture(
-                folly::fbstring(10, NULL_DEVICE_HELPER_CHAR));
+            return folly::makeFuture(folly::fbstring(
+                NULL_DEVICE_HELPER_READXATTR_SIZE, NULL_DEVICE_HELPER_CHAR));
         });
 }
 
@@ -753,6 +762,7 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
 
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.listxattr");
@@ -762,7 +772,7 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::listxattr(
 
         folly::fbvector<folly::fbstring> ret;
 
-        for (int i = 1; i <= 10; i++) {
+        for (int i = 1; i <= NULL_DEVICE_HELPER_READXATTR_SIZE; i++) {
             ret.emplace_back(std::string(i, NULL_DEVICE_HELPER_CHAR));
         }
 
@@ -778,19 +788,19 @@ bool NullDeviceHelper::randomTimeout()
     return m_timeoutGenerator() < m_timeoutProbability;
 }
 
-bool NullDeviceHelper::applies(folly::fbstring operationName)
+bool NullDeviceHelper::applies(const folly::fbstring &operationName)
 {
     return m_applyToAllOperations ||
         (std::find(m_filter.begin(), m_filter.end(),
              operationName.toStdString()) != m_filter.end());
 }
 
-bool NullDeviceHelper::simulateTimeout(std::string operationName)
+bool NullDeviceHelper::simulateTimeout(const std::string &operationName)
 {
     return applies(operationName) && randomTimeout();
 }
 
-void NullDeviceHelper::simulateLatency(std::string operationName)
+void NullDeviceHelper::simulateLatency(const std::string &operationName)
 {
     if (applies(operationName)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(randomLatency()));
@@ -802,7 +812,7 @@ bool NullDeviceHelper::isSimulatedFilesystem() const
     return !m_simulatedFilesystemParameters.empty();
 }
 
-std::vector<std::pair<long int, long int>>
+std::vector<std::pair<int64_t, int64_t>>
 NullDeviceHelper::simulatedFilesystemParameters() const
 {
     return m_simulatedFilesystemParameters;
@@ -866,7 +876,7 @@ size_t NullDeviceHelper::simulatedFilesystemFileDist(
     }
 
     size_t pathDirProduct = std::accumulate(
-        parentPath.begin(), parentPath.end(), 1, std::multiplies<size_t>());
+        parentPath.begin(), parentPath.end(), 1, std::multiplies<>());
 
     auto levelDirs = std::get<0>(m_simulatedFilesystemParameters[level]);
     auto levelFiles = std::get<1>(m_simulatedFilesystemParameters[level]);
@@ -877,11 +887,11 @@ size_t NullDeviceHelper::simulatedFilesystemFileDist(
     return distance - 1;
 }
 
-std::vector<std::pair<long int, long int>>
+std::vector<std::pair<int64_t, int64_t>>
 NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
     const std::string &params)
 {
-    auto result = std::vector<std::pair<long int, long int>>{};
+    auto result = std::vector<std::pair<int64_t, int64_t>>{};
 
     if (params.empty())
         return result;

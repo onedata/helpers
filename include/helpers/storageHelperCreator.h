@@ -162,15 +162,23 @@ public:
 
     /**
      * Produces storage helper object.
-     * @param sh Name of storage helper that has to be returned.
+     * @param name Name of storage helper that has to be returned.
      * @param args Arguments map passed as argument to storge helper's
      * constructor.
+     * @param buffered Whether the storage helper should be wrapped
+     * with a buffer agent.
      * @return The created storage helper object.
      */
     virtual std::shared_ptr<StorageHelper> getStorageHelper(
-        const folly::fbstring &sh,
+        const folly::fbstring &name,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
-        const bool buffered = true);
+        bool buffered);
+
+    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args)
+    {
+        return getStorageHelper(name, args, true);
+    }
 
 private:
 #if WITH_CEPH

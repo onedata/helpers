@@ -148,6 +148,10 @@ private:
     folly::fbstring m_userName;
     folly::fbstring m_key;
 
+    const size_t m_stripeUnit = 4 * 1024 * 1024;
+    const size_t m_stripeCount = 8;
+    const size_t m_objectSize = 16 * 1024 * 1024;
+
     std::unique_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 

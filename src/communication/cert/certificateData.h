@@ -34,7 +34,12 @@ public:
      * Constructor.
      * @param keyFormat Format in which the key is stored.
      */
-    CertificateData(KeyFormat keyFormat);
+    explicit CertificateData(KeyFormat keyFormat);
+
+    CertificateData(CertificateData &&) = default;
+    CertificateData(const CertificateData &) = default;
+    CertificateData &operator=(const CertificateData &) = delete;
+    CertificateData &operator=(CertificateData &&) = delete;
 
     virtual ~CertificateData() = default;
 

@@ -166,13 +166,13 @@ void Inbox<LowerLayer>::communicate(
             if (m_callbacks.find(acc, messageId)) {
                 auto cb = std::move(*(acc->second.callback));
                 auto messageName = std::move(acc->second.messageName);
-                using namespace std::chrono;
-                auto rtt = duration_cast<milliseconds>(
-                    system_clock::now() - acc->second.sendTime);
+                namespace sc = std::chrono;
+                auto rtt = sc::duration_cast<sc::milliseconds>(
+                    sc::system_clock::now() - acc->second.sendTime);
 
-                LOG(INFO) << "Sending message " << messageName
-                          << "(id: " << messageId
-                          << ") failed with error: " << ec;
+                LOG(WARNING) << "Sending message " << messageName
+                             << "(id: " << messageId << ") failed after "
+                             << rtt.count() << "ms with error: " << ec;
 
                 m_callbacks.erase(acc);
                 cb(ec, {});
