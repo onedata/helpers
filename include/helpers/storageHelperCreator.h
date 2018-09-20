@@ -53,6 +53,8 @@ constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
 
 namespace buffering {
 
+class BufferAgentsMemoryLimitGuard;
+
 struct BufferLimits {
     BufferLimits(std::size_t readBufferMinSize_ = 5 * 1024 * 1024,
         std::size_t readBufferMaxSize_ = 10 * 1024 * 1024,
@@ -63,14 +65,17 @@ struct BufferLimits {
         std::chrono::seconds writeBufferFlushDelay_ = std::chrono::seconds{5},
         std::chrono::nanoseconds targetLatency_ =
             std::chrono::nanoseconds{1000},
-        double prefetchPowerBase_ = 1.3)
+        double prefetchPowerBase_ = 1.3, std::size_t readBuffersTotalSize_ = 0,
+        std::size_t writeBuffersTotalSize_ = 0)
         : readBufferMinSize{readBufferMinSize_}
         , readBufferMaxSize{readBufferMaxSize_}
+        , readBuffersTotalSize{readBuffersTotalSize_}
         , prefetchPowerBase{prefetchPowerBase_}
         , targetLatency{std::move(targetLatency_)}
         , readBufferPrefetchDuration{std::move(readBufferPrefetchDuration_)}
         , writeBufferMinSize{writeBufferMinSize_}
         , writeBufferMaxSize{writeBufferMaxSize_}
+        , writeBuffersTotalSize{writeBuffersTotalSize_}
         , writeBufferFlushDelay{std::move(writeBufferFlushDelay_)}
     {
     }
@@ -97,6 +102,7 @@ struct BufferLimits {
     ///@{
     std::size_t readBufferMinSize;
     std::size_t readBufferMaxSize;
+    std::size_t readBuffersTotalSize;
     double prefetchPowerBase;
     std::chrono::nanoseconds targetLatency;
     std::chrono::seconds readBufferPrefetchDuration;
@@ -108,6 +114,7 @@ struct BufferLimits {
     ///@{
     std::size_t writeBufferMinSize;
     std::size_t writeBufferMaxSize;
+    std::size_t writeBuffersTotalSize;
     std::chrono::seconds writeBufferFlushDelay;
     ///@}
 };
@@ -197,7 +204,10 @@ private:
 #endif
     asio::io_service &m_nullDeviceService;
     std::unique_ptr<Scheduler> m_scheduler;
+
     buffering::BufferLimits m_bufferLimits;
+    std::shared_ptr<buffering::BufferAgentsMemoryLimitGuard>
+        m_bufferMemoryLimitGuard;
 
 #ifdef BUILD_PROXY_IO
     communication::Communicator &m_communicator;

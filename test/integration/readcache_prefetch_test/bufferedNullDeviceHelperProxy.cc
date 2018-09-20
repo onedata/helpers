@@ -62,7 +62,10 @@ public:
                   latencyMax, timeoutProbability, std::move(filter),
                   std::vector<std::pair<long int, long int>>{}, 0.0,
                   std::make_shared<one::AsioExecutor>(m_service)),
-              *m_scheduler}
+              *m_scheduler,
+              std::make_shared<
+                  one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
+                  one::helpers::buffering::BufferLimits{})}
     {
         for (int i = 0; i < NULL_DEVICE_HELPER_WORKER_THREADS; i++) {
             m_workers.push_back(std::thread([=]() { m_service.run(); }));

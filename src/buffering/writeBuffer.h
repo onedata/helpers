@@ -171,7 +171,7 @@ private:
                             .count();
 
                     if (duration > 0) {
-                        auto bandwidth = sentSize * 1000000000 / duration;
+                        auto bandwidth = sentSize * 1'000'000'000 / duration;
                         self->m_bps = (self->m_bps * 1 + bandwidth * 2) / 3;
                     }
 

@@ -80,6 +80,41 @@ private:
     std::atomic<bool> &m_wasSimultaneous;
 };
 
+struct BufferAgentsMemoryLimitGuardTest : public ::testing::Test {
+protected:
+    BufferAgentsMemoryLimitGuardTest()
+    {
+        limits.readBufferMaxSize = 10'000'000;
+        limits.writeBufferMaxSize = 5'000'000;
+        limits.readBuffersTotalSize = 100'000'000;
+        limits.writeBuffersTotalSize = 50'000'000;
+
+        limitGuard = std::make_shared<
+            one::helpers::buffering::BufferAgentsMemoryLimitGuard>(limits);
+    }
+
+    one::helpers::buffering::BufferLimits limits = {};
+    std::shared_ptr<one::helpers::buffering::BufferAgentsMemoryLimitGuard>
+        limitGuard;
+};
+
+TEST_F(BufferAgentsMemoryLimitGuardTest, shouldReserveMemoryForBufferedHandles)
+{
+    const auto readSize = limits.readBufferMaxSize;
+    const auto writeSize = limits.writeBufferMaxSize;
+
+    for (int i = 0; i < 10; i++)
+        ASSERT_TRUE(limitGuard->reserveBuffers(readSize, writeSize));
+
+    ASSERT_FALSE(limitGuard->reserveBuffers(readSize, writeSize));
+
+    ASSERT_TRUE(limitGuard->releaseBuffers(readSize, writeSize));
+
+    ASSERT_TRUE(limitGuard->reserveBuffers(readSize, writeSize));
+
+    ASSERT_FALSE(limitGuard->reserveBuffers(readSize, writeSize));
+}
+
 struct BufferHelperTest : public ::testing::Test {
 protected:
     BufferHelperTest()
@@ -88,10 +123,18 @@ protected:
             workers.emplace_back(std::thread{[&] { service.run(); }});
 
         one::helpers::buffering::BufferLimits limits;
+        limits.readBufferMaxSize = 10 * 1024 * 1024;
+        limits.writeBufferMaxSize = 50 * 1024 * 1024;
+        limits.readBuffersTotalSize = 5 * limits.readBufferMaxSize;
+        limits.writeBuffersTotalSize = 5 * limits.writeBufferMaxSize;
+
+        auto memoryLimitGuard = std::make_shared<
+            one::helpers::buffering::BufferAgentsMemoryLimitGuard>(limits);
+
         auto wrappedHelper =
             std::make_shared<StorageHelper>(executor, wasSimultaneous);
         helper = std::make_shared<one::helpers::buffering::BufferAgent>(
-            limits, wrappedHelper, scheduler);
+            limits, wrappedHelper, scheduler, std::move(memoryLimitGuard));
     }
 
     ~BufferHelperTest()
@@ -116,6 +159,11 @@ private:
 TEST_F(BufferHelperTest, shouldNotWriteSimultaneously)
 {
     auto handle = helper->open("fileId", 0, {}).get();
+
+    ASSERT_TRUE(
+        std::dynamic_pointer_cast<one::helpers::buffering::BufferedFileHandle>(
+            handle));
+
     for (int i = 0; i < 10; ++i) {
         for (int j = 0; j < 1000; ++j) {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
@@ -125,4 +173,39 @@ TEST_F(BufferHelperTest, shouldNotWriteSimultaneously)
     }
     handle->release().get();
     ASSERT_FALSE(wasSimultaneous.load());
+}
+
+TEST_F(BufferHelperTest, shouldReleaseMemoryGuardReserves)
+{
+    std::vector<one::helpers::FileHandlePtr> handles;
+
+    for (int i = 0; i < 5; i++) {
+        auto handle = helper->open("fileId" + std::to_string(i), 0, {}).get();
+
+        ASSERT_TRUE(std::dynamic_pointer_cast<
+            one::helpers::buffering::BufferedFileHandle>(handle));
+
+        handles.push_back(std::move(handle));
+    }
+
+    auto handle5 = helper->open("fileId" + std::to_string(5), 0, {}).get();
+
+    // After the total memory limit for buffers is exhausted, BufferedAgent
+    // should return non-buffered handles until some handle releases the
+    // reserved memory
+    ASSERT_FALSE(
+        std::dynamic_pointer_cast<one::helpers::buffering::BufferedFileHandle>(
+            handle5));
+
+    // Destroy one handle
+    handles.pop_back();
+
+    auto handle6 = helper->open("fileId" + std::to_string(6), 0, {}).get();
+
+    // After the total memory limit for buffers is exhausted, BufferedAgent
+    // should return non-buffered handles until some handle releases the
+    // reserved memory
+    ASSERT_TRUE(
+        std::dynamic_pointer_cast<one::helpers::buffering::BufferedFileHandle>(
+            handle6));
 }
