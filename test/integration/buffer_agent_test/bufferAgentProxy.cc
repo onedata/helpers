@@ -41,7 +41,10 @@ public:
         , m_helper{one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::ProxyHelper>(
                   storageId, m_communicator),
-              *m_scheduler}
+              *m_scheduler,
+              std::make_shared<
+                  one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
+                  one::helpers::buffering::BufferLimits{})}
     {
         m_communicator.setScheduler(m_scheduler);
         m_communicator.connect();
