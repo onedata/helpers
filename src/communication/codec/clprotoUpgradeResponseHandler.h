@@ -28,9 +28,9 @@ class CLProtoUpgradeResponseHandler
     : public wangle::HandlerAdapter<folly::IOBufQueue &,
           std::unique_ptr<folly::IOBuf>> {
 public:
-    CLProtoUpgradeResponseHandler() {}
+    CLProtoUpgradeResponseHandler() = default;
 
-    void read(Context *ctx, folly::IOBufQueue &buf)
+    void read(Context *ctx, folly::IOBufQueue &buf) override
     {
         if (m_promise.isFulfilled()) {
             ctx->fireRead(buf);
@@ -49,7 +49,7 @@ public:
             return;
         }
 
-        if (!bufStringView.find(CLPROTO_UPGRADE_RESPONSE_STATUS) == 0) {
+        if (!(bufStringView.find(CLPROTO_UPGRADE_RESPONSE_STATUS) == 0u)) {
             LOG(ERROR) << "Invalid response during clproto protocol upgrade: "
                        << bufStringView << ". Expected:\n '"
                        << CLPROTO_UPGRADE_RESPONSE_STATUS << "'";
@@ -90,6 +90,6 @@ public:
 private:
     folly::Promise<folly::Unit> m_promise;
 };
-}
-}
-}
+} // namespace codec
+} // namespace communication
+} // namespace one

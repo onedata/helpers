@@ -20,17 +20,15 @@
 
 namespace {
 
-constexpr auto CEPHRADOS_SIZE_XATTR_NAME = "onedata.size";
-
-// Retry only in case one of these errors occured
-const std::set<int> CEPHRADOS_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
-    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
-    ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED,
-    ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
-    ECANCELED};
-
 inline bool CephRadosRetryCondition(int result, const std::string &operation)
 {
+    // Retry only in case one of these errors occured
+    const static std::set<int> CEPHRADOS_RETRY_ERRORS = {EINTR, EIO, EAGAIN,
+        EACCES, EBUSY, EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK,
+        EWOULDBLOCK, ENONET, ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN,
+        ENETUNREACH, ECONNABORTED, ECONNRESET, ENOTCONN, EHOSTDOWN,
+        EHOSTUNREACH, EREMOTEIO, ENOMEDIUM, ECANCELED};
+
     auto ret =
         (CEPHRADOS_RETRY_ERRORS.find(-result) == CEPHRADOS_RETRY_ERRORS.end());
 
@@ -46,7 +44,7 @@ inline bool CephRadosRetryCondition(int result, const std::string &operation)
 
 void throwOnError(const folly::fbstring &operation, const int code)
 {
-    if (!code)
+    if (code == 0)
         return;
 
     auto msg = std::string("Operation ") + operation.toStdString() +
@@ -61,15 +59,14 @@ void throwOnError(const folly::fbstring &operation, const int code)
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.cephrados.errors.read");
     }
 
-    throw std::system_error{
-        std::error_code(code, std::system_category()), std::move(msg)};
+    throw std::system_error{std::error_code(code, std::system_category()), msg};
 }
 } // namespace
 
 namespace one {
 namespace helpers {
 
-using namespace std::placeholders;
+using std::placeholders::_1;
 
 CephRadosHelper::CephRadosHelper(folly::fbstring clusterName,
     folly::fbstring monHost, folly::fbstring poolName, folly::fbstring userName,
@@ -80,7 +77,7 @@ CephRadosHelper::CephRadosHelper(folly::fbstring clusterName,
     , m_poolName{std::move(poolName)}
     , m_userName{std::move(userName)}
     , m_key{std::move(key)}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(m_clusterName) << LOG_FARG(m_monHost)
                 << LOG_FARG(m_poolName) << LOG_FARG(m_userName)
@@ -107,8 +104,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
 
     auto ret = retry(
         [&, this]() {
-            return m_ctx.get()->ioCTX.read(
-                key.toStdString(), data, size, offset);
+            return m_ctx->ioCTX.read(key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "GetObject"));
 
@@ -148,15 +144,16 @@ std::size_t CephRadosHelper::putObject(
     librados::bufferlist data;
     for (auto &byteRange : *buf.front())
         data.append(ceph::buffer::create_static(byteRange.size(),
+            // NOLINTNEXTLINE
             reinterpret_cast<char *>(
+                // NOLINTNEXTLINE
                 const_cast<unsigned char *>(byteRange.data()))));
 
     LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
 
     auto ret = retry(
         [&]() {
-            return m_ctx.get()->ioCTX.write(
-                key.toStdString(), data, size, offset);
+            return m_ctx->ioCTX.write(key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "PutObject"));
 
@@ -183,9 +180,9 @@ void CephRadosHelper::deleteObjects(
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
         for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
-            auto ret = retry(
-                [&]() { return m_ctx.get()->ioCTX.remove(key.toStdString()); },
-                std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
+            auto ret =
+                retry([&]() { return m_ctx->ioCTX.remove(key.toStdString()); },
+                    std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
 
             // Ignore non-existent object errors
             if (ret == -ENOENT) {
@@ -204,43 +201,42 @@ void CephRadosHelper::connect()
 {
     std::lock_guard<std::mutex> guard{m_connectionMutex};
 
-    if (m_ctx.get()->connected)
+    if (m_ctx->connected)
         return;
 
-    int ret = m_ctx.get()->cluster.init2(
-        m_userName.c_str(), m_clusterName.c_str(), 0);
+    int ret =
+        m_ctx->cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't initialize the cluster handle.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_ctx.get()->cluster.conf_set("mon host", m_monHost.c_str());
+    ret = m_ctx->cluster.conf_set("mon host", m_monHost.c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set monitor host configuration "
                       "variable.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_ctx.get()->cluster.conf_set("key", m_key.c_str());
+    ret = m_ctx->cluster.conf_set("key", m_key.c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set key configuration variable.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_ctx.get()->cluster.connect();
+    ret = m_ctx->cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_ctx.get()->cluster.ioctx_create(
-        m_poolName.c_str(), m_ctx.get()->ioCTX);
+    ret = m_ctx->cluster.ioctx_create(m_poolName.c_str(), m_ctx->ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    m_ctx.get()->connected = true;
+    m_ctx->connected = true;
 }
 } // namespace helpers
 } // namespace one

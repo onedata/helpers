@@ -90,7 +90,7 @@ public:
         const std::size_t size) override;
 
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
-        const std::size_t offset = 0) override;
+        const std::size_t offset) override;
 
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 

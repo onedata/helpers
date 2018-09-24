@@ -40,13 +40,13 @@ namespace communication {
  */
 class CLProtoClientBootstrap : public wangle::ClientBootstrap<CLProtoPipeline> {
 public:
-    CLProtoClientBootstrap(const uint32_t id, const bool performCLProtoUpgrade,
-        const bool performCLProtoHandshake);
+    CLProtoClientBootstrap(
+        uint32_t id, bool performCLProtoUpgrade, bool performCLProtoHandshake);
 
     void makePipeline(std::shared_ptr<folly::AsyncSocket> socket) override;
 
-    folly::Future<folly::Unit> connect(const folly::fbstring &host,
-        const int port, size_t reconnectAttempt = 0);
+    folly::Future<folly::Unit> connect(
+        const folly::fbstring &host, int port, size_t reconnectAttempt = 0);
 
     bool connected();
 
@@ -55,11 +55,13 @@ public:
     uint32_t connectionId() const;
 
 private:
+    using wangle::ClientBootstrap<CLProtoPipeline>::connect;
+
     const uint32_t m_connectionId;
     const bool m_performCLProtoUpgrade;
     const bool m_performCLProtoHandshake;
 
     std::function<void(void)> m_eofCallback;
 };
-}
-}
+} // namespace communication
+} // namespace one

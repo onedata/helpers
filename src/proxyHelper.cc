@@ -27,7 +27,7 @@ ProxyFileHandle::ProxyFileHandle(folly::fbstring fileId,
     : FileHandle{std::move(fileId), std::move(openParams)}
     , m_storageId{std::move(storageId)}
     , m_communicator{communicator}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(storageId)
                 << LOG_FARGM(openParams);
@@ -69,6 +69,7 @@ folly::Future<std::size_t> ProxyFileHandle::write(
 
     folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs;
     buffs.emplace_back(std::make_pair(offset, std::move(buf)));
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return multiwrite(std::move(buffs));
 }
 
@@ -107,7 +108,7 @@ ProxyHelper::ProxyHelper(folly::fbstring storageId,
     communication::Communicator &communicator, Timeout timeout)
     : m_storageId{std::move(storageId)}
     , m_communicator{communicator}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(storageId);
 }

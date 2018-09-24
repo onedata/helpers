@@ -13,7 +13,8 @@
 namespace one {
 namespace messages {
 
-MessageStreamReset::MessageStreamReset(std::unique_ptr<ProtocolServerMessage>)
+MessageStreamReset::MessageStreamReset(
+    std::unique_ptr<ProtocolServerMessage> /*unused*/)
 {
 }
 

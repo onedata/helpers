@@ -27,12 +27,91 @@ namespace one {
 namespace helpers {
 namespace buffering {
 
+/**
+ * This class maintains a counter for global read and write helper buffers
+ * allocations, to maintain a maximum overall buffers size.
+ */
+class BufferAgentsMemoryLimitGuard {
+public:
+    /**
+     * Constructor
+     * @param bufferLimits Reference to application buffer limits
+     */
+    BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
+        : m_bufferLimits{bufferLimits}
+        , m_readBuffersReservedSize{0}
+        , m_writeBuffersReservedSize{0}
+    {
+    }
+
+    /**
+     * This function tries to mark readSize and writeSize bytes as reserved with
+     * respect to total buffer limits specified in the application buffer
+     * limits. No actual memory allocation is done here. If this function
+     * returns false, it means that the global buffer memory limit has been
+     * exhausted and buffered file handles cannot be created until some other
+     * are closed.
+     * @param readSize The size in bytes of maximum memory needed by the read
+     * buffer
+     * @param writeSize The size in bytes of maximum memory needed by the write
+     * buffer
+     */
+    bool reserveBuffers(size_t readSize, size_t writeSize)
+    {
+        std::lock_guard<std::mutex> lock{m_mutex};
+
+        if (((m_bufferLimits.readBuffersTotalSize == 0) ||
+                (m_readBuffersReservedSize + readSize <=
+                    m_bufferLimits.readBuffersTotalSize)) &&
+            ((m_bufferLimits.writeBuffersTotalSize == 0) ||
+                (m_writeBuffersReservedSize + writeSize <=
+                    m_bufferLimits.writeBuffersTotalSize))) {
+            m_readBuffersReservedSize += readSize;
+            m_writeBuffersReservedSize += writeSize;
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * This function tries to release the readSize and writeSize bytes from the
+     * memory limit guard.
+     * @param readSize The size in bytes of maximum memory used by the read
+     * buffer
+     * @param writeSize The size in bytes of maximum memory used by the write
+     * buffer
+     */
+    bool releaseBuffers(size_t readSize, size_t writeSize)
+    {
+        std::lock_guard<std::mutex> lock{m_mutex};
+
+        if ((m_readBuffersReservedSize - readSize >= 0) &&
+            (m_writeBuffersReservedSize - writeSize >= 0)) {
+            m_readBuffersReservedSize -= readSize;
+            m_writeBuffersReservedSize -= writeSize;
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    const BufferLimits m_bufferLimits;
+
+    std::mutex m_mutex;
+    size_t m_readBuffersReservedSize;
+    size_t m_writeBuffersReservedSize;
+};
+
 class BufferedFileHandle : public FileHandle {
 public:
     BufferedFileHandle(folly::fbstring fileId, FileHandlePtr wrappedHandle,
-        const BufferLimits &bl, Scheduler &scheduler)
+        const BufferLimits &bl, Scheduler &scheduler,
+        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
         : FileHandle{std::move(fileId)}
         , m_wrappedHandle{std::move(wrappedHandle)}
+        , m_bufferLimits{bl}
         , m_scheduler{scheduler}
         , m_readCache{std::make_shared<ReadCache>(bl.readBufferMinSize,
               bl.readBufferMaxSize, bl.readBufferPrefetchDuration,
@@ -40,9 +119,19 @@ public:
         , m_writeBuffer{std::make_shared<WriteBuffer>(bl.writeBufferMinSize,
               bl.writeBufferMaxSize, bl.writeBufferFlushDelay, *m_wrappedHandle,
               m_scheduler, m_readCache)}
+        , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
     {
         LOG_FCALL() << LOG_FARG(fileId);
         m_writeBuffer->scheduleFlush();
+    }
+
+    ~BufferedFileHandle()
+    {
+        if (m_bufferMemoryLimitGuard) {
+            m_bufferMemoryLimitGuard->releaseBuffers(
+                m_bufferLimits.readBufferMaxSize,
+                m_bufferLimits.writeBufferMaxSize);
+        }
     }
 
     folly::Future<folly::IOBufQueue> read(
@@ -125,18 +214,22 @@ public:
 
 private:
     FileHandlePtr m_wrappedHandle;
+    BufferLimits m_bufferLimits;
     Scheduler &m_scheduler;
     std::shared_ptr<ReadCache> m_readCache;
     std::shared_ptr<WriteBuffer> m_writeBuffer;
+    std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
 };
 
 class BufferAgent : public StorageHelper {
 public:
     BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
-        Scheduler &scheduler)
+        Scheduler &scheduler,
+        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
         : m_bufferLimits{std::move(bufferLimits)}
         , m_helper{std::move(helper)}
         , m_scheduler{scheduler}
+        , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
     {
         LOG_FCALL() << LOG_FARG(bufferLimits.readBufferMinSize)
                     << LOG_FARG(bufferLimits.readBufferMaxSize)
@@ -153,11 +246,23 @@ public:
                     << LOG_FARGM(params);
 
         return m_helper->open(fileId, flags, params).then([
-            fileId, bl = m_bufferLimits, &scheduler = m_scheduler
+            fileId, bl = m_bufferLimits,
+            memoryLimitGuard = m_bufferMemoryLimitGuard,
+            &scheduler = m_scheduler
         ](FileHandlePtr handle) {
-            return static_cast<FileHandlePtr>(
-                std::make_shared<BufferedFileHandle>(
-                    std::move(fileId), std::move(handle), bl, scheduler));
+            if (memoryLimitGuard->reserveBuffers(
+                    bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
+                return static_cast<FileHandlePtr>(
+                    std::make_shared<BufferedFileHandle>(std::move(fileId),
+                        std::move(handle), bl, scheduler, memoryLimitGuard));
+            }
+
+            LOG_DBG(1) << "Couldn't create buffered file handle for file "
+                       << fileId
+                       << " due to exhausted overall buffer limit by already "
+                          "opened files.";
+
+            return handle;
         });
     }
 
@@ -313,6 +418,7 @@ private:
     BufferLimits m_bufferLimits;
     StorageHelperPtr m_helper;
     Scheduler &m_scheduler;
+    std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
 };
 
 } // namespace proxyio

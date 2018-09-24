@@ -41,7 +41,7 @@ using CLProtoPipeline = wangle::Pipeline<folly::IOBufQueue &, std::string>;
  */
 class CLProtoPipelineFactory : public wangle::PipelineFactory<CLProtoPipeline> {
 public:
-    CLProtoPipelineFactory(const bool clprotoUpgrade = true);
+    explicit CLProtoPipelineFactory(bool clprotoUpgrade = true);
 
     CLProtoPipeline::Ptr newPipeline(
         std::shared_ptr<folly::AsyncTransportWrapper> sock) override;
@@ -60,5 +60,5 @@ private:
     std::function<std::error_code(std::string)> m_onHandshakeResponse;
     std::function<void(std::error_code)> m_onHandshakeDone;
 };
-}
-}
+} // namespace communication
+} // namespace one

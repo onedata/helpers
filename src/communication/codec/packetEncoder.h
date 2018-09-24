@@ -32,8 +32,8 @@ public:
         Context *ctx, std::unique_ptr<folly::IOBuf> buf) override
     {
         int32_t length = htonl(buf->length());
-        auto packetBuf =
-            folly::IOBuf::copyBuffer(reinterpret_cast<uint8_t *>(&length), 4);
+        auto packetBuf = folly::IOBuf::copyBuffer(
+            reinterpret_cast<uint8_t *>(&length), m_lengthFieldLength);
 
         packetBuf->appendChain(std::move(buf));
 
@@ -43,6 +43,6 @@ public:
 private:
     const uint32_t m_lengthFieldLength;
 };
-}
-}
-}
+} // namespace codec
+} // namespace communication
+} // namespace one

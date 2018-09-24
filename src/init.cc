@@ -18,8 +18,6 @@
 namespace one {
 namespace helpers {
 
-using namespace one::monitoring;
-
 void init()
 {
     LOG_FCALL();
@@ -30,25 +28,26 @@ void init()
 }
 
 void configureMonitoring(
-    std::shared_ptr<MonitoringConfiguration> conf, bool start)
+    std::shared_ptr<monitoring::MonitoringConfiguration> conf, bool start)
 {
     LOG_FCALL() << LOG_FARG(start);
 
-    std::shared_ptr<MetricsCollector> metricsCollector;
+    std::shared_ptr<monitoring::MetricsCollector> metricsCollector;
 
-    if (dynamic_cast<GraphiteMonitoringConfiguration *>(conf.get())) {
-        metricsCollector =
-            MetricsCollector::getInstance<GraphiteMetricsCollector>();
+    if (dynamic_cast<monitoring::GraphiteMonitoringConfiguration *>(
+            conf.get()) != nullptr) {
+        metricsCollector = monitoring::MetricsCollector::getInstance<
+            monitoring::GraphiteMetricsCollector>();
     }
     else {
         LOG(ERROR) << "Unsupported monitoring type requested.";
         throw std::runtime_error("Unsupported monitoring type requested.");
     }
 
-    metricsCollector->setConfiguration(conf);
+    metricsCollector->setConfiguration(std::move(conf));
 
     if (start)
         metricsCollector->start();
 }
-}
-}
+} // namespace helpers
+} // namespace one

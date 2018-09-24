@@ -76,7 +76,9 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
     m_nullDeviceService{nullDeviceService}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
-    , m_bufferLimits{std::move(bufferLimits)}
+    , m_bufferLimits{bufferLimits}
+    , m_bufferMemoryLimitGuard{std::make_shared<
+          buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
     , m_communicator{communicator}
 {
 }
@@ -120,7 +122,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
     m_nullDeviceService{nullDeviceService}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
-    , m_bufferLimits{std::move(bufferLimits)}
+    , m_bufferLimits{bufferLimits}
+    , m_bufferMemoryLimitGuard{
+          std::make_shared<buffering::BufferAgentsMemoryLimitGuard>(
+              bufferLimits)}
 {
 }
 #endif
@@ -184,7 +189,7 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     if (buffered) {
         LOG_DBG(1) << "Created buffered helper of type: " << name;
         return std::make_shared<buffering::BufferAgent>(
-            m_bufferLimits, helper, *m_scheduler);
+            m_bufferLimits, helper, *m_scheduler, m_bufferMemoryLimitGuard);
     }
 
     LOG_DBG(1) << "Created non-buffered helper of type: " << name;

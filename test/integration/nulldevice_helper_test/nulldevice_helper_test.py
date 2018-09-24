@@ -349,7 +349,8 @@ def test_write_should_generate_timeouts_on_busy_storage(busyStorageHelper, file_
         except RuntimeError:
             failed += 1
 
-    assert completed < failed
+    assert completed > 0
+    assert failed > 0
 
 
 @pytest.mark.simulated_filesystem_tests

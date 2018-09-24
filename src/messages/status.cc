@@ -27,7 +27,7 @@ using Translation = boost::bimap<one::clproto::Status::Code,
 
 Translation createTranslation()
 {
-    using namespace one::clproto;
+    using namespace one::clproto; // NOLINT(google-build-using-namespace)
 
     const std::vector<Translation::value_type> pairs{
         {Status_Code_ok, static_cast<std::errc>(0)},
@@ -114,7 +114,7 @@ Translation createTranslation()
 }
 
 const Translation translation = createTranslation();
-}
+} // namespace
 
 namespace one {
 namespace messages {
@@ -188,7 +188,8 @@ std::unique_ptr<ProtocolClientMessage> Status::serializeAndDestroy()
     auto searchResult =
         translation.right.find(static_cast<std::errc>(m_code.value()));
 
-    assert(searchResult != translation.right.end());
+    assert(searchResult != translation.right.end()); // NOLINT
+
     statusMsg->set_code(searchResult->second);
 
     if (m_description)

@@ -105,10 +105,12 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
     std::size_t shouldHaveWrittenSoFar = 0;
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     for (auto &buf : buffs) {
         const auto shouldHaveWrittenAfter =
             shouldHaveWrittenSoFar + buf.second.chainLength();
 
+        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         future = future.then(
             [ =, buf = std::move(buf) ](const std::size_t wroteSoFar) mutable {
                 if (shouldHaveWrittenSoFar < wroteSoFar)

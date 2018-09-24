@@ -24,7 +24,7 @@ namespace codec {
 class PacketLogger : public wangle::HandlerAdapter<folly::IOBufQueue &,
                          std::unique_ptr<folly::IOBuf>> {
 public:
-    PacketLogger() {}
+    PacketLogger() = default;
 
     folly::Future<folly::Unit> write(
         Context *ctx, std::unique_ptr<folly::IOBuf> buf) override
@@ -51,6 +51,6 @@ public:
         ctx->fireRead(buf);
     }
 };
-}
-}
-}
+} // namespace codec
+} // namespace communication
+} // namespace one

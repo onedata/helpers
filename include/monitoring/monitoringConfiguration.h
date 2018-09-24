@@ -43,6 +43,8 @@ constexpr auto REPORTING_LEVEL = cppmetrics::core::ReportingLevel::Basic;
  */
 class MonitoringConfiguration {
 public:
+    virtual ~MonitoringConfiguration() = default;
+
     /**
      * Reporting period in seconds.
      */

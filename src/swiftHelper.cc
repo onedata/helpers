@@ -31,12 +31,10 @@ template <> struct hash<Poco::Net::HTTPResponse::HTTPStatus> {
         return std::hash<int>()(static_cast<int>(p));
     }
 };
-}
+} // namespace std
 
 namespace one {
 namespace helpers {
-
-namespace sp = std::placeholders;
 
 namespace {
 
@@ -74,7 +72,7 @@ std::error_code getReturnCode(const Outcome &outcome)
     if (search != errors.end())
         error = search->second;
 
-    return std::error_code(static_cast<int>(error), std::system_category());
+    return {static_cast<int>(error), std::system_category()};
 }
 
 template <typename Outcome>
@@ -119,7 +117,7 @@ bool SWIFTRetryCondition(const Outcome &outcome, const std::string &operation)
 
     return ret;
 }
-}
+} // namespace
 
 SwiftHelper::SwiftHelper(folly::fbstring containerName,
     const folly::fbstring &authUrl, const folly::fbstring &tenantName,
@@ -127,7 +125,7 @@ SwiftHelper::SwiftHelper(folly::fbstring containerName,
     Timeout timeout)
     : m_auth{authUrl, tenantName, userName, password}
     , m_containerName{std::move(containerName)}
-    , m_timeout{std::move(timeout)}
+    , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(containerName) << LOG_FARG(authUrl)
                 << LOG_FARG(tenantName) << LOG_FARG(userName)
@@ -161,8 +159,8 @@ folly::IOBufQueue SwiftHelper::getObject(
             return GetResponsePtr{
                 object.swiftGetObjectContent(nullptr, &headers)};
         },
-        std::bind(
-            SWIFTRetryCondition<GetResponsePtr>, sp::_1, "GetObjectContent"));
+        std::bind(SWIFTRetryCondition<GetResponsePtr>, std::placeholders::_1,
+            "GetObjectContent"));
 
     throwOnError("getObject", getResponse);
 
@@ -215,7 +213,7 @@ std::size_t SwiftHelper::putObject(
                 reinterpret_cast<const char *>(iobuf->data()), iobuf->length(),
                 true)};
         },
-        std::bind(SWIFTRetryCondition<CreateResponsePtr>, sp::_1,
+        std::bind(SWIFTRetryCondition<CreateResponsePtr>, std::placeholders::_1,
             "CreateReplaceObject"));
 
     throwOnError("putObject", createResponse);
@@ -255,8 +253,8 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
                 return DeleteResponsePtr{
                     container.swiftDeleteObjects(std::move(keyBatch))};
             },
-            std::bind(SWIFTRetryCondition<DeleteResponsePtr>, sp::_1,
-                "DeleteObjects"));
+            std::bind(SWIFTRetryCondition<DeleteResponsePtr>,
+                std::placeholders::_1, "DeleteObjects"));
 
         throwOnError("deleteObjects", deleteResponse);
     }
