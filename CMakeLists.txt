@@ -5,6 +5,7 @@ option(WITH_CEPH "Include Ceph direct IO support" ON)
 option(WITH_S3 "Include S3 direct IO support" ON)
 option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
+option(WITH_WEBDAV "Include WebDAV direct IO support" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
 
 # CMake config
@@ -143,6 +144,15 @@ else(WITH_GLUSTERFS)
     add_definitions(-DWITH_GLUSTERFS=0)
 endif(WITH_GLUSTERFS)
 
+# WebDAV libraries
+if(WITH_WEBDAV)
+    find_library(PROXYGEN_LIBRARY proxygenlib REQUIRED)
+    add_definitions(-DWITH_WEBDAV=1)
+else(WITH_WEBDAV)
+    add_definitions(-DWITH_WEBDAV=0)
+endif(WITH_WEBDAV)
+
+
 # Setup compile flags
 set(PLATFORM_EXTRA_LIBS
     ${CMAKE_THREAD_LIBS_INIT}
@@ -214,6 +224,10 @@ endif(WITH_SWIFT)
 if(WITH_GLUSTERFS)
     list(APPEND HELPERS_LIBRARIES ${GLUSTERFSAPI_LIBRARIES})
 endif(WITH_GLUSTERFS)
+
+if(WITH_WEBDAV)
+    list(APPEND HELPERS_LIBRARIES ${PROXYGEN_LIBRARY})
+endif(WITH_WEBDAV)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
 target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})
