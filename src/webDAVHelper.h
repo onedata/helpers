@@ -19,8 +19,10 @@
 #include <proxygen/lib/http/HTTPConnector.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/http/session/HTTPUpstreamSession.h>
+#include <proxygen/lib/utils/Base64.h>
 #include <proxygen/lib/utils/URL.h>
 
+#include <Poco/Base64Encoder.h>
 #include <Poco/DOM/AutoPtr.h>
 #include <Poco/DOM/DOMParser.h>
 #include <Poco/DOM/DOMWriter.h>
@@ -112,304 +114,6 @@ enum HTTPStatus {
     NetworkAuthenticationRequired = 511
 };
 
-template <class T> using PAPtr = Poco::AutoPtr<T>;
-
-/**
- * Base class for creating WebDAV request/response handlers
- */
-class WebDAVRequest : public proxygen::HTTPTransactionHandler {
-public:
-    WebDAVRequest(proxygen::HTTPUpstreamSession *session)
-        : m_session{session}
-        , m_txn{nullptr}
-        , m_resultCode{0}
-        , m_resultBody{std::make_unique<folly::IOBufQueue>(
-              folly::IOBufQueue::cacheChainLength())}
-    {
-        assert(m_session != nullptr);
-
-        request.setHTTPVersion(
-            kWebDAVHTTPVersionMajor, kWebDAVHTTPVersionMinor);
-        if (!request.getHeaders().getNumberOfValues("Host")) {
-            request.getHeaders().add(
-                "Host", m_session->getLocalAddress().getHostStr());
-        }
-        if (!request.getHeaders().getNumberOfValues("Accept")) {
-            request.getHeaders().add("Accept", "*/*");
-        }
-    }
-
-    virtual ~WebDAVRequest() = default;
-
-    /**
-     * \defgroup proxygen::HTTPTransactionHandler methods
-     * @{
-     */
-    virtual void setTransaction(
-        proxygen::HTTPTransaction *txn) noexcept override;
-    virtual void detachTransaction() noexcept override;
-    virtual void onHeadersComplete(
-        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
-    virtual void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
-    virtual void onTrailers(
-        std::unique_ptr<proxygen::HTTPHeaders> trailers) noexcept override;
-    virtual void onEOM() noexcept override;
-    virtual void onUpgrade(
-        proxygen::UpgradeProtocol protocol) noexcept override;
-    virtual void onError(
-        const proxygen::HTTPException &error) noexcept override = 0;
-    virtual void onEgressPaused() noexcept override;
-    virtual void onEgressResumed() noexcept override;
-    /**@{*/
-
-    proxygen::HTTPMessage request;
-
-protected:
-    proxygen::HTTPUpstreamSession *m_session;
-    proxygen::HTTPTransaction *m_txn;
-
-    uint16_t m_resultCode;
-    std::unique_ptr<folly::IOBufQueue> m_resultBody;
-
-    // Make sure the request instance is not destroyed before Proxygen
-    // transaction is detached
-    std::shared_ptr<WebDAVRequest> m_destructionGuard;
-};
-
-/**
- * GET request/response handler
- */
-class WebDAVGET : public WebDAVRequest,
-                  public std::enable_shared_from_this<WebDAVGET> {
-public:
-    WebDAVGET(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::IOBufQueue> operator()(
-        const folly::fbstring &resource, const off_t offset, const size_t size);
-
-    void onEOM() noexcept override;
-    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::IOBufQueue> m_resultPromise;
-
-    // Some HTTP server implementations do not handle "Range: bytes=0-0"
-    // request properly, in which case we have to download the first 2
-    // bytes i.e. "Range: bytes=0-1", and then return the first byte
-    bool m_firstByteRequest{false};
-};
-
-/**
- * PUT request/response handler
- */
-class WebDAVPUT : public WebDAVRequest,
-                  public std::enable_shared_from_this<WebDAVPUT> {
-public:
-    WebDAVPUT(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(const folly::fbstring &resource,
-        const off_t offset, std::unique_ptr<folly::IOBuf> buf);
-
-    void onEOM() noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * PATCH request/response handler
- */
-class WebDAVPATCH : public WebDAVRequest,
-                    public std::enable_shared_from_this<WebDAVPATCH> {
-public:
-    WebDAVPATCH(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(const folly::fbstring &resource,
-        const off_t offset, std::unique_ptr<folly::IOBuf> buf);
-
-    void onHeadersComplete(
-        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
-
-    void onEOM() noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * MKCOL request/response handler
- */
-class WebDAVMKCOL : public WebDAVRequest,
-                    public std::enable_shared_from_this<WebDAVMKCOL> {
-public:
-    WebDAVMKCOL(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(const folly::fbstring &resource);
-
-    void onEOM() noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * PROPFIND request/response handler
- */
-class WebDAVPROPFIND : public WebDAVRequest,
-                       public std::enable_shared_from_this<WebDAVPROPFIND> {
-public:
-    WebDAVPROPFIND(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<PAPtr<pxml::Document>> operator()(
-        const folly::fbstring &resource, const int depth,
-        const folly::fbvector<folly::fbstring> &propFilter);
-
-    void onHeadersComplete(
-        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
-
-    void onEOM() noexcept override;
-    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<PAPtr<pxml::Document>> m_resultPromise;
-};
-
-/**
- * PROPPATCH request/response handler
- */
-class WebDAVPROPPATCH : public WebDAVRequest,
-                        public std::enable_shared_from_this<WebDAVPROPPATCH> {
-public:
-    WebDAVPROPPATCH(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(const folly::fbstring &resource,
-        const folly::fbstring &property, const folly::fbstring &value,
-        const bool remove);
-
-    void onHeadersComplete(
-        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
-
-    void onEOM() noexcept override;
-    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * DELETE request/response handler
- */
-class WebDAVDELETE : public WebDAVRequest,
-                     public std::enable_shared_from_this<WebDAVDELETE> {
-public:
-    WebDAVDELETE(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(const folly::fbstring &resource);
-
-    void onEOM() noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * MOVE request/response handler
- */
-class WebDAVMOVE : public WebDAVRequest,
-                   public std::enable_shared_from_this<WebDAVMOVE> {
-public:
-    WebDAVMOVE(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(
-        const folly::fbstring &resource, const folly::fbstring &destination);
-
-    void onEOM() noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * COPY request/response handler
- */
-class WebDAVCOPY : public WebDAVRequest,
-                   public std::enable_shared_from_this<WebDAVCOPY> {
-public:
-    WebDAVCOPY(proxygen::HTTPUpstreamSession *session)
-        : WebDAVRequest{session}
-    {
-    }
-
-    folly::Future<folly::Unit> operator()(
-        const folly::fbstring &resource, const folly::fbstring &destination);
-
-    void onEOM() noexcept override;
-    void onError(const proxygen::HTTPException &error) noexcept override;
-
-private:
-    folly::Promise<folly::Unit> m_resultPromise;
-};
-
-/**
- * The @c FileHandle implementation for WebDAV storage helper.
- */
-class WebDAVFileHandle : public FileHandle,
-                         public std::enable_shared_from_this<WebDAVFileHandle> {
-public:
-    /**
-     * Constructor.
-     * @param fileId WebDAV-specific ID associated with the file.
-     * @param helper A pointer to the helper that created the handle.
-     * @param ioCTX A reference to @c librados::IoCtx for async operations.
-     */
-    WebDAVFileHandle(
-        folly::fbstring fileId, std::shared_ptr<WebDAVHelper> helper);
-
-    folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) override;
-
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
-
-    const Timeout &timeout() override;
-
-private:
-    std::shared_ptr<WebDAVHelper> m_helper;
-    const folly::fbstring m_fileId;
-};
-
 /**
  * The WebDAVHelper class provides access to WebDAV storage via librados
  * library.
@@ -426,7 +130,8 @@ public:
      * token
      * @param authorizationHeader Optional authorization header to use with
      * access token
-     * @param executor Executor that will drive the helper's async operations.
+     * @param executor Executor that will drive the helper's async
+     * operations.
      */
     WebDAVHelper(proxygen::URL endpoint, bool verifyServerCertificate,
         WebDAVCredentialsType credentialsType, folly::fbstring credentials,
@@ -437,8 +142,8 @@ public:
 
     /**
      * Destructor.
-     * Closes connection to WebDAV storage cluster and destroys internal context
-     * object.
+     * Closes connection to WebDAV storage cluster and destroys internal
+     * context object.
      */
     ~WebDAVHelper();
 
@@ -496,8 +201,14 @@ public:
      */
     folly::Future<folly::Unit> connect();
 
-    proxygen::HTTPUpstreamSession *session() { return m_context->session; }
-    proxygen::HTTPConnector *connector() { return m_context->connector.get(); }
+    proxygen::HTTPUpstreamSession *session() const
+    {
+        return m_context->session;
+    }
+    proxygen::HTTPConnector *connector() const
+    {
+        return m_context->connector.get();
+    }
     folly::HHWheelTimer *timer() { return m_context->timer.get(); }
 
     std::shared_ptr<folly::IOExecutor> executor() { return m_executor; }
@@ -505,6 +216,15 @@ public:
     WebDAVRangeWriteSupport rangeWriteSupport() const
     {
         return m_rangeWriteSupport;
+    }
+
+    WebDAVCredentialsType credentialsType() const { return m_credentialsType; }
+
+    folly::fbstring credentials() const { return m_credentials; }
+
+    folly::fbstring authorizationHeader() const
+    {
+        return m_authorizationHeader;
     }
 
     /**
@@ -539,6 +259,286 @@ private:
     pxml::NamespaceSupport m_nsMap;
 };
 
+template <class T> using PAPtr = Poco::AutoPtr<T>;
+
+/**
+ * Base class for creating WebDAV request/response handlers
+ */
+class WebDAVRequest : public proxygen::HTTPTransactionHandler {
+public:
+    WebDAVRequest(const WebDAVHelper &helper);
+
+    virtual ~WebDAVRequest() = default;
+
+    /**
+     * \defgroup proxygen::HTTPTransactionHandler methods
+     * @{
+     */
+    virtual void setTransaction(
+        proxygen::HTTPTransaction *txn) noexcept override;
+    virtual void detachTransaction() noexcept override;
+    virtual void onHeadersComplete(
+        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
+    virtual void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
+    virtual void onTrailers(
+        std::unique_ptr<proxygen::HTTPHeaders> trailers) noexcept override;
+    virtual void onEOM() noexcept override;
+    virtual void onUpgrade(
+        proxygen::UpgradeProtocol protocol) noexcept override;
+    virtual void onError(
+        const proxygen::HTTPException &error) noexcept override = 0;
+    virtual void onEgressPaused() noexcept override;
+    virtual void onEgressResumed() noexcept override;
+    /**@{*/
+
+    proxygen::HTTPMessage request;
+
+protected:
+    proxygen::HTTPUpstreamSession *m_session;
+    proxygen::HTTPTransaction *m_txn;
+
+    uint16_t m_resultCode;
+    std::unique_ptr<folly::IOBufQueue> m_resultBody;
+
+    // Make sure the request instance is not destroyed before Proxygen
+    // transaction is detached
+    std::shared_ptr<WebDAVRequest> m_destructionGuard;
+};
+
+/**
+ * GET request/response handler
+ */
+class WebDAVGET : public WebDAVRequest,
+                  public std::enable_shared_from_this<WebDAVGET> {
+public:
+    WebDAVGET(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::IOBufQueue> operator()(
+        const folly::fbstring &resource, const off_t offset, const size_t size);
+
+    void onEOM() noexcept override;
+    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::IOBufQueue> m_resultPromise;
+
+    // Some HTTP server implementations do not handle "Range: bytes=0-0"
+    // request properly, in which case we have to download the first 2
+    // bytes i.e. "Range: bytes=0-1", and then return the first byte
+    bool m_firstByteRequest{false};
+};
+
+/**
+ * PUT request/response handler
+ */
+class WebDAVPUT : public WebDAVRequest,
+                  public std::enable_shared_from_this<WebDAVPUT> {
+public:
+    WebDAVPUT(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(const folly::fbstring &resource,
+        const off_t offset, std::unique_ptr<folly::IOBuf> buf);
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * PATCH request/response handler
+ */
+class WebDAVPATCH : public WebDAVRequest,
+                    public std::enable_shared_from_this<WebDAVPATCH> {
+public:
+    WebDAVPATCH(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(const folly::fbstring &resource,
+        const off_t offset, std::unique_ptr<folly::IOBuf> buf);
+
+    void onHeadersComplete(
+        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * MKCOL request/response handler
+ */
+class WebDAVMKCOL : public WebDAVRequest,
+                    public std::enable_shared_from_this<WebDAVMKCOL> {
+public:
+    WebDAVMKCOL(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(const folly::fbstring &resource);
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * PROPFIND request/response handler
+ */
+class WebDAVPROPFIND : public WebDAVRequest,
+                       public std::enable_shared_from_this<WebDAVPROPFIND> {
+public:
+    WebDAVPROPFIND(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<PAPtr<pxml::Document>> operator()(
+        const folly::fbstring &resource, const int depth,
+        const folly::fbvector<folly::fbstring> &propFilter);
+
+    void onHeadersComplete(
+        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
+
+    void onEOM() noexcept override;
+    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<PAPtr<pxml::Document>> m_resultPromise;
+};
+
+/**
+ * PROPPATCH request/response handler
+ */
+class WebDAVPROPPATCH : public WebDAVRequest,
+                        public std::enable_shared_from_this<WebDAVPROPPATCH> {
+public:
+    WebDAVPROPPATCH(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(const folly::fbstring &resource,
+        const folly::fbstring &property, const folly::fbstring &value,
+        const bool remove);
+
+    void onHeadersComplete(
+        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
+
+    void onEOM() noexcept override;
+    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * DELETE request/response handler
+ */
+class WebDAVDELETE : public WebDAVRequest,
+                     public std::enable_shared_from_this<WebDAVDELETE> {
+public:
+    WebDAVDELETE(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(const folly::fbstring &resource);
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * MOVE request/response handler
+ */
+class WebDAVMOVE : public WebDAVRequest,
+                   public std::enable_shared_from_this<WebDAVMOVE> {
+public:
+    WebDAVMOVE(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(
+        const folly::fbstring &resource, const folly::fbstring &destination);
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * COPY request/response handler
+ */
+class WebDAVCOPY : public WebDAVRequest,
+                   public std::enable_shared_from_this<WebDAVCOPY> {
+public:
+    WebDAVCOPY(const WebDAVHelper &helper)
+        : WebDAVRequest{helper}
+    {
+    }
+
+    folly::Future<folly::Unit> operator()(
+        const folly::fbstring &resource, const folly::fbstring &destination);
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+private:
+    folly::Promise<folly::Unit> m_resultPromise;
+};
+
+/**
+ * The @c FileHandle implementation for WebDAV storage helper.
+ */
+class WebDAVFileHandle : public FileHandle,
+                         public std::enable_shared_from_this<WebDAVFileHandle> {
+public:
+    /**
+     * Constructor.
+     * @param fileId WebDAV-specific ID associated with the file.
+     * @param helper A pointer to the helper that created the handle.
+     * @param ioCTX A reference to @c librados::IoCtx for async operations.
+     */
+    WebDAVFileHandle(
+        folly::fbstring fileId, std::shared_ptr<WebDAVHelper> helper);
+
+    folly::Future<folly::IOBufQueue> read(
+        const off_t offset, const std::size_t size) override;
+
+    folly::Future<std::size_t> write(
+        const off_t offset, folly::IOBufQueue buf) override;
+
+    const Timeout &timeout() override;
+
+private:
+    std::shared_ptr<WebDAVHelper> m_helper;
+    const folly::fbstring m_fileId;
+};
+
 /**
  * An implementation of @c StorageHelperFactory for WebDAV storage helper.
  */
@@ -546,7 +546,8 @@ class WebDAVHelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param service @c io_service that will be used for some async
+     * operations.
      */
     WebDAVHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
