@@ -20,7 +20,7 @@
 #include <tbb/concurrent_hash_map.h>
 
 #ifdef WITH_WEBDAV
-#include <folly/Executor.h>
+#include <folly/executors/IOExecutor.h>
 #endif
 
 #include <memory>
