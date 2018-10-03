@@ -246,7 +246,7 @@ WebDAVHelper::WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
     folly::fbstring authorizationHeader,
     WebDAVRangeWriteSupport rangeWriteSupport,
     std::shared_ptr<folly::IOExecutor> executor, Timeout timeout)
-    : m_endpoint{std::move(endpoint)}
+    : m_endpoint{endpoint}
     , m_verifyServerCertificate{verifyServerCertificate}
     , m_credentialsType{credentialsType}
     , m_credentials{std::move(credentials)}
@@ -862,13 +862,11 @@ WebDAVRequest::WebDAVRequest(const WebDAVHelper &helper)
             folly::split(":", helper.authorizationHeader(), authHeader);
             if (authHeader.size() == 1)
                 request.getHeaders().add(
-                    folly::sformat("{}:", folly::trimWhitespace(authHeader[0])),
+                    folly::sformat("{}", folly::trimWhitespace(authHeader[0])),
                     helper.credentials().toStdString());
             else if (authHeader.size() == 2) {
-                request.getHeaders().add(folly::sformat("{}:", authHeader[0]),
-                    folly::sformat("{} {}",
-                        folly::trimWhitespace(authHeader[1]),
-                        helper.credentials()));
+                request.getHeaders().add(folly::sformat("{}", authHeader[0]),
+                    folly::sformat(authHeader[1], helper.credentials()));
             }
             else {
                 LOG(WARNING) << "Unexpected token authorization header value: "
@@ -1408,111 +1406,6 @@ void WebDAVCOPY::onEOM() noexcept
 void WebDAVCOPY::onError(const proxygen::HTTPException &error) noexcept
 {
     m_resultPromise.setException(error);
-}
-
-std::shared_ptr<StorageHelper> WebDAVHelperFactory::createStorageHelper(
-    const Params &parameters)
-{
-    const auto &endpoint = getParam(parameters, "endpoint");
-    const auto &verifyServerCertificateStr =
-        getParam(parameters, "verifyServerCertificate", "true");
-    const auto &credentialsTypeStr =
-        getParam(parameters, "credentialsType", "basic");
-    const auto &credentials = getParam(parameters, "credentials");
-    const auto &authorizationHeader =
-        getParam(parameters, "authorizationHeader", "Authorization: Bearer");
-    const auto &rangeWriteSupportStr =
-        getParam(parameters, "rangeWriteSupport", "none");
-
-    Timeout timeout{getParam<std::size_t>(
-        parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-
-    LOG_FCALL() << LOG_FARG(endpoint) << LOG_FARG(verifyServerCertificateStr)
-                << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
-                << LOG_FARG(authorizationHeader)
-                << LOG_FARG(rangeWriteSupportStr);
-
-    Poco::URI endpointUrl;
-
-    try {
-        std::string scheme = "";
-
-        if (endpoint.find(":") == folly::fbstring::npos) {
-            // The endpoint does not contain neither scheme or port
-            scheme = "http://";
-        }
-        else if (endpoint.find("http") != 0) {
-            // The endpoint contains port but not a valid HTTP scheme
-            if (endpoint.find(":443") == folly::fbstring::npos)
-                scheme = "http://";
-            else
-                scheme = "https://";
-        }
-
-        endpointUrl = scheme + endpoint.toStdString();
-    }
-    catch (Poco::SyntaxException &e) {
-        throw std::invalid_argument(
-            "Invalid WebDAV endpoint: " + endpoint.toStdString());
-    }
-
-    if (endpointUrl.getHost().empty())
-        throw std::invalid_argument(
-            "Invalid WebDAV endpoint - missing hostname: " +
-            endpoint.toStdString());
-
-    if (endpointUrl.getScheme().empty()) {
-        if (endpointUrl.getPort() == 0) {
-            endpointUrl.setScheme("http");
-            endpointUrl.setPort(80);
-        }
-        else if (endpointUrl.getPort() == 443) {
-            endpointUrl.setScheme("https");
-        }
-        else {
-            endpointUrl.setScheme("http");
-        }
-    }
-    else if (endpointUrl.getScheme() != "http" &&
-        endpointUrl.getScheme() != "https") {
-        throw std::invalid_argument(
-            "Invalid WebDAV endpoint - invalid scheme: " +
-            endpointUrl.getScheme());
-    }
-
-    if (endpointUrl.getPort() == 0) {
-        endpointUrl.setPort(endpointUrl.getScheme() == "https" ? 443 : 80);
-    }
-
-    bool verifyServerCertificate{true};
-    if (verifyServerCertificateStr != "true")
-        verifyServerCertificate = false;
-
-    WebDAVCredentialsType credentialsType;
-    if (credentialsTypeStr == "none")
-        credentialsType = WebDAVCredentialsType::NONE;
-    else if (credentialsTypeStr == "basic")
-        credentialsType = WebDAVCredentialsType::BASIC;
-    else if (credentialsTypeStr == "token")
-        credentialsType = WebDAVCredentialsType::TOKEN;
-    else
-        throw std::invalid_argument(
-            "Invalid credentials type: " + credentialsTypeStr.toStdString());
-
-    WebDAVRangeWriteSupport rangeWriteSupport;
-    if (rangeWriteSupportStr.empty() || rangeWriteSupportStr == "none")
-        rangeWriteSupport = WebDAVRangeWriteSupport::NONE;
-    else if (rangeWriteSupportStr == "sabredav")
-        rangeWriteSupport = WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE;
-    else if (rangeWriteSupportStr == "moddav")
-        rangeWriteSupport = WebDAVRangeWriteSupport::MODDAV_PUTRANGE;
-    else
-        throw std::invalid_argument("Invalid range write support specified: " +
-            rangeWriteSupportStr.toStdString());
-
-    return std::make_shared<WebDAVHelper>(std::move(endpointUrl),
-        verifyServerCertificate, credentialsType, credentials,
-        authorizationHeader, rangeWriteSupport, m_executor, std::move(timeout));
 }
 
 } // namespace helpers

@@ -558,8 +558,116 @@ public:
         LOG_FCALL();
     }
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override;
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
+    {
+        const auto &endpoint = getParam(parameters, "endpoint");
+        const auto &verifyServerCertificateStr =
+            getParam(parameters, "verifyServerCertificate", "true");
+        const auto &credentialsTypeStr =
+            getParam(parameters, "credentialsType", "basic");
+        const auto &credentials = getParam(parameters, "credentials");
+        const auto &authorizationHeader = getParam(
+            parameters, "authorizationHeader", "Authorization: Bearer {}");
+        const auto &rangeWriteSupportStr =
+            getParam(parameters, "rangeWriteSupport", "none");
+
+        Timeout timeout{getParam<std::size_t>(
+            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+
+        LOG_FCALL() << LOG_FARG(endpoint)
+                    << LOG_FARG(verifyServerCertificateStr)
+                    << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
+                    << LOG_FARG(authorizationHeader)
+                    << LOG_FARG(rangeWriteSupportStr);
+
+        Poco::URI endpointUrl;
+
+        constexpr auto kHTTPDefaultPort = 80;
+        constexpr auto kHTTPSDefaultPort = 443;
+
+        try {
+            std::string scheme;
+
+            if (endpoint.find(":") == folly::fbstring::npos) {
+                // The endpoint does not contain neither scheme or port
+                scheme = "http://";
+            }
+            else if (endpoint.find("http") != 0) {
+                // The endpoint contains port but not a valid HTTP scheme
+                if (endpoint.find(":443") == folly::fbstring::npos)
+                    scheme = "http://";
+                else
+                    scheme = "https://";
+            }
+
+            endpointUrl = scheme + endpoint.toStdString();
+        }
+        catch (Poco::SyntaxException &e) {
+            throw std::invalid_argument(
+                "Invalid WebDAV endpoint: " + endpoint.toStdString());
+        }
+
+        if (endpointUrl.getHost().empty())
+            throw std::invalid_argument(
+                "Invalid WebDAV endpoint - missing hostname: " +
+                endpoint.toStdString());
+
+        if (endpointUrl.getScheme().empty()) {
+            if (endpointUrl.getPort() == 0) {
+                endpointUrl.setScheme("http");
+                endpointUrl.setPort(kHTTPDefaultPort);
+            }
+            else if (endpointUrl.getPort() == kHTTPSDefaultPort) {
+                endpointUrl.setScheme("https");
+            }
+            else {
+                endpointUrl.setScheme("http");
+            }
+        }
+        else if (endpointUrl.getScheme() != "http" &&
+            endpointUrl.getScheme() != "https") {
+            throw std::invalid_argument(
+                "Invalid WebDAV endpoint - invalid scheme: " +
+                endpointUrl.getScheme());
+        }
+
+        if (endpointUrl.getPort() == 0) {
+            endpointUrl.setPort(endpointUrl.getScheme() == "https"
+                    ? kHTTPSDefaultPort
+                    : kHTTPDefaultPort);
+        }
+
+        bool verifyServerCertificate{true};
+        if (verifyServerCertificateStr != "true")
+            verifyServerCertificate = false;
+
+        WebDAVCredentialsType credentialsType;
+        if (credentialsTypeStr == "none")
+            credentialsType = WebDAVCredentialsType::NONE;
+        else if (credentialsTypeStr == "basic")
+            credentialsType = WebDAVCredentialsType::BASIC;
+        else if (credentialsTypeStr == "token")
+            credentialsType = WebDAVCredentialsType::TOKEN;
+        else
+            throw std::invalid_argument("Invalid credentials type: " +
+                credentialsTypeStr.toStdString());
+
+        WebDAVRangeWriteSupport rangeWriteSupport;
+        if (rangeWriteSupportStr.empty() || rangeWriteSupportStr == "none")
+            rangeWriteSupport = WebDAVRangeWriteSupport::NONE;
+        else if (rangeWriteSupportStr == "sabredav")
+            rangeWriteSupport = WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE;
+        else if (rangeWriteSupportStr == "moddav")
+            rangeWriteSupport = WebDAVRangeWriteSupport::MODDAV_PUTRANGE;
+        else
+            throw std::invalid_argument(
+                "Invalid range write support specified: " +
+                rangeWriteSupportStr.toStdString());
+
+        return std::make_shared<WebDAVHelper>(std::move(endpointUrl),
+            verifyServerCertificate, credentialsType, credentials,
+            authorizationHeader, rangeWriteSupport, m_executor, timeout);
+    }
 
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;
