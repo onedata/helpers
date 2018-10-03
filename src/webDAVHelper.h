@@ -30,6 +30,7 @@
 #include <Poco/DOM/Element.h>
 #include <Poco/DOM/Node.h>
 #include <Poco/DOM/Text.h>
+#include <Poco/URI.h>
 #include <Poco/XML/XMLWriter.h>
 
 namespace pxml = Poco::XML;
@@ -133,7 +134,7 @@ public:
      * @param executor Executor that will drive the helper's async
      * operations.
      */
-    WebDAVHelper(proxygen::URL endpoint, bool verifyServerCertificate,
+    WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
         WebDAVCredentialsType credentialsType, folly::fbstring credentials,
         folly::fbstring authorizationHeader,
         WebDAVRangeWriteSupport rangeWriteSupport,
@@ -220,6 +221,8 @@ public:
 
     WebDAVCredentialsType credentialsType() const { return m_credentialsType; }
 
+    Poco::URI endpoint() const { return m_endpoint; }
+
     folly::fbstring credentials() const { return m_credentials; }
 
     folly::fbstring authorizationHeader() const
@@ -244,7 +247,7 @@ private:
         folly::Promise<folly::Unit> connectionPromise;
     };
 
-    proxygen::URL m_endpoint;
+    Poco::URI m_endpoint;
     bool m_verifyServerCertificate;
     WebDAVCredentialsType m_credentialsType;
     folly::fbstring m_credentials;
@@ -556,66 +559,7 @@ public:
     }
 
     std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
-    {
-        const auto &endpoint = getParam(parameters, "endpoint");
-        const auto &verifyServerCertificateStr =
-            getParam(parameters, "verifyServerCertificate", "true");
-        const auto &credentialsTypeStr =
-            getParam(parameters, "credentialsType", "basic");
-        const auto &credentials = getParam(parameters, "credentials");
-        const auto &authorizationHeader = getParam(
-            parameters, "authorizationHeader", "Authorization: Bearer");
-        const auto &rangeWriteSupportStr =
-            getParam(parameters, "rangeWrite", "none");
-
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-
-        LOG_FCALL() << LOG_FARG(endpoint)
-                    << LOG_FARG(verifyServerCertificateStr)
-                    << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
-                    << LOG_FARG(authorizationHeader)
-                    << LOG_FARG(rangeWriteSupportStr);
-
-        proxygen::URL url(endpoint.toStdString());
-
-        if (!url.isValid() || !url.hasHost())
-            throw std::invalid_argument(
-                "Invalid WebDAV endpoint: " + endpoint.toStdString());
-
-        bool verifyServerCertificate{true};
-        if (verifyServerCertificateStr != "true")
-            verifyServerCertificate = false;
-
-        WebDAVCredentialsType credentialsType;
-        if (credentialsTypeStr == "none")
-            credentialsType = WebDAVCredentialsType::NONE;
-        else if (credentialsTypeStr == "basic")
-            credentialsType = WebDAVCredentialsType::BASIC;
-        else if (credentialsTypeStr == "token")
-            credentialsType = WebDAVCredentialsType::TOKEN;
-        else
-            throw std::invalid_argument("Invalid credentials type: " +
-                credentialsTypeStr.toStdString());
-
-        WebDAVRangeWriteSupport rangeWriteSupport;
-        if (rangeWriteSupportStr.empty() || rangeWriteSupportStr == "none")
-            rangeWriteSupport = WebDAVRangeWriteSupport::NONE;
-        else if (rangeWriteSupportStr == "sabredav")
-            rangeWriteSupport = WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE;
-        else if (rangeWriteSupportStr == "moddav")
-            rangeWriteSupport = WebDAVRangeWriteSupport::MODDAV_PUTRANGE;
-        else
-            throw std::invalid_argument(
-                "Invalid range write support specified: " +
-                rangeWriteSupportStr.toStdString());
-
-        return std::make_shared<WebDAVHelper>(std::move(url),
-            verifyServerCertificate, credentialsType, credentials,
-            authorizationHeader, rangeWriteSupport, m_executor,
-            std::move(timeout));
-    }
+        const Params &parameters) override;
 
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;

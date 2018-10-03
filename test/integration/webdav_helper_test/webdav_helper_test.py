@@ -89,7 +89,7 @@ def server(request):
 
     [container] = result['docker_ids']
     credentials = result['credentials'].encode('ascii')
-    endpoint = result['host_name'].encode('ascii')
+    endpoint = result['endpoint'].encode('ascii')
 
     def fin():
         docker.remove([container], force=True, volumes=True)

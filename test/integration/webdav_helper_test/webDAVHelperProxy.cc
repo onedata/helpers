@@ -41,7 +41,7 @@ public:
     WebDAVHelperProxy(std::string endpoint, std::string credentials)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(1)}
         , m_helper{std::make_shared<one::helpers::WebDAVHelper>(
-              proxygen::URL(endpoint), true,
+              Poco::URI(endpoint), true,
               one::helpers::WebDAVCredentialsType::BASIC, credentials, "",
               one::helpers::WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE,
               m_executor)}
