@@ -39,7 +39,7 @@ private:
 class WebDAVHelperProxy {
 public:
     WebDAVHelperProxy(std::string endpoint, std::string credentials)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(1)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(10)}
         , m_helper{std::make_shared<one::helpers::WebDAVHelper>(
               Poco::URI(endpoint), true,
               one::helpers::WebDAVCredentialsType::BASIC, credentials, "",
@@ -113,7 +113,10 @@ public:
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
                     return handle->write(offset, std::move(buf))
-                        .then([handle](std::size_t size) { return size; });
+                        .then([handle](std::size_t size) {
+                            handle->flush();
+                            return size;
+                        });
                 });
         };
 

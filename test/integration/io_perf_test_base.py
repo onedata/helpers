@@ -137,16 +137,16 @@ def perf_write_read_truncate_unlink_base(helper, op_num, size):
                 IOPerfParam.op_size(1)],
     configs={
         'small': {
-            'description': 'Large IO config.',
+            'description': 'Small IO config.',
             'parameters': [IOPerfParam.thr_num(5),
                            IOPerfParam.op_num(2),
                            IOPerfParam.op_size(1)]
         },
         'large': {
             'description': 'Large IO config.',
-            'parameters': [IOPerfParam.thr_num(40),
+            'parameters': [IOPerfParam.thr_num(25),
                            IOPerfParam.op_num(5),
-                           IOPerfParam.op_size(1)]
+                           IOPerfParam.op_size(5)]
         }})
 def test_write(result, helper, thr_num, op_num, op_size):
     io_test = IOPerformanceTest(perf_write_base, helper, thr_num, op_num, op_size)
@@ -167,9 +167,9 @@ def test_write(result, helper, thr_num, op_num, op_size):
         },
         'large': {
             'description': 'Large IO config.',
-            'parameters': [IOPerfParam.thr_num(40),
+            'parameters': [IOPerfParam.thr_num(25),
                            IOPerfParam.op_num(5),
-                           IOPerfParam.op_size(1)]
+                           IOPerfParam.op_size(5)]
         }})
 def test_write_read(result, helper, thr_num, op_num, op_size):
     io_test = IOPerformanceTest(perf_write_read_base, helper, thr_num, op_num, op_size)
@@ -190,9 +190,9 @@ def test_write_read(result, helper, thr_num, op_num, op_size):
         },
         'large': {
             'description': 'Large IO config.',
-            'parameters': [IOPerfParam.thr_num(40),
+            'parameters': [IOPerfParam.thr_num(25),
                            IOPerfParam.op_num(5),
-                           IOPerfParam.op_size(1)]
+                           IOPerfParam.op_size(5)]
         }})
 def test_truncate(result, helper, thr_num, op_num, op_size):
     io_test = IOPerformanceTest(perf_truncate_base, helper, thr_num, op_num, op_size)
@@ -213,9 +213,9 @@ def test_truncate(result, helper, thr_num, op_num, op_size):
         },
         'large': {
             'description': 'Large IO config.',
-            'parameters': [IOPerfParam.thr_num(40),
+            'parameters': [IOPerfParam.thr_num(25),
                            IOPerfParam.op_num(5),
-                           IOPerfParam.op_size(1)]
+                           IOPerfParam.op_size(5)]
         }})
 def test_read_write_truncate_unlink(result, helper, thr_num, op_num, op_size):
     io_test = IOPerformanceTest(perf_write_read_truncate_unlink_base, helper,
