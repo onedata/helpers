@@ -6,6 +6,7 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
 import sys
+import time
 import subprocess
 from os.path import expanduser
 
@@ -73,7 +74,8 @@ from xattr_test_base import \
     test_setxattr_should_set_large_extended_attribute, \
     test_setxattr_should_set_extended_attribute_with_empty_value, \
     test_getxattr_should_return_extended_attribute, \
-    test_removexattr_should_remove_extended_attribute
+    test_listxattr_should_remove_extended_attribute
+    # test_removexattr_should_remove_extended_attribute, \
     # test_setxattr_should_handle_create_replace_flags
 
 
@@ -95,6 +97,8 @@ def server(request):
         docker.remove([container], force=True, volumes=True)
 
     request.addfinalizer(fin)
+
+    time.sleep(15)
 
     return Server(endpoint, credentials)
 
