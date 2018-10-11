@@ -186,7 +186,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.write");
 
-    return m_helper->connect().then(m_helper->executor()->getEventBase(), [
+    return m_helper->connect().then([
         fileId = m_fileId, offset, buf = std::move(buf),
         rangeWriteSupport = m_helper->rangeWriteSupport(),
         timer = std::move(timer), helper = m_helper,
@@ -272,7 +272,7 @@ folly::Future<FileHandlePtr> WebDAVHelper::open(const folly::fbstring &fileId,
     auto handle =
         std::make_shared<WebDAVFileHandle>(fileId, shared_from_this());
 
-    return folly::via(m_executor->getEventBase(),
+    return connect().then(
         [handle = std::move(handle)] { return folly::makeFuture(handle); });
 }
 
@@ -751,7 +751,7 @@ folly::Future<folly::EventBase *> WebDAVHelper::connect()
 
         if (m_context->connectionPromise.isFulfilled()) {
             // NOLINTNEXTLINE
-            return folly::makeFuture<folly::EventBase *>(std::move(evb));
+            return folly::via(evb, [evb]() { return evb; });
         }
 
         if (connector() == nullptr) {
@@ -762,11 +762,6 @@ folly::Future<folly::EventBase *> WebDAVHelper::connect()
 
             m_context->connector =
                 std::make_unique<proxygen::HTTPConnector>(this, timer());
-        }
-
-        if (self->session() != nullptr) {
-            // NOLINTNEXTLINE
-            return folly::makeFuture<folly::EventBase *>(std::move(evb));
         }
 
         // Check if we are already connecting on this thread
@@ -1157,7 +1152,6 @@ folly::Future<PAPtr<pxml::Document>> WebDAVPROPFIND::operator()(
 
     return startTransaction().then(
         m_evb, [this](proxygen::HTTPTransaction *txn) {
-            LOG(ERROR) << "PROPFIND STARTED TRANSACTION";
             txn->sendHeaders(m_request);
             txn->sendEOM();
             return m_resultPromise.getFuture();
