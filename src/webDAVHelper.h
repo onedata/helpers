@@ -31,6 +31,7 @@
 #include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/futures/SharedPromise.h>
 #include <proxygen/lib/http/HTTPConnector.h>
+#include <proxygen/lib/http/session/HTTPSession.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/http/session/HTTPUpstreamSession.h>
 #include <proxygen/lib/utils/Base64.h>
@@ -153,6 +154,84 @@ private:
     uint64_t m_counter{0};
 };
 
+struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
+    std::unique_ptr<proxygen::HTTPConnector> connector;
+    proxygen::HTTPUpstreamSession *session{nullptr};
+    folly::HHWheelTimer::UniquePtr timer;
+    WebDAVHTTPTransactionTokenPool tokenPool;
+
+    std::mutex connectionMutex;
+    std::unique_ptr<folly::SharedPromise<folly::Unit>> connectionPromise;
+
+    std::string host;
+
+    bool closedByRemote{false};
+
+    void reset()
+    {
+        session = nullptr;
+        closedByRemote = false;
+        connectionPromise =
+            std::make_unique<folly::SharedPromise<folly::Unit>>();
+    }
+
+    /**
+     * \defgroup proxygen::HTTPSession::InfoCallback methods
+     * @{
+     */
+    void onCreate(const proxygen::HTTPSession &) override {}
+    void onIngressError(
+        const proxygen::HTTPSession &, proxygen::ProxygenError e) override
+    {
+        // LOG(ERROR) << "Ingress Error - restarting HTTP session: "
+        //<< proxygen::getErrorString(e);
+        session = nullptr;
+    }
+    void onIngressEOF() override
+    {
+        // LOG(ERROR) << "Ingress EOF - restarting HTTP session";
+        session = nullptr;
+    }
+    void onRead(const proxygen::HTTPSession &, size_t bytesRead) override {}
+    void onWrite(const proxygen::HTTPSession &, size_t bytesWritten) override {}
+    void onRequestBegin(const proxygen::HTTPSession &) override {}
+    void onRequestEnd(
+        const proxygen::HTTPSession &, uint32_t maxIngressQueueSize) override
+    {
+    }
+    void onActivateConnection(const proxygen::HTTPSession &) override {}
+    void onDeactivateConnection(const proxygen::HTTPSession &) override
+    {
+        // LOG(ERROR) << "Connection deactivated - restarting HTTP session";
+        // session = nullptr;
+    }
+    void onDestroy(const proxygen::HTTPSession &) override
+    {
+        // LOG(ERROR) << "Connection destroyed - restarting HTTP session";
+        session = nullptr;
+    }
+    void onIngressMessage(
+        const proxygen::HTTPSession &, const proxygen::HTTPMessage &) override
+    {
+    }
+    void onIngressLimitExceeded(const proxygen::HTTPSession &) override {}
+    void onIngressPaused(const proxygen::HTTPSession &) override {}
+    void onTransactionDetached(const proxygen::HTTPSession &) override {}
+    void onPingReplySent(int64_t latency) override {}
+    void onPingReplyReceived() override {}
+    void onSettingsOutgoingStreamsFull(const proxygen::HTTPSession &) override
+    {
+    }
+    void onSettingsOutgoingStreamsNotFull(
+        const proxygen::HTTPSession &) override
+    {
+    }
+    void onFlowControlWindowClosed(const proxygen::HTTPSession &) override {}
+    void onEgressBuffered(const proxygen::HTTPSession &) override {}
+    void onEgressBufferCleared(const proxygen::HTTPSession &) override {}
+    /**@}*/
+};
+
 /**
  * The WebDAVHelper class provides access to WebDAV storage via librados
  * library.
@@ -245,6 +324,10 @@ public:
         return m_context->session;
     }
 
+    WebDAVContext *context() const { return m_context.get(); }
+
+    std::string host() const { return m_context->host; }
+
     proxygen::HTTPConnector *connector() const
     {
         return m_context->connector.get();
@@ -284,16 +367,6 @@ public:
     /**@}*/
 
 private:
-    struct WebDAVContext {
-        std::unique_ptr<proxygen::HTTPConnector> connector;
-        proxygen::HTTPUpstreamSession *session{nullptr};
-        folly::HHWheelTimer::UniquePtr timer;
-        WebDAVHTTPTransactionTokenPool tokenPool;
-
-        std::mutex connectionMutex;
-        folly::SharedPromise<folly::Unit> connectionPromise;
-    };
-
     Poco::URI m_endpoint;
     const bool m_verifyServerCertificate;
     const WebDAVCredentialsType m_credentialsType;
@@ -348,11 +421,13 @@ public:
     /**@{*/
 
 protected:
-    proxygen::HTTPUpstreamSession *m_session;
+    WebDAVContext *m_context;
+    // proxygen::HTTPUpstreamSession *m_session;
     WebDAVHTTPTransactionTokenPool *m_tokenPool;
     HTTPTransactionToken m_token;
     proxygen::HTTPTransaction *m_txn;
     proxygen::HTTPMessage m_request;
+    folly::fbstring m_path;
 
     folly::EventBase *m_evb;
 
