@@ -82,6 +82,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
     p4.emplace("name", "webdav");
     p4.emplace("endpoint", "172.17.0.2:8080/collection1");
     p4.emplace("credentials", "admin:password");
+    p4.emplace("authorizationHeader", "");
 
     auto helper4 = std::dynamic_pointer_cast<WebDAVHelper>(
         factory.createStorageHelper(p4));

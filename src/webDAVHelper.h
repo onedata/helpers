@@ -691,16 +691,20 @@ public:
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
     {
+        constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
         const auto &endpoint = getParam(parameters, "endpoint");
         const auto &verifyServerCertificateStr =
             getParam(parameters, "verifyServerCertificate", "true");
         const auto &credentialsTypeStr =
             getParam(parameters, "credentialsType", "basic");
         const auto &credentials = getParam(parameters, "credentials");
-        const auto &authorizationHeader = getParam(
-            parameters, "authorizationHeader", "Authorization: Bearer {}");
+        auto authorizationHeader = getParam<std::string>(
+            parameters, "authorizationHeader", kDefaultAuthorizationHeader);
         const auto &rangeWriteSupportStr =
             getParam(parameters, "rangeWriteSupport", "none");
+
+        if (authorizationHeader.empty())
+            authorizationHeader = kDefaultAuthorizationHeader;
 
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
