@@ -74,7 +74,7 @@ from xattr_test_base import \
     test_setxattr_should_set_large_extended_attribute, \
     test_setxattr_should_set_extended_attribute_with_empty_value, \
     test_getxattr_should_return_extended_attribute, \
-    test_listxattr_should_remove_extended_attribute
+    test_listxattr_should_list_extended_attribute
     # test_removexattr_should_remove_extended_attribute, \
     # test_setxattr_should_handle_create_replace_flags
 

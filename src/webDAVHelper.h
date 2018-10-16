@@ -157,6 +157,7 @@ private:
 struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
     std::unique_ptr<proxygen::HTTPConnector> connector;
     proxygen::HTTPUpstreamSession *session{nullptr};
+    bool sessionValid{false};
     folly::HHWheelTimer::UniquePtr timer;
     WebDAVHTTPTransactionTokenPool tokenPool;
 
@@ -169,7 +170,7 @@ struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
 
     void reset()
     {
-        session = nullptr;
+        sessionValid = false;
         closedByRemote = false;
         connectionPromise =
             std::make_unique<folly::SharedPromise<folly::Unit>>();
@@ -181,16 +182,16 @@ struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
      */
     void onCreate(const proxygen::HTTPSession &) override {}
     void onIngressError(
-        const proxygen::HTTPSession &, proxygen::ProxygenError e) override
+        const proxygen::HTTPSession &s, proxygen::ProxygenError e) override
     {
-        // LOG(ERROR) << "Ingress Error - restarting HTTP session: "
-        //<< proxygen::getErrorString(e);
-        session = nullptr;
+        LOG_DBG(4) << "Ingress Error - restarting HTTP session: "
+                   << proxygen::getErrorString(e);
+        sessionValid = false;
     }
     void onIngressEOF() override
     {
-        // LOG(ERROR) << "Ingress EOF - restarting HTTP session";
-        session = nullptr;
+        LOG_DBG(4) << "Ingress EOF - restarting HTTP session";
+        sessionValid = false;
     }
     void onRead(const proxygen::HTTPSession &, size_t bytesRead) override {}
     void onWrite(const proxygen::HTTPSession &, size_t bytesWritten) override {}
@@ -202,13 +203,12 @@ struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
     void onActivateConnection(const proxygen::HTTPSession &) override {}
     void onDeactivateConnection(const proxygen::HTTPSession &) override
     {
-        // LOG(ERROR) << "Connection deactivated - restarting HTTP session";
-        // session = nullptr;
+        LOG_DBG(4) << "Connection deactivated - restarting HTTP session";
     }
     void onDestroy(const proxygen::HTTPSession &) override
     {
-        // LOG(ERROR) << "Connection destroyed - restarting HTTP session";
-        session = nullptr;
+        LOG_DBG(4) << "Connection destroyed - restarting HTTP session";
+        sessionValid = false;
     }
     void onIngressMessage(
         const proxygen::HTTPSession &, const proxygen::HTTPMessage &) override
@@ -358,6 +358,8 @@ public:
         return m_authorizationHeader;
     }
 
+    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+
     /**
      * \defgroup proxygen::HTTPConnector methods
      * @{
@@ -422,8 +424,6 @@ public:
 
 protected:
     WebDAVContext *m_context;
-    // proxygen::HTTPUpstreamSession *m_session;
-    WebDAVHTTPTransactionTokenPool *m_tokenPool;
     HTTPTransactionToken m_token;
     proxygen::HTTPTransaction *m_txn;
     proxygen::HTTPMessage m_request;
@@ -731,7 +731,13 @@ public:
                     scheme = "https://";
             }
 
-            endpointUrl = scheme + endpoint.toStdString();
+            // Remove trailing '/' from endpoint path if exists
+            auto normalizedEndpoint = endpoint.toStdString();
+            auto endpointIt = normalizedEndpoint.end() - 1;
+            if (*endpointIt == '/')
+                normalizedEndpoint.erase(endpointIt);
+
+            endpointUrl = scheme + normalizedEndpoint;
         }
         catch (Poco::SyntaxException &e) {
             throw std::invalid_argument(

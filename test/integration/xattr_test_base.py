@@ -130,7 +130,7 @@ def test_removexattr_should_remove_extended_attribute(helper):
 
 
 @pytest.mark.xattr_tests
-def test_listxattr_should_remove_extended_attribute(helper):
+def test_listxattr_should_list_extended_attribute(helper):
     file_id = random_str(32)
     xattr_names = [generate_xattr_name() for i in xrange(10)]
     xattr_values = [random_str() for i in xrange(10)]

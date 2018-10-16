@@ -16,7 +16,7 @@
 #include <Poco/SAX/NamespaceSupport.h>
 #include <Poco/URI.h>
 #include <Poco/UTF8Encoding.h>
-#include <expat.h>
+#include <boost/filesystem.hpp>
 #include <folly/Format.h>
 #include <folly/SocketAddress.h>
 #include <folly/io/async/HHWheelTimer.h>
@@ -209,8 +209,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
             auto size = iobuf->length();
 
             return (*patchRequest)(fileId, offset, std::move(iobuf)).then(evb, [
-                size, timer = std::move(timer), helper, patchRequest, fileId,
-                offset
+                size, timer = std::move(timer), helper, patchRequest
             ]() {
                 ONE_METRIC_TIMERCTX_STOP(timer, size);
                 return size;
@@ -752,8 +751,7 @@ folly::Future<folly::EventBase *> WebDAVHelper::connect()
 
         assert(self->session() == m_context->session);
 
-        if (!m_context->closedByRemote && self->session() != nullptr /*&&
-            !self->session()->isClosing() && self->session()->isReusable()*/) {
+        if (!m_context->closedByRemote && self->session() != nullptr) {
             // NOLINTNEXTLINE
             return folly::via(evb, [evb]() { return evb; });
         }
@@ -776,33 +774,34 @@ folly::Future<folly::EventBase *> WebDAVHelper::connect()
                 m_endpoint.getHost(), m_endpoint.getPort(), true};
 
             LOG_DBG(2) << "Connecting to " << m_endpoint.getHost() << ":"
-                       << m_endpoint.getPort() << '\n';
+                       << m_endpoint.getPort();
 
             static const folly::AsyncSocket::OptionMap socketOptions{
                 {{SOL_SOCKET, SO_REUSEADDR}, 1}};
 
             if (m_endpoint.getScheme() == "https") {
-                auto context = std::make_shared<folly::SSLContext>();
+                auto sslContext = std::make_shared<folly::SSLContext>();
 
-                context->authenticate(
-                    false /*m_verifyServerCertificate*/, false);
+                sslContext->authenticate(m_verifyServerCertificate, false);
 
                 folly::ssl::setSignatureAlgorithms<
-                    folly::ssl::SSLCommonOptions>(*context);
+                    folly::ssl::SSLCommonOptions>(*sslContext);
 
-                context->setVerificationOption(/*m_verifyServerCertificate*/
-                    //? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
-                    /*:*/ folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
+                sslContext->setVerificationOption(m_verifyServerCertificate
+                        ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
+                        : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
-                auto sslCtx = context->getSSLCtx();
-                SSL_CTX_set_default_verify_paths(sslCtx);
+                auto sslCtx = sslContext->getSSLCtx();
+                if (!setupOpenSSLCABundlePath(sslCtx)) {
+                    SSL_CTX_set_default_verify_paths(sslCtx);
+                }
 
                 // NOLINTNEXTLINE
                 SSL_CTX_set_session_cache_mode(sslCtx,
                     SSL_CTX_get_session_cache_mode(sslCtx) |
                         SSL_SESS_CACHE_CLIENT);
 
-                connector()->connectSSL(evb, address, context, nullptr,
+                connector()->connectSSL(evb, address, sslContext, nullptr,
                     m_timeout, socketOptions, folly::AsyncSocket::anyAddress(),
                     m_endpoint.getHost());
             }
@@ -819,18 +818,58 @@ folly::Future<folly::EventBase *> WebDAVHelper::connect()
     });
 }
 
+bool WebDAVHelper::setupOpenSSLCABundlePath(SSL_CTX *ctx)
+{
+    std::deque<std::string> caBundlePossibleLocations{
+        "/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-bundle.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/pki/tls/certs/ca-bundle.trust.crt",
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"};
+
+    if (auto sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
+        caBundlePossibleLocations.push_front(sslCertFileEnv);
+    }
+
+    auto it = std::find_if(caBundlePossibleLocations.begin(),
+        caBundlePossibleLocations.end(), [](const auto &path) {
+            namespace bf = boost::filesystem;
+            return bf::exists(path) &&
+                (bf::is_regular_file(path) || bf::is_symlink(path));
+        });
+
+    if (it != caBundlePossibleLocations.end()) {
+        if (SSL_CTX_load_verify_locations(ctx, it->c_str(), nullptr) == 0) {
+            LOG(ERROR)
+                << "Invalid CA bundle at " << *it
+                << ". Certificate server verification may not work properly...";
+            return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 void WebDAVHelper::connectSuccess(proxygen::HTTPUpstreamSession *session)
 {
-
     assert(session != nullptr);
 
-    // TODO: mutex
     session->setInfoCallback(m_context.get());
+
+    LOG_DBG(4) << "New connection created with session " << session;
+
+    if (m_context->session != nullptr) {
+        LOG_DBG(4) << "Shutting down session transport";
+        m_context->session->dropConnection();
+    }
+
     m_context->session = session;
     m_context->host = session->getPeerAddress().getHostStr();
     session->setMaxConcurrentIncomingStreams(1);
     session->setMaxConcurrentOutgoingStreams(1);
     m_context->tokenPool.init(1);
+    m_context->sessionValid = true;
     m_context->connectionPromise->setValue();
 }
 
@@ -839,9 +878,8 @@ void WebDAVHelper::connectError(const folly::AsyncSocketException &ex)
     LOG(ERROR) << "Error when connecting to " + m_endpoint.toString() + ": " +
             ex.what();
 
+    m_context->sessionValid = false;
     m_context->session = nullptr;
-
-    // TODO: retry
 }
 
 /**
@@ -849,7 +887,6 @@ void WebDAVHelper::connectError(const folly::AsyncSocketException &ex)
  */
 WebDAVRequest::WebDAVRequest(const WebDAVHelper &helper, folly::EventBase *evb)
     : m_context{helper.context()}
-    , m_tokenPool{helper.tokenPool()}
     , m_token{}
     , m_txn{nullptr}
     , m_path{helper.endpoint().getPath()}
@@ -903,17 +940,18 @@ folly::Future<proxygen::HTTPTransaction *> WebDAVRequest::startTransaction()
 {
     assert(m_evb != nullptr);
 
-    return m_tokenPool->get().via(m_evb).then(
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
+    return m_context->tokenPool.get().via(m_evb).then(
         m_evb, [this](HTTPTransactionToken &&token) {
             m_token = token;
 
             auto session = m_context->session;
 
-            if (m_context->closedByRemote || session == nullptr ||
-                session->isClosing()) {
+            if (m_context->closedByRemote || !m_context->sessionValid ||
+                session == nullptr || session->isClosing()) {
                 LOG_DBG(4) << "HTTP Session " << session
                            << " invalid - create new session";
-                m_tokenPool->putBack(std::move(m_token)); // NOLINT
+                m_context->tokenPool.putBack(std::move(m_token)); // NOLINT
                 throw makePosixException(EAGAIN);
             }
             auto maxOutcomingStreams =
@@ -930,7 +968,7 @@ folly::Future<proxygen::HTTPTransaction *> WebDAVRequest::startTransaction()
 
             auto txn = session->newTransaction(this);
             if (txn == nullptr) {
-                m_tokenPool->putBack(std::move(m_token)); // NOLINT
+                m_context->tokenPool.putBack(std::move(m_token)); // NOLINT
                 throw makePosixException(EAGAIN);
             }
             return txn;
@@ -946,14 +984,14 @@ void WebDAVRequest::setTransaction(proxygen::HTTPTransaction *txn) noexcept
 
 void WebDAVRequest::detachTransaction() noexcept
 {
-    m_tokenPool->putBack(std::move(m_token)); // NOLINT
+    m_context->tokenPool.putBack(std::move(m_token)); // NOLINT
     m_destructionGuard.reset();
 }
 
 void WebDAVRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
-    if (msg->getHeaders().getNumberOfValues("Connection")) {
+    if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
         if (msg->getHeaders().rawGet("Connection") == "close") {
             LOG_DBG(4) << "Received 'Connection: close'";
             m_context->closedByRemote = true;
@@ -1473,6 +1511,7 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
 
     m_destructionGuard = shared_from_this();
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return startTransaction().then([this](proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
         txn->sendEOM();
