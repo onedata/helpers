@@ -319,7 +319,7 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId)
         auto request = std::make_shared<WebDAVPROPFIND>(*self, evb);
         folly::fbvector<folly::fbstring> propFilter;
 
-        return (*request)(fileId, 0, propFilter).then([
+        return (*request)(fileId, 0, propFilter).then(evb, [
             &nsMap = self->m_nsMap, fileId, request
         ](PAPtr<pxml::Document> && multistatus) {
             struct stat attrs {
@@ -389,7 +389,7 @@ folly::Future<folly::Unit> WebDAVHelper::unlink(
         auto request = std::make_shared<WebDAVDELETE>(*self, evb);
 
         return (*request)(fileId).then(
-            [request]() { return folly::makeFuture(); });
+            evb, [request]() { return folly::makeFuture(); });
     });
 }
 
@@ -410,7 +410,7 @@ folly::Future<folly::Unit> WebDAVHelper::rmdir(const folly::fbstring &fileId)
         auto request = std::make_shared<WebDAVDELETE>(*self, evb);
 
         return (*request)(fileId).then(
-            [request]() { return folly::makeFuture(); });
+            evb, [request]() { return folly::makeFuture(); });
     });
 }
 
@@ -441,15 +441,14 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(
 
         if (size == 0) {
             return (*request)(fileId, size, folly::IOBuf::create(0))
-                .then([request]() { return folly::makeFuture(); });
+                .then(evb, [request]() { return folly::makeFuture(); });
         }
 
         auto fillBuf = folly::IOBuf::create(size - currentSize);
         for (auto i = 0u; i < static_cast<size_t>(size) - currentSize; i++)
             fillBuf->writableData()[i] = 0;
-        return (*request)(fileId, size, std::move(fillBuf)).then([request]() {
-            return folly::makeFuture();
-        });
+        return (*request)(fileId, size, std::move(fillBuf))
+            .then(evb, [request]() { return folly::makeFuture(); });
     });
 }
 
@@ -471,7 +470,7 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
         auto request = std::make_shared<WebDAVPUT>(*self, evb);
 
         return (*request)(fileId, 0, std::make_unique<folly::IOBuf>())
-            .then([request] { return folly::makeFuture(); });
+            .then(evb, [request] { return folly::makeFuture(); });
     });
 }
 
@@ -493,7 +492,7 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(
         auto request = std::make_shared<WebDAVMKCOL>(*self, evb);
 
         return (*request)(fileId).then(
-            [request]() { return folly::makeFuture(); });
+            evb, [request]() { return folly::makeFuture(); });
     });
 }
 
@@ -515,7 +514,7 @@ folly::Future<folly::Unit> WebDAVHelper::rename(
         auto request = std::make_shared<WebDAVMOVE>(*self, evb);
 
         return (*request)(from, to).then(
-            [request]() { return folly::makeFuture(); });
+            evb, [request]() { return folly::makeFuture(); });
     });
 }
 
@@ -538,7 +537,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
         auto request = std::make_shared<WebDAVPROPFIND>(*self, evb);
         folly::fbvector<folly::fbstring> propFilter;
 
-        return (*request)(fileId, 1, propFilter).then([
+        return (*request)(fileId, 1, propFilter).then(evb, [
             &nsMap = self->m_nsMap, fileId, request
         ](PAPtr<pxml::Document> && multistatus) {
             try {
@@ -605,7 +604,7 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
         auto request = std::make_shared<WebDAVPROPFIND>(*self, evb);
         folly::fbvector<folly::fbstring> propFilter;
 
-        return (*request)(fileId, 0, propFilter).then([
+        return (*request)(fileId, 0, propFilter).then(evb, [
             &nsMap = self->m_nsMap, fileId, name, request
         ](PAPtr<pxml::Document> && multistatus) {
             std::string nameEncoded;
@@ -658,7 +657,7 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
         auto request = std::make_shared<WebDAVPROPPATCH>(*self, evb);
 
         return (*request)(fileId, name, value, false)
-            .then([fileId, name, request]() {});
+            .then(evb, [fileId, name, request]() {});
     });
 }
 
@@ -681,7 +680,7 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
         auto request = std::make_shared<WebDAVPROPPATCH>(*self, evb);
 
         return (*request)(fileId, name, "", true)
-            .then([fileId, name, request]() {});
+            .then(evb, [fileId, name, request]() {});
     });
 }
 
@@ -706,7 +705,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
         auto request = std::make_shared<WebDAVPROPFIND>(*self, evb);
         folly::fbvector<folly::fbstring> propFilter;
 
-        return (*request)(fileId, 0, propFilter).then([
+        return (*request)(fileId, 0, propFilter).then(evb, [
             &nsMap = self->m_nsMap, fileId, request
         ](PAPtr<pxml::Document> && multistatus) {
             folly::fbvector<folly::fbstring> result;
