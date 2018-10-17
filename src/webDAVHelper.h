@@ -164,13 +164,13 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
     void onIngressError(
         const proxygen::HTTPSession &s, proxygen::ProxygenError e) override
     {
-        LOG_DBG(4) << "Ingress Error - restarting HTTP session: "
+        LOG(ERROR) << "Ingress Error - restarting HTTP session: "
                    << proxygen::getErrorString(e);
         sessionValid = false;
     }
     void onIngressEOF() override
     {
-        LOG_DBG(4) << "Ingress EOF - restarting HTTP session";
+        LOG(ERROR) << "Ingress EOF - restarting HTTP session";
         sessionValid = false;
     }
     void onRead(const proxygen::HTTPSession &, size_t bytesRead) override {}
@@ -320,6 +320,7 @@ public:
 
     void releaseSession(WebDAVSession *session)
     {
+        //LOG(ERROR) << "RELEASING WEBDAV SESSION: " << session;
         m_idleSessionPool.write(std::move(session));
     };
 
