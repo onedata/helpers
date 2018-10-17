@@ -119,47 +119,19 @@ enum HTTPStatus {
     NetworkAuthenticationRequired = 511
 };
 
+class WebDAVHelper;
+
 /**
- * Simple future based guard ensuring that the number of parallel
- * transaction in a single session does not exceed the number
- * of outgoing streams available.
+ * @c WebDAVSession holds structures related to a @c
+ * proxygen::HTTPUpstreamSession running on a specific @c folly::EventBase
  */
-using HTTPTransactionToken = uint16_t;
-
-class WebDAVHTTPTransactionTokenPool {
-public:
-    void init(uint16_t outgoingStreams)
-    {
-        for (uint16_t i = 0; i < outgoingStreams; i++)
-            m_queue.write(HTTPTransactionToken{i});
-    }
-
-    folly::Future<HTTPTransactionToken> get()
-    {
-        return folly::via(&m_lockExecutor, [this] {
-            HTTPTransactionToken result{};
-            m_queue.blockingRead(result);
-            return result;
-        });
-    }
-
-    void putBack(HTTPTransactionToken &&token)
-    {
-        m_queue.write(std::move(token));
-    }
-
-private:
-    folly::MPMCQueue<HTTPTransactionToken, std::atomic, true> m_queue{1};
-    folly::IOThreadPoolExecutor m_lockExecutor{1};
-    uint64_t m_counter{0};
-};
-
-struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
-    std::unique_ptr<proxygen::HTTPConnector> connector;
+struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
+                       public proxygen::HTTPConnector::Callback {
+    WebDAVHelper *helper{nullptr};
     proxygen::HTTPUpstreamSession *session{nullptr};
     bool sessionValid{false};
-    folly::HHWheelTimer::UniquePtr timer;
-    WebDAVHTTPTransactionTokenPool tokenPool;
+    folly::EventBase *evb{nullptr};
+    std::unique_ptr<proxygen::HTTPConnector> connector;
 
     std::mutex connectionMutex;
     std::unique_ptr<folly::SharedPromise<folly::Unit>> connectionPromise;
@@ -175,6 +147,14 @@ struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
         connectionPromise =
             std::make_unique<folly::SharedPromise<folly::Unit>>();
     }
+    /**
+     * \defgroup proxygen::HTTPConnector methods
+     * @{
+     */
+    void connectSuccess(
+        proxygen::HTTPUpstreamSession *reconnectedSession) override;
+    void connectError(const folly::AsyncSocketException &ex) override;
+    /**@}*/
 
     /**
      * \defgroup proxygen::HTTPSession::InfoCallback methods
@@ -232,12 +212,13 @@ struct WebDAVContext : public proxygen::HTTPSession::InfoCallback {
     /**@}*/
 };
 
+using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
+
 /**
  * The WebDAVHelper class provides access to WebDAV storage via librados
  * library.
  */
 class WebDAVHelper : public StorageHelper,
-                     public proxygen::HTTPConnector::Callback,
                      public std::enable_shared_from_this<WebDAVHelper> {
 public:
     /**
@@ -317,28 +298,7 @@ public:
     /**
      * Establishes connection to the WebDAV storage cluster.
      */
-    folly::Future<folly::EventBase *> connect();
-
-    proxygen::HTTPUpstreamSession *session() const
-    {
-        return m_context->session;
-    }
-
-    WebDAVContext *context() const { return m_context.get(); }
-
-    std::string host() const { return m_context->host; }
-
-    proxygen::HTTPConnector *connector() const
-    {
-        return m_context->connector.get();
-    }
-
-    folly::HHWheelTimer *timer() { return m_context->timer.get(); }
-
-    WebDAVHTTPTransactionTokenPool *tokenPool() const
-    {
-        return &m_context->tokenPool;
-    }
+    folly::Future<WebDAVSession *> connect();
 
     std::shared_ptr<folly::IOExecutor> executor() { return m_executor; }
 
@@ -358,17 +318,23 @@ public:
         return m_authorizationHeader;
     }
 
+    void releaseSession(WebDAVSession *session)
+    {
+        m_idleSessionPool.write(std::move(session));
+    };
+
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
-    /**
-     * \defgroup proxygen::HTTPConnector methods
-     * @{
-     */
-    void connectSuccess(proxygen::HTTPUpstreamSession *session) override;
-    void connectError(const folly::AsyncSocketException &ex) override;
-    /**@}*/
-
 private:
+    struct WebDAVSessionThreadContext {
+        folly::HHWheelTimer::UniquePtr timer;
+    };
+
+    // struct WebDAVConnectCallback : public proxygen::HTTPConnector::Callback {
+    // WebDAVSession *session;
+
+    //};
+
     Poco::URI m_endpoint;
     const bool m_verifyServerCertificate;
     const WebDAVCredentialsType m_credentialsType;
@@ -376,10 +342,13 @@ private:
     const folly::fbstring m_authorizationHeader;
     const WebDAVRangeWriteSupport m_rangeWriteSupport;
 
+    folly::ThreadLocal<WebDAVSessionThreadContext> m_sessionContext;
+
     std::shared_ptr<folly::IOExecutor> m_executor;
     Timeout m_timeout;
 
-    folly::ThreadLocal<WebDAVContext> m_context;
+    folly::MPMCQueue<WebDAVSession *> m_idleSessionPool{100};
+    folly::fbvector<WebDAVSessionPtr> m_sessionPool;
 
     pxml::NamespaceSupport m_nsMap;
 };
@@ -391,13 +360,18 @@ template <class T> using PAPtr = Poco::AutoPtr<T>;
  */
 class WebDAVRequest : public proxygen::HTTPTransactionHandler {
 public:
-    WebDAVRequest(const WebDAVHelper &helper, folly::EventBase *evb);
+    WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session);
 
-    virtual ~WebDAVRequest() = default;
+    virtual ~WebDAVRequest()
+    {
+        if (m_session != nullptr) {
+            m_helper->releaseSession(std::move(m_session));
+        }
+    };
 
     folly::Future<proxygen::HTTPTransaction *> startTransaction();
 
-    folly::EventBase *eventBase() const { return m_evb; }
+    folly::EventBase *eventBase() const { return m_session->evb; }
 
     proxygen::HTTPMessage &request() { return m_request; }
 
@@ -423,13 +397,11 @@ public:
     /**@{*/
 
 protected:
-    WebDAVContext *m_context;
-    HTTPTransactionToken m_token;
+    WebDAVHelper *m_helper;
+    WebDAVSession *m_session;
     proxygen::HTTPTransaction *m_txn;
     proxygen::HTTPMessage m_request;
     folly::fbstring m_path;
-
-    folly::EventBase *m_evb;
 
     uint16_t m_resultCode;
     std::unique_ptr<folly::IOBufQueue> m_resultBody;
@@ -445,8 +417,8 @@ protected:
 class WebDAVGET : public WebDAVRequest,
                   public std::enable_shared_from_this<WebDAVGET> {
 public:
-    WebDAVGET(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVGET(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -472,8 +444,8 @@ private:
 class WebDAVPUT : public WebDAVRequest,
                   public std::enable_shared_from_this<WebDAVPUT> {
 public:
-    WebDAVPUT(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVPUT(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -493,8 +465,8 @@ private:
 class WebDAVPATCH : public WebDAVRequest,
                     public std::enable_shared_from_this<WebDAVPATCH> {
 public:
-    WebDAVPATCH(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVPATCH(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -517,8 +489,8 @@ private:
 class WebDAVMKCOL : public WebDAVRequest,
                     public std::enable_shared_from_this<WebDAVMKCOL> {
 public:
-    WebDAVMKCOL(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVMKCOL(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -537,8 +509,8 @@ private:
 class WebDAVPROPFIND : public WebDAVRequest,
                        public std::enable_shared_from_this<WebDAVPROPFIND> {
 public:
-    WebDAVPROPFIND(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVPROPFIND(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -563,8 +535,8 @@ private:
 class WebDAVPROPPATCH : public WebDAVRequest,
                         public std::enable_shared_from_this<WebDAVPROPPATCH> {
 public:
-    WebDAVPROPPATCH(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVPROPPATCH(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -589,8 +561,8 @@ private:
 class WebDAVDELETE : public WebDAVRequest,
                      public std::enable_shared_from_this<WebDAVDELETE> {
 public:
-    WebDAVDELETE(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVDELETE(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -609,8 +581,8 @@ private:
 class WebDAVMOVE : public WebDAVRequest,
                    public std::enable_shared_from_this<WebDAVMOVE> {
 public:
-    WebDAVMOVE(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVMOVE(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
@@ -630,8 +602,8 @@ private:
 class WebDAVCOPY : public WebDAVRequest,
                    public std::enable_shared_from_this<WebDAVCOPY> {
 public:
-    WebDAVCOPY(const WebDAVHelper &helper, folly::EventBase *evb)
-        : WebDAVRequest{helper, evb}
+    WebDAVCOPY(WebDAVHelper *helper, WebDAVSession *session)
+        : WebDAVRequest{helper, session}
     {
     }
 
