@@ -124,10 +124,14 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
     p3.emplace("name", "webdav");
     p3.emplace("endpoint", "https://172.17.0.2:8080");
     p3.emplace("credentials", "admin:password");
+    p3.emplace("connectionPoolSize", "123");
+    p3.emplace("maximumUploadSize", "100000000000");
 
     auto helper3 = std::dynamic_pointer_cast<WebDAVHelper>(
         factory.createStorageHelper(p3));
 
     EXPECT_EQ(helper3->endpoint().getScheme(), "https");
     EXPECT_EQ(helper3->endpoint().getPort(), 8080);
+    EXPECT_EQ(helper3->connectionPoolSize(), 123);
+    EXPECT_EQ(helper3->maximumUploadSize(), 100'000'000'000);
 }

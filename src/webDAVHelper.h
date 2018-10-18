@@ -129,24 +129,22 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
                        public proxygen::HTTPConnector::Callback {
     WebDAVHelper *helper{nullptr};
     proxygen::HTTPUpstreamSession *session{nullptr};
-    bool sessionValid{false};
     folly::EventBase *evb{nullptr};
     std::unique_ptr<proxygen::HTTPConnector> connector;
 
-    std::mutex connectionMutex;
     std::unique_ptr<folly::SharedPromise<folly::Unit>> connectionPromise;
 
     std::string host;
 
+    // Set to true when server return 'Connection: close' header in response
+    // to a request
     bool closedByRemote{false};
 
-    void reset()
-    {
-        sessionValid = false;
-        closedByRemote = false;
-        connectionPromise =
-            std::make_unique<folly::SharedPromise<folly::Unit>>();
-    }
+    // Set to true after the connectSuccess callback
+    bool sessionValid{false};
+
+    void reset();
+
     /**
      * \defgroup proxygen::HTTPConnector methods
      * @{
@@ -164,13 +162,13 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
     void onIngressError(
         const proxygen::HTTPSession &s, proxygen::ProxygenError e) override
     {
-        LOG(ERROR) << "Ingress Error - restarting HTTP session: "
+        LOG_DBG(4) << "Ingress Error - restarting HTTP session: "
                    << proxygen::getErrorString(e);
         sessionValid = false;
     }
     void onIngressEOF() override
     {
-        LOG(ERROR) << "Ingress EOF - restarting HTTP session";
+        LOG_DBG(4) << "Ingress EOF - restarting HTTP session";
         sessionValid = false;
     }
     void onRead(const proxygen::HTTPSession &, size_t bytesRead) override {}
@@ -229,14 +227,20 @@ public:
      * token
      * @param authorizationHeader Optional authorization header to use with
      * access token
+     * @param rangeWriteSupport Type of write support for the storage: none,
+     * sabredav or moddav
+     * @param connectionPoolSize Number of parallel connections (sockets) to the
+     * storage
+     * @param maximumUploadSize Maximum size of single PUT or PATCH request
+     * supported by server. 0 means unlimited.
      * @param executor Executor that will drive the helper's async
      * operations.
      */
     WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
         WebDAVCredentialsType credentialsType, folly::fbstring credentials,
         folly::fbstring authorizationHeader,
-        WebDAVRangeWriteSupport rangeWriteSupport,
-        std::shared_ptr<folly::IOExecutor> executor,
+        WebDAVRangeWriteSupport rangeWriteSupport, uint32_t connectionPoolSize,
+        size_t maximumUploadSize, std::shared_ptr<folly::IOExecutor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
     /**
@@ -318,9 +322,15 @@ public:
         return m_authorizationHeader;
     }
 
+    size_t maximumUploadSize() const { return m_maximumUploadSize; }
+
+    uint32_t connectionPoolSize() const { return m_connectionPoolSize; }
+
+    /**
+     * Returns a WebDAVSession instance to the idle connection pool
+     */
     void releaseSession(WebDAVSession *session)
     {
-        //LOG(ERROR) << "RELEASING WEBDAV SESSION: " << session;
         m_idleSessionPool.write(std::move(session));
     };
 
@@ -331,24 +341,21 @@ private:
         folly::HHWheelTimer::UniquePtr timer;
     };
 
-    // struct WebDAVConnectCallback : public proxygen::HTTPConnector::Callback {
-    // WebDAVSession *session;
-
-    //};
-
     Poco::URI m_endpoint;
     const bool m_verifyServerCertificate;
     const WebDAVCredentialsType m_credentialsType;
     const folly::fbstring m_credentials;
     const folly::fbstring m_authorizationHeader;
     const WebDAVRangeWriteSupport m_rangeWriteSupport;
+    const uint32_t m_connectionPoolSize;
+    const size_t m_maximumUploadSize;
 
     folly::ThreadLocal<WebDAVSessionThreadContext> m_sessionContext;
 
     std::shared_ptr<folly::IOExecutor> m_executor;
     Timeout m_timeout;
 
-    folly::MPMCQueue<WebDAVSession *> m_idleSessionPool{100};
+    folly::MPMCQueue<WebDAVSession *, std::atomic, true> m_idleSessionPool{100};
     folly::fbvector<WebDAVSessionPtr> m_sessionPool;
 
     pxml::NamespaceSupport m_nsMap;
@@ -365,6 +372,8 @@ public:
 
     virtual ~WebDAVRequest()
     {
+        // In case the session was not released after completion of request or
+        // in error callback - release it here
         if (m_session != nullptr) {
             m_helper->releaseSession(std::move(m_session));
         }
@@ -665,6 +674,9 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
     {
         constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
+        constexpr auto kDefaultConnectionPoolSize = 10u;
+        constexpr auto kDefaultMaximumPoolSize = 0u;
+
         const auto &endpoint = getParam(parameters, "endpoint");
         const auto &verifyServerCertificateStr =
             getParam(parameters, "verifyServerCertificate", "true");
@@ -675,6 +687,10 @@ public:
             parameters, "authorizationHeader", kDefaultAuthorizationHeader);
         const auto &rangeWriteSupportStr =
             getParam(parameters, "rangeWriteSupport", "none");
+        const auto connectionPoolSize = getParam<uint32_t>(
+            parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
+        const auto maximumUploadSize = getParam<size_t>(
+            parameters, "maximumUploadSize", kDefaultMaximumPoolSize);
 
         if (authorizationHeader.empty())
             authorizationHeader = kDefaultAuthorizationHeader;
@@ -686,7 +702,9 @@ public:
                     << LOG_FARG(verifyServerCertificateStr)
                     << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
                     << LOG_FARG(authorizationHeader)
-                    << LOG_FARG(rangeWriteSupportStr);
+                    << LOG_FARG(rangeWriteSupportStr)
+                    << LOG_FARG(connectionPoolSize)
+                    << LOG_FARG(maximumUploadSize);
 
         Poco::URI endpointUrl;
 
@@ -780,7 +798,8 @@ public:
 
         return std::make_shared<WebDAVHelper>(std::move(endpointUrl),
             verifyServerCertificate, credentialsType, credentials,
-            authorizationHeader, rangeWriteSupport, m_executor, timeout);
+            authorizationHeader, rangeWriteSupport, connectionPoolSize,
+            maximumUploadSize, m_executor, timeout);
     }
 
 private:

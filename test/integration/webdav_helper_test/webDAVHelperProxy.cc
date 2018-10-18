@@ -36,15 +36,20 @@ private:
     std::unique_ptr<PyThreadState, decltype(&PyEval_RestoreThread)> threadState;
 };
 
+constexpr auto kWebDAVHelperThreadCount = 5u;
+constexpr auto kWebDAVConnectionPoolSize = 10u;
+constexpr auto kWebDAVMaximumUploadSize = 0u;
+
 class WebDAVHelperProxy {
 public:
     WebDAVHelperProxy(std::string endpoint, std::string credentials)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(10)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              kWebDAVHelperThreadCount)}
         , m_helper{std::make_shared<one::helpers::WebDAVHelper>(
               Poco::URI(endpoint), true,
               one::helpers::WebDAVCredentialsType::BASIC, credentials, "",
               one::helpers::WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE,
-              m_executor)}
+              kWebDAVConnectionPoolSize, kWebDAVMaximumUploadSize, m_executor)}
     {
     }
 
