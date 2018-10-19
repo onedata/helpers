@@ -118,7 +118,7 @@ def test_write_should_overwrite_data_middle(helper, file_id):
 def test_read_shoud_not_read_data(helper, file_id):
     data = random_str()
 
-    helper.write(file_id, data, 0) == len(data)
+    assert helper.write(file_id, data, 0) == len(data)
     for offset in range(len(data)):
         assert helper.read(file_id, offset, 0) == ''
 
