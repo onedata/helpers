@@ -99,9 +99,9 @@ def test_rmdir_should_remove_directory(helper, file_id):
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
-    # with pytest.raises(RuntimeError) as excinfo:
-        # helper.rmdir(dir_id)
-    # assert 'Directory not empty' in str(excinfo.value)
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.rmdir(dir_id)
+    assert 'Directory not empty' in str(excinfo.value)
 
     helper.unlink(dir_id+"/"+file1_id, 0)
     helper.unlink(dir_id+"/"+file2_id, 0)

@@ -58,7 +58,6 @@ from posix_test_base import \
     test_mkdir_should_create_directory, \
     test_rename_directory_should_rename, \
     test_readdir_should_list_files_in_directory, \
-    test_rmdir_should_remove_directory, \
     test_unlink_should_pass_errors, \
     test_unlink_should_delete_file, \
     test_mknod_should_create_regular_file_by_default, \
@@ -106,3 +105,33 @@ def server(request):
 @pytest.fixture
 def helper(server):
     return WebDAVHelperProxy(server.endpoint, server.credentials)
+
+
+@pytest.mark.directory_operations_tests
+def test_rmdir_should_remove_directory(helper, file_id):
+    dir_id = file_id
+    file1_id = random_str()
+    file2_id = random_str()
+    data = random_str()
+    offset = random_int()
+
+    try:
+        helper.mkdir(dir_id, 0777)
+        helper.write(dir_id+"/"+file1_id, data, offset)
+        helper.write(dir_id+"/"+file2_id, data, offset)
+    except:
+        pytest.fail("Couldn't create directory: %s"%(dir_id))
+
+    helper.unlink(dir_id+"/"+file1_id, 0)
+    helper.unlink(dir_id+"/"+file2_id, 0)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.read(dir_id+"/"+file1_id, offset, len(data))
+    assert 'No such file or directory' in str(excinfo.value)
+
+    helper.rmdir(dir_id)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.readdir(dir_id, 0, 1024)
+    assert 'No such file or directory' in str(excinfo.value)
+
