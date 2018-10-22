@@ -62,7 +62,7 @@ def slowServer(request):
 
     request.addfinalizer(fin)
 
-    return Server(25, 75, 0.0, "read,write")
+    return Server(5, 10, 0.0, "read,write")
 
 @pytest.fixture
 def helper(server):
@@ -87,24 +87,25 @@ def slowStorageHelper(slowServer):
         slowServer.filter)
 
 
+MAX_READOVERHEAD_FACTOR = 1.35
+
 @pytest.mark.readwrite_operations_tests
 def test_single_read_after_period_should_invalidate_cache(helper, file_id):
-    data = 'x' * 1024*1024*150
+    data = 'x' * 1024*1024*50
 
     handle = helper.open(file_id, 0655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = len(helper.read(handle, 0, len(data)))
 
     assert read == len(data)
     assert helper.readBytes(handle) == read
 
-    sleep(1)
+    sleep(0.5)
 
-    # Rereading the same file from the cache after 1s should
+    # Rereading the same file from the cache after 0.5s should
     # not increase the helper read count
     read = len(helper.read(handle, 0, len(data)))
 
@@ -123,13 +124,12 @@ def test_single_read_after_period_should_invalidate_cache(helper, file_id):
 
 @pytest.mark.readwrite_operations_tests
 def test_single_read_from_ideal_storage_should_not_generate_overhead(helper, file_id):
-    data = 'x' * 1024*1024*150
+    data = 'x' * 1024*1024*50
 
     handle = helper.open(file_id, 0655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = len(helper.read(handle, 0, len(data)))
 
@@ -145,7 +145,6 @@ def test_linear_read_from_ideal_storage_should_prefetch_data(helper, file_id):
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = 0
     for i in range(0, 3):
@@ -164,7 +163,6 @@ def test_fast_linear_read_from_ideal_storage_should_not_generate_too_big_overhea
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = 0
     for i in range(0, 150):
@@ -172,7 +170,7 @@ def test_fast_linear_read_from_ideal_storage_should_not_generate_too_big_overhea
         sleep(0.01)
 
     assert read == len(data)
-    assert helper.readBytes(handle) <= read*1.2
+    assert helper.readBytes(handle) <= read*MAX_READOVERHEAD_FACTOR
 
 
 @pytest.mark.readwrite_operations_tests
@@ -183,7 +181,6 @@ def test_linear_read_from_ideal_storage_should_not_generate_too_big_overhead(hel
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = 0
     for i in range(0, 150):
@@ -192,7 +189,7 @@ def test_linear_read_from_ideal_storage_should_not_generate_too_big_overhead(hel
 
     assert read == len(data)
     assert helper.readBytes(handle) >= read
-    assert helper.readBytes(handle) < read*1.2
+    assert helper.readBytes(handle) < read*MAX_READOVERHEAD_FACTOR
 
 
 @pytest.mark.readwrite_operations_tests
@@ -203,18 +200,16 @@ def test_random_read_from_ideal_storage_should_not_generate_too_big_overhead(hel
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = 0
-    blocks = range(0, 150)
-    random_blocks = random.sample(blocks, len(blocks))
+    random_blocks = [110, 105, 130, 140, 131]
     for i in random_blocks:
         read += len(helper.read(handle, i*(1024*1024), 1024*1024))
         sleep(0.1)
 
-    assert read == len(data)
+    assert read == len(random_blocks)*1024*1024
     assert helper.readBytes(handle) >= read
-    assert helper.readBytes(handle) < read*1.2
+    assert helper.readBytes(handle) < read*MAX_READOVERHEAD_FACTOR
 
 
 @pytest.mark.readwrite_operations_tests
@@ -225,7 +220,6 @@ def test_mixed_read_from_ideal_storage_should_slow_down_prefetching(helper, file
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = 0
     for i in range(0, 5):
@@ -237,15 +231,14 @@ def test_mixed_read_from_ideal_storage_should_slow_down_prefetching(helper, file
     assert helperReadBytes >= 2*5*1024*1024
 
     read = 0
-    blocks = range(100, 150)
-    random_blocks = random.sample(blocks, 5)
+    random_blocks = [110, 105, 130, 140, 131]
     for i in random_blocks:
         read += len(helper.read(handle, i*(1024*1024), 1024*1024))
         sleep(0.1)
 
-    assert read == 5*1024*1024
+    assert read == len(random_blocks)*1024*1024
     helperReadBytes2 = helper.readBytes(handle)
-    assert helperReadBytes2 - helperReadBytes < read*1.2
+    assert helperReadBytes2 - helperReadBytes < read*MAX_READOVERHEAD_FACTOR
 
     read = 0
     for i in range(50, 55):
@@ -258,13 +251,12 @@ def test_mixed_read_from_ideal_storage_should_slow_down_prefetching(helper, file
 
 @pytest.mark.readwrite_operations_tests
 def test_linear_read_from_slow_storage_should_prefetch_data(slowStorageHelper, file_id):
-    data = 'x' * 1024*1024*150
+    data = 'x' * 1024*1024*50
 
     handle = slowStorageHelper.open(file_id, 0655)
     written = slowStorageHelper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == slowStorageHelper.writtenBytes(handle)
 
     read = 0
     for i in range(0, 3):
@@ -277,35 +269,33 @@ def test_linear_read_from_slow_storage_should_prefetch_data(slowStorageHelper, f
 
 @pytest.mark.readwrite_operations_tests
 def test_linear_read_from_slow_storage_should_not_generate_too_big_overhead(slowStorageHelper, file_id):
-    data = 'x' * 1024*1024*150
+    data = 'x' * 1024*1024*50
 
     handle = slowStorageHelper.open(file_id, 0655)
     written = slowStorageHelper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == slowStorageHelper.writtenBytes(handle)
 
     read = 0
-    for i in range(0, 150):
+    for i in range(0, 50):
         read += len(slowStorageHelper.read(handle, i*(1024*1024), 1024*1024))
         sleep(0.1)
 
     assert read == len(data)
     assert slowStorageHelper.readBytes(handle) >= read
-    assert slowStorageHelper.readBytes(handle) < read*1.2
+    assert slowStorageHelper.readBytes(handle) < read*MAX_READOVERHEAD_FACTOR
 
 
 def test_random_read_from_slow_storage_should_not_generate_too_big_overhead(slowStorageHelper, file_id):
-    data = 'x' * 1024*1024*150
+    data = 'x' * 1024*1024*50
 
     handle = slowStorageHelper.open(file_id, 0655)
     written = slowStorageHelper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == slowStorageHelper.writtenBytes(handle)
 
     read = 0
-    blocks = range(0, 150)
+    blocks = range(0, 50)
     random_blocks = random.sample(blocks, len(blocks))
     for i in random_blocks:
         read += len(slowStorageHelper.read(handle, i*(1024*1024), 1024*1024))
@@ -313,19 +303,18 @@ def test_random_read_from_slow_storage_should_not_generate_too_big_overhead(slow
 
     assert read == len(data)
     assert slowStorageHelper.readBytes(handle) >= read
-    assert slowStorageHelper.readBytes(handle) < read*1.2
+    assert slowStorageHelper.readBytes(handle) < read*MAX_READOVERHEAD_FACTOR
 
 
 @pytest.mark.readwrite_operations_tests
 def test_mixed_read_from_slow_storage_should_slow_down_prefetching(slowStorageHelper, file_id):
     helper = slowStorageHelper
-    data = 'x' * 1024*1024*150
+    data = 'x' * 1024*1024*50
 
     handle = helper.open(file_id, 0655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
-    assert written == helper.writtenBytes(handle)
 
     read = 0
     for i in range(0, 5):
@@ -337,15 +326,14 @@ def test_mixed_read_from_slow_storage_should_slow_down_prefetching(slowStorageHe
     assert helperReadBytes >= 2*5*1024*1024
 
     read = 0
-    blocks = range(100, 150)
-    random_blocks = random.sample(blocks, 5)
+    random_blocks = [110, 105, 130, 140, 131]
     for i in random_blocks:
         read += len(helper.read(handle, i*(1024*1024), 1024*1024))
         sleep(0.1)
 
-    assert read == 5*1024*1024
+    assert read == len(random_blocks)*1024*1024
     helperReadBytes2 = helper.readBytes(handle)
-    assert helperReadBytes2 - helperReadBytes < read*1.2
+    assert helperReadBytes2 - helperReadBytes < read*MAX_READOVERHEAD_FACTOR
 
     read = 0
     for i in range(50, 55):
@@ -354,5 +342,3 @@ def test_mixed_read_from_slow_storage_should_slow_down_prefetching(slowStorageHe
 
     assert read == 5*1024*1024
     assert helper.readBytes(handle)-helperReadBytes2 >= 2*5*1024*1024
-
-

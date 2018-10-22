@@ -307,6 +307,8 @@ def test_write_should_write_with_latency_in_bounds(slowStorageHelper, file_id):
     data = random_str()
     offset = random_int()
 
+    slowStorageHelper.write(file_id, data, offset)
+
     for _ in range(100):
         start = datetime.datetime.now()
         slowStorageHelper.write(file_id, data, offset)
