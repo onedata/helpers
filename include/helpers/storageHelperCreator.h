@@ -19,6 +19,10 @@
 #include <boost/optional.hpp>
 #include <tbb/concurrent_hash_map.h>
 
+#ifdef WITH_WEBDAV
+#include <folly/executors/IOExecutor.h>
+#endif
+
 #include <memory>
 #include <string>
 
@@ -49,6 +53,10 @@ constexpr auto SWIFT_HELPER_NAME = "swift";
 
 #if WITH_GLUSTERFS
 constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
+#endif
+
+#if WITH_WEBDAV
+constexpr auto WEBDAV_HELPER_NAME = "webdav";
 #endif
 
 namespace buffering {
@@ -141,6 +149,9 @@ public:
 #if WITH_GLUSTERFS
         asio::io_service &glusterfsService,
 #endif
+#if WITH_WEBDAV
+        std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
         asio::io_service &nullDeviceService,
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
@@ -159,6 +170,9 @@ public:
 #endif
 #if WITH_GLUSTERFS
         asio::io_service &glusterfsService,
+#endif
+#if WITH_WEBDAV
+        std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
         asio::io_service &nullDeviceService,
         std::size_t bufferSchedulerWorkers = 1,
@@ -202,6 +216,10 @@ private:
 #if WITH_GLUSTERFS
     asio::io_service &m_glusterfsService;
 #endif
+#if WITH_WEBDAV
+    std::shared_ptr<folly::IOExecutor> m_webDAVExecutor;
+#endif
+
     asio::io_service &m_nullDeviceService;
     std::unique_ptr<Scheduler> m_scheduler;
 

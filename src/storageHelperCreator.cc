@@ -32,6 +32,11 @@
 #include "glusterfsHelper.h"
 #endif
 
+#if WITH_WEBDAV
+#include "webDAVHelper.h"
+#include <folly/executors/IOExecutor.h>
+#endif
+
 namespace one {
 namespace helpers {
 
@@ -50,6 +55,9 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_GLUSTERFS
     asio::io_service &glusterfsService,
+#endif
+#if WITH_WEBDAV
+    std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
     asio::io_service &nullDeviceService,
     communication::Communicator &communicator,
@@ -72,6 +80,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_GLUSTERFS
     m_glusterfsService{glusterfsService}
+    ,
+#endif
+#if WITH_WEBDAV
+    m_webDAVExecutor{std::move(webDAVExecutor)}
     ,
 #endif
     m_nullDeviceService{nullDeviceService}
@@ -98,6 +110,9 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_GLUSTERFS
     asio::io_service &glusterfsService,
 #endif
+#if WITH_WEBDAV
+    std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
     asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
     buffering::BufferLimits bufferLimits)
     :
@@ -118,6 +133,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_GLUSTERFS
     m_glusterfsService{glusterfsService}
+    ,
+#endif
+#if WITH_WEBDAV
+    m_webDAVExecutor{std::move(webDAVExecutor)}
     ,
 #endif
     m_nullDeviceService{nullDeviceService}
@@ -172,6 +191,12 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     if (name == GLUSTERFS_HELPER_NAME)
         helper = GlusterFSHelperFactory{m_glusterfsService}.createStorageHelper(
             args);
+#endif
+
+#if WITH_WEBDAV
+    if (name == WEBDAV_HELPER_NAME)
+        helper =
+            WebDAVHelperFactory{m_webDAVExecutor}.createStorageHelper(args);
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)
