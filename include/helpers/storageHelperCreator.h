@@ -132,7 +132,7 @@ struct BufferLimits {
 /**
  * Factory providing objects of requested storage helpers.
  */
-class StorageHelperCreator {
+class StorageHelperCreator final {
 public:
 #ifdef BUILD_PROXY_IO
     StorageHelperCreator(
@@ -179,7 +179,7 @@ public:
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{});
 #endif
 
-    virtual ~StorageHelperCreator();
+    ~StorageHelperCreator();
 
     /**
      * Produces storage helper object.
@@ -190,10 +190,11 @@ public:
      * with a buffer agent.
      * @return The created storage helper object.
      */
-    virtual std::shared_ptr<StorageHelper> getStorageHelper(
-        const folly::fbstring &name,
+    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
-        bool buffered);
+        bool buffered,
+        const std::unordered_map<folly::fbstring, folly::fbstring>
+            &overrideParams = {});
 
     std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args)

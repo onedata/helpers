@@ -102,6 +102,11 @@ public:
     virtual void deleteObjects(
         const folly::fbvector<folly::fbstring> &keys) = 0;
 
+    virtual const std::vector<folly::fbstring> getOverridableParams() const
+    {
+        return {};
+    };
+
     virtual const Timeout &timeout() = 0;
 
     bool hasRandomAccess() const { return m_randomAccess; }

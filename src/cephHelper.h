@@ -177,6 +177,11 @@ public:
         LOG_FCALL();
     }
 
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"monitorHostname", "timeout"};
+    };
+
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {

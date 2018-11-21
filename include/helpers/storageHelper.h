@@ -9,6 +9,8 @@
 #ifndef HELPERS_STORAGE_HELPER_H
 #define HELPERS_STORAGE_HELPER_H
 
+#include "logging.h"
+
 #include <fuse.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -250,6 +252,44 @@ public:
      * @returns A new instance of @c StorageHelper .
      */
     virtual StorageHelperPtr createStorageHelper(const Params &parameters) = 0;
+
+    /**
+     * Returns a list of helper specific parameters which can be overriden on
+     * the client side.
+     */
+    virtual const std::vector<folly::fbstring> overridableParams() const
+    {
+        return {};
+    };
+
+    /**
+     * This method allows to create a storage helper by taking into account
+     * any overriden helper parameter values provided by the user.
+     * @param parameters Common parameters from the Oneprovider
+     * @param overrideParameters Client specific parameters, which can override
+     *        the common values, if allowed by helper
+     */
+    StorageHelperPtr createStorageHelperWithOverride(
+        Params parameters, const Params &overrideParameters)
+    {
+        const auto &overridable = overridableParams();
+
+        for (const auto &p : overrideParameters) {
+            const auto &parameterName = p.first;
+            if (std::find(overridable.cbegin(), overridable.cend(),
+                    parameterName) != overridable.end()) {
+                LOG_DBG(1) << "Overring storage parameter " << parameterName
+                           << " with value " << p.second;
+
+                parameters[parameterName] = p.second;
+            }
+            else
+                LOG(WARNING) << "Storage helper parameter " << parameterName
+                             << " cannot be overriden";
+        }
+
+        return createStorageHelper(parameters);
+    }
 };
 
 /**

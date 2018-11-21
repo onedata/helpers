@@ -671,6 +671,13 @@ public:
         LOG_FCALL();
     }
 
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"endpoint", "verifyServerCertificate",
+            "connectionPoolSize"
+            "timeout"};
+    };
+
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
     {
         constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";

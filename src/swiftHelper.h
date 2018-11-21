@@ -40,6 +40,11 @@ public:
     {
     }
 
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"authUrl", "timeout"};
+    };
+
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {

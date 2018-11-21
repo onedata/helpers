@@ -150,59 +150,68 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 
 StorageHelperCreator::~StorageHelperCreator() = default;
-
 std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     const folly::fbstring &name,
     const std::unordered_map<folly::fbstring, folly::fbstring> &args,
-    const bool buffered)
+    const bool buffered,
+    const std::unordered_map<folly::fbstring, folly::fbstring> &overrideParams)
 {
     LOG_FCALL() << LOG_FARG(name) << LOG_FARGM(args) << LOG_FARG(buffered);
 
     StorageHelperPtr helper;
 
-    if (name == POSIX_HELPER_NAME)
-        helper = PosixHelperFactory{m_dioService}.createStorageHelper(args);
+    if (name == POSIX_HELPER_NAME) {
+        helper =
+            PosixHelperFactory{m_dioService}.createStorageHelperWithOverride(
+                args, overrideParams);
+    }
 
 #if WITH_CEPH
     if (name == CEPH_HELPER_NAME)
-        helper = CephHelperFactory{m_cephService}.createStorageHelper(args);
+        helper =
+            CephHelperFactory{m_cephService}.createStorageHelperWithOverride(
+                args, overrideParams);
 
     if (name == CEPHRADOS_HELPER_NAME)
-        helper = CephRadosHelperFactory{m_cephRadosService}.createStorageHelper(
-            args);
+        helper = CephRadosHelperFactory{m_cephRadosService}
+                     .createStorageHelperWithOverride(args, overrideParams);
 #endif
 
 #ifdef BUILD_PROXY_IO
     if (name == PROXY_HELPER_NAME)
-        helper = ProxyHelperFactory{m_communicator}.createStorageHelper(args);
+        helper =
+            ProxyHelperFactory{m_communicator}.createStorageHelperWithOverride(
+                args, overrideParams);
 #endif
 
 #if WITH_S3
     if (name == S3_HELPER_NAME)
-        helper = S3HelperFactory{m_s3Service}.createStorageHelper(args);
+        helper = S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+            args, overrideParams);
 #endif
 
 #if WITH_SWIFT
     if (name == SWIFT_HELPER_NAME)
-        helper = SwiftHelperFactory{m_swiftService}.createStorageHelper(args);
+        helper =
+            SwiftHelperFactory{m_swiftService}.createStorageHelperWithOverride(
+                args, overrideParams);
 #endif
 
 #if WITH_GLUSTERFS
     if (name == GLUSTERFS_HELPER_NAME)
-        helper = GlusterFSHelperFactory{m_glusterfsService}.createStorageHelper(
-            args);
+        helper = GlusterFSHelperFactory{m_glusterfsService}
+                     .createStorageHelperWithOverride(args, overrideParams);
 #endif
 
 #if WITH_WEBDAV
     if (name == WEBDAV_HELPER_NAME)
-        helper =
-            WebDAVHelperFactory{m_webDAVExecutor}.createStorageHelper(args);
+        helper = WebDAVHelperFactory{m_webDAVExecutor}
+                     .createStorageHelperWithOverride(args, overrideParams);
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)
-        helper =
-            NullDeviceHelperFactory{m_nullDeviceService}.createStorageHelper(
-                args);
+        helper = NullDeviceHelperFactory{m_nullDeviceService}
+                     .createStorageHelperWithOverride(args, overrideParams);
 
     if (!helper) {
         LOG(ERROR) << "Invalid storage helper name: " << name.toStdString();
