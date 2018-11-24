@@ -7,6 +7,7 @@ option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
 option(WITH_WEBDAV "Include WebDAV direct IO support" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
+option(WITH_DHUSODATA "Include Copernicus Data Hub support" ON)
 
 # CMake config
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY True)
@@ -152,6 +153,13 @@ else(WITH_WEBDAV)
     add_definitions(-DWITH_WEBDAV=0)
 endif(WITH_WEBDAV)
 
+# Copernicus Data hub support
+if(WITH_DHUSODATA)
+    find_package(odata REQUIRED)
+    set(DHUSODATA_LIBRARIES ${ODATA_LIBRARIES})
+else(WITH_DHUSODATA)
+    add_definitions(-DWITH_DHUSODATA=0)
+endif(WITH_DHUSODATA)
 
 # Setup compile flags
 set(PLATFORM_EXTRA_LIBS
@@ -228,6 +236,10 @@ endif(WITH_GLUSTERFS)
 if(WITH_WEBDAV)
     list(APPEND HELPERS_LIBRARIES ${PROXYGEN_LIBRARY})
 endif(WITH_WEBDAV)
+
+if(WITH_DHUSODATA)
+    list(APPEND HELPERS_LIBRARIES ${DHUSODATA_LIBRARIES})
+endif(WITH_DHUSODATA)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
 target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})

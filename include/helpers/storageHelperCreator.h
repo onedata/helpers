@@ -59,6 +59,10 @@ constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
 constexpr auto WEBDAV_HELPER_NAME = "webdav";
 #endif
 
+#if WITH_DHUSODATA
+constexpr auto DHUSODATA_HELPER_NAME = "dhusodata";
+#endif
+
 namespace buffering {
 
 class BufferAgentsMemoryLimitGuard;
@@ -152,6 +156,9 @@ public:
 #if WITH_WEBDAV
         std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
+#if WITH_DHUSODATA
+        asio::io_service &dhusodataService,
+#endif
         asio::io_service &nullDeviceService,
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
@@ -173,6 +180,9 @@ public:
 #endif
 #if WITH_WEBDAV
         std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
+#if WITH_DHUSODATA
+        asio::io_service &dhusodataService,
 #endif
         asio::io_service &nullDeviceService,
         std::size_t bufferSchedulerWorkers = 1,
@@ -218,6 +228,9 @@ private:
 #endif
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> m_webDAVExecutor;
+#endif
+#if WITH_DHUSODATA
+    asio::io_service &m_dhusodataService,
 #endif
 
     asio::io_service &m_nullDeviceService;

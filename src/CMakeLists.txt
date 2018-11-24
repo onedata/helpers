@@ -53,6 +53,10 @@ if(NOT WITH_GLUSTERFS)
     list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/glusterfsHelper.cc)
 endif(NOT WITH_GLUSTERFS)
 
+if(NOT WITH_DHUSODATA)
+    list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/dhusodataHelper.cc)
+endif(NOT WITH_DHUSODATA)
+
 add_library(helpers OBJECT ${HELPER_SOURCES})
 add_dependencies(helpers clproto)
 target_include_directories(helpers SYSTEM PRIVATE
