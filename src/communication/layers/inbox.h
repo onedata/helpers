@@ -201,10 +201,13 @@ std::function<void()> Inbox<LowerLayer>::subscribe(SubscriptionData data)
 template <class LowerLayer> auto Inbox<LowerLayer>::connect()
 {
     LowerLayer::setOnMessageCallback([this](ServerMessagePtr message) {
-        typename decltype(m_callbacks)::accessor acc;
-        const bool handled = m_callbacks.find(acc, message->message_id());
+        const auto messageId = message->message_id();
 
-        std::string messageId = message->message_id();
+        if (messageId.empty())
+            return;
+
+        typename decltype(m_callbacks)::accessor acc;
+        const bool handled = m_callbacks.find(acc, messageId);
 
         for (const auto &sub : m_subscriptions)
             if (sub.predicate(*message, handled))
