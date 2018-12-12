@@ -38,6 +38,11 @@ public:
     {
     }
 
+    virtual folly::fbstring name() const override
+    {
+        return CEPHRADOS_HELPER_NAME;
+    }
+
     const std::vector<folly::fbstring> overridableParams() const override
     {
         return {"monitorHostname", "timeout"};

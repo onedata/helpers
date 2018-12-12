@@ -40,6 +40,8 @@ public:
     {
     }
 
+    virtual folly::fbstring name() const override { return SWIFT_HELPER_NAME; }
+
     const std::vector<folly::fbstring> overridableParams() const override
     {
         return {"authUrl", "timeout"};

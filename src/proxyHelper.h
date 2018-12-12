@@ -98,6 +98,8 @@ public:
     {
     }
 
+    virtual folly::fbstring name() const override { return PROXY_HELPER_NAME; }
+
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {
