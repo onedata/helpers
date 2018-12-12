@@ -9,7 +9,7 @@
 #include "helpers/storageHelperCreator.h"
 
 #include "buffering/bufferAgent.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "nullDeviceHelper.h"
 #include "posixHelper.h"
 #include "proxyHelper.h"

@@ -11,7 +11,7 @@
 
 #include "communication/declarations.h"
 #include "communication/subscriptionData.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/concurrent_queue.h>

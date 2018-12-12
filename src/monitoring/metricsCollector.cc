@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "cppmetrics/cppmetrics.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/graphiteMetricsCollector.h"
 #include "monitoring/metricsCollector.h"
 

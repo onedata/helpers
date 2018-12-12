@@ -7,7 +7,7 @@
  */
 
 #include "fuseOperations.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 namespace {
 thread_local bool fuseSessionActive = false;

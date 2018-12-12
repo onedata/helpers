@@ -11,7 +11,7 @@
 #include "helpers/storageHelper.h"
 
 #include "asioExecutor.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <Poco/Base64Encoder.h>
 #include <Poco/DOM/AutoPtr.h>

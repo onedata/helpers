@@ -10,7 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_SEQUENCER_H
 
 #include "communication/declarations.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "scheduler.h"
 
 #include <tbb/concurrent_hash_map.h>

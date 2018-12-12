@@ -10,7 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_RETRIER_H
 
 #include "communication/exception.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <chrono>
 #include <functional>

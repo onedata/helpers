@@ -8,6 +8,7 @@
 
 #include "messages/status.h"
 
+#include "helpers/logging.h"
 #include "messages.pb.h"
 
 #include <boost/bimap.hpp>
@@ -15,7 +16,6 @@
 #include <boost/optional/optional_io.hpp>
 
 #include <cassert>
-#include <logging.h>
 #include <sstream>
 #include <system_error>
 #include <vector>
