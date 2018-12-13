@@ -31,34 +31,6 @@ namespace one {
 class Scheduler;
 
 namespace helpers {
-
-#if WITH_CEPH
-constexpr auto CEPH_HELPER_NAME = "ceph";
-constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
-#endif
-
-constexpr auto POSIX_HELPER_NAME = "posix";
-
-constexpr auto PROXY_HELPER_NAME = "proxy";
-
-constexpr auto NULL_DEVICE_HELPER_NAME = "nulldevice";
-
-#if WITH_S3
-constexpr auto S3_HELPER_NAME = "s3";
-#endif
-
-#if WITH_SWIFT
-constexpr auto SWIFT_HELPER_NAME = "swift";
-#endif
-
-#if WITH_GLUSTERFS
-constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
-#endif
-
-#if WITH_WEBDAV
-constexpr auto WEBDAV_HELPER_NAME = "webdav";
-#endif
-
 namespace buffering {
 
 class BufferAgentsMemoryLimitGuard;
@@ -132,7 +104,7 @@ struct BufferLimits {
 /**
  * Factory providing objects of requested storage helpers.
  */
-class StorageHelperCreator {
+class StorageHelperCreator final {
 public:
 #ifdef BUILD_PROXY_IO
     StorageHelperCreator(
@@ -179,7 +151,7 @@ public:
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{});
 #endif
 
-    virtual ~StorageHelperCreator();
+    ~StorageHelperCreator();
 
     /**
      * Produces storage helper object.
@@ -190,10 +162,11 @@ public:
      * with a buffer agent.
      * @return The created storage helper object.
      */
-    virtual std::shared_ptr<StorageHelper> getStorageHelper(
-        const folly::fbstring &name,
+    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
-        bool buffered);
+        bool buffered,
+        const std::unordered_map<folly::fbstring, folly::fbstring>
+            &overrideParams = {});
 
     std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args)

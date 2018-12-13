@@ -12,7 +12,7 @@
 #endif // linux
 
 #include "posixHelper.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/monitoring.h"
 
 #include <boost/any.hpp>

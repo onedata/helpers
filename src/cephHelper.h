@@ -12,7 +12,7 @@
 #include "helpers/storageHelper.h"
 
 #include "asioExecutor.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <asio.hpp>
 #include <folly/Executor.h>
@@ -176,6 +176,13 @@ public:
     {
         LOG_FCALL();
     }
+
+    virtual folly::fbstring name() const override { return CEPH_HELPER_NAME; }
+
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"monitorHostname", "timeout"};
+    };
 
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override

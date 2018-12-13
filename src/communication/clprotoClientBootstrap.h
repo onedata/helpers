@@ -9,7 +9,7 @@
 #pragma once
 
 #include "clprotoPipelineFactory.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <folly/init/Init.h>
 #include <folly/io/IOBufQueue.h>

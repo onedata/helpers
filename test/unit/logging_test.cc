@@ -6,7 +6,7 @@
  * 'LICENSE.txt'
  */
 
-#include "logging.h"
+#include "helpers/logging.h"
 #include "testUtils.h"
 
 #include "boost/algorithm/string.hpp"

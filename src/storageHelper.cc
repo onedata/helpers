@@ -8,7 +8,7 @@
 
 #include "helpers/storageHelper.h"
 #include "fuseOperations.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <folly/futures/Future.h>
 

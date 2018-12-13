@@ -10,7 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_ASYNC_RESPONDER_H
 
 #include "communication/declarations.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <folly/ThreadName.h>
 #include <folly/executors/GlobalExecutor.h>

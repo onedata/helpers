@@ -11,7 +11,7 @@
 
 #include "communication/declarations.h"
 #include "fuseOperations.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "messages/clientHandshakeRequest.h"
 #include "messages/clientMessage.h"
 #include "messages/handshakeResponse.h"

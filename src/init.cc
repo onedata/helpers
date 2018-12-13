@@ -7,7 +7,7 @@
  */
 
 #include "helpers/init.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/graphiteMetricsCollector.h"
 #include "monitoring/metricsCollector.h"
 #include "monitoring/monitoring.h"

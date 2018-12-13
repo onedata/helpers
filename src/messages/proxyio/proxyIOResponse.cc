@@ -8,7 +8,7 @@
 
 #include "proxyIOResponse.h"
 
-#include "logging.h"
+#include "helpers/logging.h"
 #include "messages.pb.h"
 #include "messages/status.h"
 

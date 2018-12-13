@@ -10,7 +10,7 @@
 
 #include "clprotoClientBootstrap.h"
 #include "clprotoPipelineFactory.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <tbb/concurrent_queue.h>
 

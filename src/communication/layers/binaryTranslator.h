@@ -10,7 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_BINARY_TRANSLATOR_H
 
 #include "communication/declarations.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <functional>
 #include <memory>

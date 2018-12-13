@@ -352,6 +352,17 @@ public:
     {
     }
 
+    virtual folly::fbstring name() const override
+    {
+        return NULL_DEVICE_HELPER_NAME;
+    }
+
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"latencyMin", "latencyMax", "timeoutProbability", "filter",
+            "timeout"};
+    };
+
     static std::vector<std::pair<int64_t, int64_t>>
     parseSimulatedFilesystemParameters(const std::string &params);
 

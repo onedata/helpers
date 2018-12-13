@@ -7,7 +7,7 @@
  */
 
 #include "s3Helper.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/monitoring.h"
 
 #include <aws/core/auth/AWSCredentialsProvider.h>
