@@ -37,13 +37,17 @@ namespace one {
 namespace communication {
 namespace layers {
 
+constexpr auto kMagicCookie = 1234432178;
+
 /**
  * @c Inbox is responsible for handling incoming messages. It stores a
  * collection of unfulfilled promises and matches them to incoming messages
  * by a message id. Other objects can subscribe on messages, e.g. to create
  * a 'push message' communication channel.
  */
-template <class LowerLayer> class Inbox : public LowerLayer {
+template <class LowerLayer>
+class Inbox : public LowerLayer,
+              public std::enable_shared_from_this<Inbox<LowerLayer>> {
 public:
     using Callback = typename LowerLayer::Callback;
     using CommunicateCallback =
@@ -88,6 +92,12 @@ public:
 
     void setOnMessageCallback(std::function<void(ServerMessagePtr)>) = delete;
 
+    void stop()
+    {
+        m_stopped = true;
+        LowerLayer::stop();
+    }
+
 private:
     struct CommunicateCallbackData {
         std::shared_ptr<CommunicateCallback> callback;
@@ -105,6 +115,14 @@ private:
     tbb::concurrent_vector<SubscriptionData> m_subscriptions;
     tbb::concurrent_queue<typename decltype(m_subscriptions)::iterator>
         m_unusedSubscriptions;
+
+    bool m_stopped = false;
+
+    // This is a temporary way of making sure that the communicator instance
+    // is still valid after deamonization from within a callback having
+    // only this pointer. This should be fixed with a proper lifetime management
+    // during communicator destruction
+    int m_magic = kMagicCookie;
 };
 
 template <class LowerLayer>
@@ -201,10 +219,22 @@ std::function<void()> Inbox<LowerLayer>::subscribe(SubscriptionData data)
 template <class LowerLayer> auto Inbox<LowerLayer>::connect()
 {
     LowerLayer::setOnMessageCallback([this](ServerMessagePtr message) {
-        typename decltype(m_callbacks)::accessor acc;
-        const bool handled = m_callbacks.find(acc, message->message_id());
+        if (m_magic != kMagicCookie) {
+            LOG(INFO) << "Received message but communicator is already "
+                         "destroyed - ignoring...";
+            return;
+        }
 
-        std::string messageId = message->message_id();
+        if (m_stopped) {
+            LOG(INFO) << "Received message but communicator already stopped - "
+                         "ignoring...";
+            return;
+        }
+
+        const auto messageId = message->message_id();
+
+        typename decltype(m_callbacks)::accessor acc;
+        const bool handled = m_callbacks.find(acc, messageId);
 
         for (const auto &sub : m_subscriptions)
             if (sub.predicate(*message, handled))
