@@ -11,7 +11,7 @@
 #include "helpers/storageHelper.h"
 
 #include "asioExecutor.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <Poco/Base64Encoder.h>
 #include <Poco/DOM/AutoPtr.h>
@@ -670,6 +670,14 @@ public:
     {
         LOG_FCALL();
     }
+
+    virtual folly::fbstring name() const override { return WEBDAV_HELPER_NAME; }
+
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"endpoint", "verifyServerCertificate", "connectionPoolSize",
+            "timeout"};
+    };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
     {

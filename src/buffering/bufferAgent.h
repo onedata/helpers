@@ -9,15 +9,13 @@
 #ifndef HELPERS_BUFFERING_BUFFER_AGENT_H
 #define HELPERS_BUFFERING_BUFFER_AGENT_H
 
-#include "readCache.h"
-#include "writeBuffer.h"
-
 #include "communication/communicator.h"
+#include "helpers/logging.h"
 #include "helpers/storageHelper.h"
 #include "helpers/storageHelperCreator.h"
+#include "readCache.h"
 #include "scheduler.h"
-
-#include "logging.h"
+#include "writeBuffer.h"
 
 #include <chrono>
 #include <memory>

@@ -257,6 +257,16 @@ public:
     {
     }
 
+    virtual folly::fbstring name() const override
+    {
+        return GLUSTERFS_HELPER_NAME;
+    }
+
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"hostname", "port", "transport", "timeout"};
+    };
+
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {

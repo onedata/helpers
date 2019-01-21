@@ -10,8 +10,8 @@
 #define HELPERS_BUFFERING_READ_CACHE_H
 
 #include "communication/communicator.h"
+#include "helpers/logging.h"
 #include "helpers/storageHelper.h"
-#include "logging.h"
 #include "messages/proxyio/remoteData.h"
 #include "messages/proxyio/remoteRead.h"
 #include "monitoring/monitoring.h"

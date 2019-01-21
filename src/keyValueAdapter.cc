@@ -7,8 +7,8 @@
  */
 
 #include "keyValueAdapter.h"
+#include "helpers/logging.h"
 #include "keyValueHelper.h"
-#include "logging.h"
 
 namespace {
 

@@ -7,7 +7,7 @@
  */
 
 #include "webDAVHelper.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/monitoring.h"
 
 #include <Poco/DOM/NodeList.h>

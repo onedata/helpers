@@ -7,7 +7,7 @@
  */
 
 #include "scheduler.h"
-#include "logging.h"
+#include "helpers/logging.h"
 
 #include <folly/ThreadName.h>
 

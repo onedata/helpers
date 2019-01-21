@@ -12,8 +12,8 @@
 #include "readCache.h"
 
 #include "communication/communicator.h"
+#include "helpers/logging.h"
 #include "helpers/storageHelper.h"
-#include "logging.h"
 #include "messages/proxyio/remoteWrite.h"
 #include "messages/proxyio/remoteWriteResult.h"
 #include "scheduler.h"

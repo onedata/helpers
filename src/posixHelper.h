@@ -266,6 +266,13 @@ public:
     {
     }
 
+    virtual folly::fbstring name() const override { return POSIX_HELPER_NAME; }
+
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"mountPoint", "timeout"};
+    };
+
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {

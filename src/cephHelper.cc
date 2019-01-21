@@ -7,7 +7,7 @@
  */
 
 #include "cephHelper.h"
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/monitoring.h"
 
 #include <glog/stl_logging.h>

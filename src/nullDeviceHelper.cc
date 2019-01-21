@@ -8,7 +8,7 @@
 
 #include "nullDeviceHelper.h"
 
-#include "logging.h"
+#include "helpers/logging.h"
 #include "monitoring/monitoring.h"
 
 #include <boost/algorithm/string.hpp>

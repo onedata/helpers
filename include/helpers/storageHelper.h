@@ -9,6 +9,8 @@
 #ifndef HELPERS_STORAGE_HELPER_H
 #define HELPERS_STORAGE_HELPER_H
 
+#include "logging.h"
+
 #include <fuse.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -39,6 +41,33 @@
 
 namespace one {
 namespace helpers {
+
+#if WITH_CEPH
+constexpr auto CEPH_HELPER_NAME = "ceph";
+constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
+#endif
+
+constexpr auto POSIX_HELPER_NAME = "posix";
+
+constexpr auto PROXY_HELPER_NAME = "proxy";
+
+constexpr auto NULL_DEVICE_HELPER_NAME = "nulldevice";
+
+#if WITH_S3
+constexpr auto S3_HELPER_NAME = "s3";
+#endif
+
+#if WITH_SWIFT
+constexpr auto SWIFT_HELPER_NAME = "swift";
+#endif
+
+#if WITH_GLUSTERFS
+constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
+#endif
+
+#if WITH_WEBDAV
+constexpr auto WEBDAV_HELPER_NAME = "webdav";
+#endif
 
 namespace {
 constexpr std::chrono::milliseconds ASYNC_OPS_TIMEOUT{120000};
@@ -245,11 +274,56 @@ public:
     virtual ~StorageHelperFactory() = default;
 
     /**
+     * Returns the type name of the helper (e.g. posix)
+     */
+    virtual folly::fbstring name() const = 0;
+
+    /**
      * Creates an instance of @c StorageHelper .
      * @param parameters Parameters for helper creation.
      * @returns A new instance of @c StorageHelper .
      */
     virtual StorageHelperPtr createStorageHelper(const Params &parameters) = 0;
+
+    /**
+     * Returns a list of helper specific parameters which can be overriden on
+     * the client side.
+     */
+    virtual const std::vector<folly::fbstring> overridableParams() const
+    {
+        return {};
+    };
+
+    /**
+     * This method allows to create a storage helper by taking into account
+     * any overriden helper parameter values provided by the user.
+     * @param parameters Common parameters from the Oneprovider
+     * @param overrideParameters Client specific parameters, which can override
+     *        the common values, if allowed by helper
+     */
+    StorageHelperPtr createStorageHelperWithOverride(
+        Params parameters, const Params &overrideParameters)
+    {
+        LOG_FCALL() << LOG_FARGM(overrideParameters);
+
+        const auto &overridable = overridableParams();
+
+        for (const auto &p : overrideParameters) {
+            const auto &parameterName = p.first;
+            if (std::find(overridable.cbegin(), overridable.cend(),
+                    parameterName) != overridable.end()) {
+                LOG_DBG(1) << "Overriding " << name() << " storage parameter "
+                           << parameterName << " with value " << p.second;
+
+                parameters[parameterName] = p.second;
+            }
+            else
+                LOG(WARNING) << "Storage helper " << name() << " parameter "
+                             << parameterName << " cannot be overriden";
+        }
+
+        return createStorageHelper(parameters);
+    }
 };
 
 /**
