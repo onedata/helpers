@@ -132,13 +132,13 @@ void ConnectionPool::connect()
             .then(m_executor.get(), [ this, clientPtr = client.get() ]() {
                 m_idleConnections.emplace(clientPtr);
             })
-            .onError([this](std::exception &e) {
-                close();
-                throw e;
-            })
             .onError([this](folly::exception_wrapper ew) {
                 close();
                 ew.throw_exception();
+            })
+            .onError([this](std::exception &e) {
+                close();
+                throw e;
             })
             .get();
     }

@@ -40,17 +40,17 @@ public:
             return;
         }
 
-        m_promise.setValue();
         auto handshakeResponseError = m_onHandshakeResponse(message);
         if (!handshakeResponseError) {
             m_onHandshakeDone(std::error_code{});
+            m_promise.setValue();
         }
         else {
-            m_promise.setException(
-                folly::make_exception_wrapper<std::runtime_error>(
-                    "Error during clproto handshake."));
-
+            LOG(ERROR) << "Error during handshake: " << handshakeResponseError;
             m_onHandshakeDone(handshakeResponseError);
+            m_promise.setException(
+                std::runtime_error("Error during handshake."));
+            return;
         }
         ctx->fireRead(std::move(message));
     }
