@@ -97,8 +97,9 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
                 address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
-                .then([ this, addressStr = address.describe(), host, executor ](
-                    CLProtoPipeline * pipeline) {
+                .then([
+                    this, addressStr = address.describe(), host, port, executor
+                ](CLProtoPipeline * pipeline) {
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
@@ -203,18 +204,26 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                             })
                         // Once upgrade is finished successfully, remove the
                         // clproto upgrade handler
-                        .then(executor, [this, pipeline] {
-                            if (m_performCLProtoHandshake) {
-                                LOG_DBG(3)
-                                    << "Removing clproto handshake handler";
+                        .then(executor,
+                            [this, pipeline] {
+                                if (m_performCLProtoHandshake) {
+                                    LOG_DBG(3)
+                                        << "Removing clproto handshake handler";
 
-                                pipeline->remove<
-                                    codec::CLProtoHandshakeResponseHandler>();
-                                pipeline->finalize();
-                            }
+                                    pipeline->remove<codec::
+                                            CLProtoHandshakeResponseHandler>();
+                                    pipeline->finalize();
+                                }
 
-                            LOG_DBG(1) << "CLProto connection with id "
-                                       << connectionId() << " established";
+                                LOG_DBG(1) << "CLProto connection with id "
+                                           << connectionId() << " established";
+                            })
+                        .onError([pipeline, host, port](
+                                     folly::exception_wrapper ew) {
+                            pipeline->finalize();
+                            LOG(ERROR) << "Connection refused by remote "
+                                          "Oneprovider at "
+                                       << host << ":" << port;
                         });
                 })
                 .onError([this, host, port, executor, reconnectAttempt](
