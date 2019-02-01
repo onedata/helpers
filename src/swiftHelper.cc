@@ -127,7 +127,7 @@ SwiftHelper::SwiftHelper(folly::fbstring containerName,
     , m_containerName{std::move(containerName)}
     , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(containerName) << LOG_FARG(authUrl)
+    LOG_FCALL() << LOG_FARG(m_containerName) << LOG_FARG(authUrl)
                 << LOG_FARG(tenantName) << LOG_FARG(userName)
                 << LOG_FARG(password);
 }
@@ -236,7 +236,8 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
     Swift::Container container(&account, m_containerName.toStdString());
-    for (auto offset = 0u; offset < keys.size(); offset += MAX_DELETE_OBJECTS) {
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
         std::vector<std::string> keyBatch;
 
         const std::size_t batchSize =
@@ -251,7 +252,7 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         auto deleteResponse = retry(
             [&]() {
                 return DeleteResponsePtr{
-                    container.swiftDeleteObjects(std::move(keyBatch))};
+                    container.swiftDeleteObjects(keyBatch)};
             },
             std::bind(SWIFTRetryCondition<DeleteResponsePtr>,
                 std::placeholders::_1, "DeleteObjects"));

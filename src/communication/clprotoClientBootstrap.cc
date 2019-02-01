@@ -95,6 +95,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                 throw;
             }
 
+            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
                 address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
                 .then([
@@ -223,7 +224,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                             pipeline->finalize();
                             LOG(ERROR) << "Connection refused by remote "
                                           "Oneprovider at "
-                                       << host << ":" << port;
+                                       << host << ":" << port << ": "
+                                       << folly::exceptionStr(ew);
                         });
                 })
                 .onError([this, host, port, executor, reconnectAttempt](

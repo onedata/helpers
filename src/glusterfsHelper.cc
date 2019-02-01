@@ -138,7 +138,7 @@ static std::mutex connectionMutex;
 GlusterFSFileHandle::GlusterFSFileHandle(folly::fbstring fileId,
     std::shared_ptr<GlusterFSHelper> helper, std::shared_ptr<glfs_fd_t> glfsFd,
     uid_t uid, gid_t gid)
-    : FileHandle{std::move(fileId)}
+    : FileHandle{fileId}
     , m_helper{std::move(helper)}
     , m_glfsFd{std::move(glfsFd)}
     , m_uid(uid)
@@ -343,8 +343,8 @@ GlusterFSHelper::GlusterFSHelper(const boost::filesystem::path &mountPoint,
     , m_timeout{timeout}
 {
     LOG_FCALL() << LOG_FARG(mountPoint) << LOG_FARG(uid) << LOG_FARG(gid)
-                << LOG_FARG(hostname) << LOG_FARG(port) << LOG_FARG(volume)
-                << LOG_FARG(transport) << LOG_FARG(xlatorOptions);
+                << LOG_FARG(m_hostname) << LOG_FARG(port) << LOG_FARG(m_volume)
+                << LOG_FARG(m_transport) << LOG_FARG(m_xlatorOptions);
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::connect()
@@ -440,58 +440,56 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
 
-    return connect().then([
-        this, timeout = m_timeout, filePath = root(fileId), flags, uid = m_uid,
-        gid = m_gid
-    ]() {
-        // glfs_fd_t implementation details are hidden so we need to
-        // specify a custom empty deleter for the shared_ptr.
-        // The handle should be closed using glfs_close().
-        auto glfsFdDeleter = [](glfs_fd_t *ptr) {};
+    return connect().then(
+        [ this, filePath = root(fileId), flags, uid = m_uid, gid = m_gid ]() {
+            // glfs_fd_t implementation details are hidden so we need to
+            // specify a custom empty deleter for the shared_ptr.
+            // The handle should be closed using glfs_close().
+            auto glfsFdDeleter = [](glfs_fd_t *ptr) {};
 
-        glfs_setfsuid(uid);
-        glfs_setfsgid(gid);
+            glfs_setfsuid(uid);
+            glfs_setfsgid(gid);
 
-        LOG_DBG(2) << "Attempting to open file " << filePath;
+            LOG_DBG(2) << "Attempting to open file " << filePath;
 
-        std::shared_ptr<glfs_fd_t> glfsFd{nullptr};
-        // O_CREAT is not supported in GlusterFS for glfs_open().
-        // glfs_creat() has to be used instead for creating files.
-        if ((flags & O_CREAT) != 0) {
-            glfsFd.reset(retry(
-                             [&]() {
-                                 return glfs_creat(m_glfsCtx.get(),
-                                     filePath.c_str(), flags,
-                                     (flags & S_IRWXU) | (flags & S_IRWXG) |
-                                         (flags & S_IRWXO));
-                             },
-                             std::bind(GlusterFSRetryHandleCondition,
-                                 std::placeholders::_1, "glfs_creat")),
-                glfsFdDeleter);
-        }
-        else {
-            glfsFd.reset(retry(
-                             [&]() {
-                                 return glfs_open(
-                                     m_glfsCtx.get(), filePath.c_str(), flags);
-                             },
-                             std::bind(GlusterFSRetryHandleCondition,
-                                 std::placeholders::_1, "glfs_open")),
-                glfsFdDeleter);
-        }
+            std::shared_ptr<glfs_fd_t> glfsFd{nullptr};
+            // O_CREAT is not supported in GlusterFS for glfs_open().
+            // glfs_creat() has to be used instead for creating files.
+            if ((flags & O_CREAT) != 0) {
+                glfsFd.reset(retry(
+                                 [&]() {
+                                     return glfs_creat(m_glfsCtx.get(),
+                                         filePath.c_str(), flags,
+                                         (flags & S_IRWXU) | (flags & S_IRWXG) |
+                                             (flags & S_IRWXO));
+                                 },
+                                 std::bind(GlusterFSRetryHandleCondition,
+                                     std::placeholders::_1, "glfs_creat")),
+                    glfsFdDeleter);
+            }
+            else {
+                glfsFd.reset(retry(
+                                 [&]() {
+                                     return glfs_open(m_glfsCtx.get(),
+                                         filePath.c_str(), flags);
+                                 },
+                                 std::bind(GlusterFSRetryHandleCondition,
+                                     std::placeholders::_1, "glfs_open")),
+                    glfsFdDeleter);
+            }
 
-        if (!glfsFd) {
-            LOG_DBG(1) << "Opening file " << filePath << " failed";
-            return makeFuturePosixException<FileHandlePtr>(errno);
-        }
+            if (!glfsFd) {
+                LOG_DBG(1) << "Opening file " << filePath << " failed";
+                return makeFuturePosixException<FileHandlePtr>(errno);
+            }
 
-        auto handle = std::make_shared<GlusterFSFileHandle>(
-            filePath.string(), shared_from_this(), glfsFd, uid, gid);
+            auto handle = std::make_shared<GlusterFSFileHandle>(
+                filePath.string(), shared_from_this(), glfsFd, uid, gid);
 
-        LOG_DBG(2) << "File " << filePath << " opened";
+            LOG_DBG(2) << "File " << filePath << " opened";
 
-        return folly::makeFuture<FileHandlePtr>(std::move(handle));
-    });
+            return folly::makeFuture<FileHandlePtr>(std::move(handle));
+        });
 }
 
 folly::Future<struct stat> GlusterFSHelper::getattr(
@@ -577,7 +575,8 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
                 errno);
         }
 
-        int offset_ = offset, count_ = count;
+        int offset_ = offset;
+        int count_ = count;
         while ((dp = glfs_readdir(dir)) != nullptr && count_ > 0) {
             if (static_cast<int>(strcmp(dp->d_name, ".") != 0) != 0 &&
                 (strcmp(dp->d_name, "..") != 0)) {
@@ -963,7 +962,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
             return folly::makeFuture<folly::fbvector<folly::fbstring>>(
                 std::move(ret));
 
-        auto buf = std::unique_ptr<char[]>(new char[buflen]);
+        auto buf = std::unique_ptr<char[]>(new char[buflen]); // NOLINT
 
         buflen = retry(
             [&]() {

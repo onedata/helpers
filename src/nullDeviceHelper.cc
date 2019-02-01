@@ -33,6 +33,7 @@ inline folly::Future<folly::Unit> setResult(
     return folly::makeFuture();
 }
 
+// NOLINTNEXTLINE
 #define SIMULATE_HANDLE_STORAGE_ISSUES(helper, name, type)                     \
     {                                                                          \
         if ((helper)->simulateTimeout(name)) {                                 \
@@ -42,6 +43,7 @@ inline folly::Future<folly::Unit> setResult(
         (helper)->simulateLatency(name);                                       \
     }
 
+// NOLINTNEXTLINE
 #define SIMULATE_STORAGE_ISSUES(helper, name, type)                            \
     {                                                                          \
         if ((helper)->simulateTimeout(name)) {                                 \
@@ -77,7 +79,7 @@ std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
 NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
     std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : FileHandle{std::move(fileId)}
+    : FileHandle{fileId}
     , m_helper{std::move(helper)}
     , m_executor{std::move(executor)}
     , m_timeout{timeout}

@@ -168,7 +168,7 @@ std::shared_ptr<PosixFileHandle> PosixFileHandle::create(folly::fbstring fileId,
 PosixFileHandle::PosixFileHandle(folly::fbstring fileId, const uid_t uid,
     const gid_t gid, const int fileHandle,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : FileHandle{std::move(fileId)}
+    : FileHandle{fileId}
     , m_uid{uid}
     , m_gid{gid}
     , m_fh{fileHandle}
@@ -507,7 +507,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
                 errno);
         }
 
-        int offset_ = offset, count_ = count;
+        int offset_ = offset;
+        int count_ = count;
         while ((dp = retry([&]() { return ::readdir(dir); },
                     [](struct dirent *de) {
                         return de != nullptr ||
@@ -968,7 +969,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::listxattr(
             return folly::makeFuture<folly::fbvector<folly::fbstring>>(
                 std::move(ret));
 
-        auto buf = std::unique_ptr<char[]>(new char[buflen]);
+        auto buf = std::unique_ptr<char[]>(new char[buflen]); // NOLINT
         buflen = ::listxattr(filePath.c_str(), buf.get(), buflen
 #if defined(__APPLE__)
             ,
