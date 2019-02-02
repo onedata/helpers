@@ -24,12 +24,12 @@ namespace helpers {
 ProxyFileHandle::ProxyFileHandle(folly::fbstring fileId,
     folly::fbstring storageId, Params openParams,
     communication::Communicator &communicator, Timeout timeout)
-    : FileHandle{std::move(fileId), std::move(openParams)}
+    : FileHandle{fileId, openParams}
     , m_storageId{std::move(storageId)}
     , m_communicator{communicator}
     , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(storageId)
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(m_storageId)
                 << LOG_FARGM(openParams);
 }
 
@@ -110,7 +110,7 @@ ProxyHelper::ProxyHelper(folly::fbstring storageId,
     , m_communicator{communicator}
     , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(storageId);
+    LOG_FCALL() << LOG_FARG(m_storageId);
 }
 
 folly::Future<FileHandlePtr> ProxyHelper::open(

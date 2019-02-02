@@ -98,8 +98,10 @@
  * Logs function call, should be added at the beginning of the function or
  * method body and log the values of main parameters.
  */
+// clang-format off
 #define LOG_FCALL()                                                            \
-    VLOG(3) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: "
+    VLOG(3) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: " // NOLINT
+// clang-format on
 
 /**
  * Logs function return including optionally the return value.

@@ -160,8 +160,9 @@ CephHelper::CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
     , m_executor{std::move(executor)}
     , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(clusterName) << LOG_FARG(monHost)
-                << LOG_FARG(poolName) << LOG_FARG(userName) << LOG_FARG(key);
+    LOG_FCALL() << LOG_FARG(m_clusterName) << LOG_FARG(m_monHost)
+                << LOG_FARG(m_poolName) << LOG_FARG(m_userName)
+                << LOG_FARG(m_key);
 }
 
 CephHelper::~CephHelper()

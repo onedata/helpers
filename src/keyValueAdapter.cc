@@ -136,7 +136,9 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
             }
 
             return folly::collect(writeFutures)
-                .then([size](const std::vector<folly::Unit> &) { return size; })
+                .then([size](const std::vector<folly::Unit> & /*unused*/) {
+                    return size;
+                })
                 .then([](folly::Try<std::size_t> t) {
                     try {
                         return t.value();

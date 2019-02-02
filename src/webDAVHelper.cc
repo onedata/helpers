@@ -477,7 +477,7 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(
         }
 
         auto fillBuf = folly::IOBuf::create(size - currentSize);
-        for (auto i = 0u; i < static_cast<size_t>(size) - currentSize; i++)
+        for (auto i = 0ul; i < static_cast<size_t>(size) - currentSize; i++)
             fillBuf->writableData()[i] = 0;
         return (*request)(fileId, size, std::move(fillBuf))
             .then(session->evb, [request]() { return folly::makeFuture(); });
@@ -586,7 +586,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
 
                 auto directoryPath = ensureCollectionPath(fileId);
 
-                for (auto i = 0u; i < entryCount; i++) {
+                for (auto i = 0ul; i < entryCount; i++) {
                     auto response = responses->item(i);
                     if (response == nullptr || !response->hasChildNodes())
                         continue;
@@ -746,7 +746,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
                 "d:multistatus/d:response/d:propstat/d:prop", nsMap);
 
             if (prop != nullptr) {
-                for (auto i = 0u; i < prop->childNodes()->length(); i++) {
+                for (auto i = 0ul; i < prop->childNodes()->length(); i++) {
                     auto property = prop->childNodes()->item(i);
 
                     // Filter out Onedata extended attributes
@@ -1342,6 +1342,7 @@ folly::Future<folly::Unit> WebDAVPROPPATCH::operator()(
     PAPtr<pxml::Element> root = propertyUpdate->createElement("propertyupdate");
     root->setAttribute("xmlns", kNSDAV);
     root->setAttribute("xmlns:o", kNSOnedata);
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     if (!remove) {
         PAPtr<pxml::Element> set = propertyUpdate->createElement("set");
         PAPtr<pxml::Element> prop = propertyUpdate->createElement("prop");
@@ -1395,6 +1396,7 @@ folly::Future<folly::Unit> WebDAVPROPPATCH::operator()(
 
     m_destructionGuard = shared_from_this();
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return startTransaction().then([ this, body = std::move(propUpdateString) ](
         proxygen::HTTPTransaction * txn) {
         txn->sendHeaders(m_request);
