@@ -51,7 +51,7 @@ std::string ClientHandshakeRequest::toString() const
 
     stream << ", version: '" << m_version
            << "', compatible oneprovider versions:";
-    for (auto compatibleVersion : m_compatibleOneproviderVersions)
+    for (const auto &compatibleVersion : m_compatibleOneproviderVersions)
         stream << " " << compatibleVersion;
 
     return stream.str();
@@ -70,7 +70,7 @@ ClientHandshakeRequest::serializeAndDestroy()
     }
 
     handshakeRequestMsg->set_version(m_version);
-    for (auto compatibleVersion : m_compatibleOneproviderVersions)
+    for (const auto &compatibleVersion : m_compatibleOneproviderVersions)
         handshakeRequestMsg->add_compatible_oneprovider_versions(
             compatibleVersion);
 
