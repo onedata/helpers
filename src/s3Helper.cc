@@ -115,7 +115,7 @@ S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     : m_bucket{std::move(bucketName)}
     , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(bucketName)
+    LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
                 << LOG_FARG(useHttps) << LOG_FARG(timeout.count());
 
@@ -277,7 +277,8 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 
     LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
 
-    for (auto offset = 0u; offset < keys.size(); offset += MAX_DELETE_OBJECTS) {
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
         Aws::S3::Model::Delete container;
 
         const std::size_t batchSize =

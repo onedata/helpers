@@ -111,11 +111,14 @@ folly::Future<std::size_t> FileHandle::multiwrite(
             shouldHaveWrittenSoFar + buf.second.chainLength();
 
         // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-        future = future.then(
-            [ =, buf = std::move(buf) ](const std::size_t wroteSoFar) mutable {
+        future =
+            future.then([ this, shouldHaveWrittenSoFar, buf = std::move(buf) ](
+                const std::size_t wroteSoFar) mutable {
+                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);
 
+                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return write(buf.first, std::move(buf.second))
                     .then([wroteSoFar](const std::size_t wrote) {
                         return wroteSoFar + wrote;

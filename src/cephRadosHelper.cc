@@ -175,7 +175,8 @@ void CephRadosHelper::deleteObjects(
 
     LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
 
-    for (auto offset = 0u; offset < keys.size(); offset += MAX_DELETE_OBJECTS) {
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
         const std::size_t batchSize =
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
