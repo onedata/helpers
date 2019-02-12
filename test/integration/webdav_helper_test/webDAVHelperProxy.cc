@@ -47,7 +47,8 @@ public:
               kWebDAVHelperThreadCount)}
         , m_helper{std::make_shared<one::helpers::WebDAVHelper>(
               Poco::URI(endpoint), true,
-              one::helpers::WebDAVCredentialsType::BASIC, credentials, "",
+              one::helpers::WebDAVCredentialsType::BASIC, credentials, "", "",
+              "", std::chrono::seconds{0},
               one::helpers::WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE,
               kWebDAVConnectionPoolSize, kWebDAVMaximumUploadSize, m_executor)}
     {

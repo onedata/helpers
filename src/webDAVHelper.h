@@ -44,7 +44,7 @@ namespace helpers {
 
 class WebDAVHelper;
 
-enum class WebDAVCredentialsType { NONE, BASIC, TOKEN };
+enum class WebDAVCredentialsType { NONE, BASIC, TOKEN, OAUTH2 };
 
 enum class WebDAVRangeWriteSupport {
     NONE,                   // No write support
@@ -227,6 +227,9 @@ public:
      * token
      * @param authorizationHeader Optional authorization header to use with
      * access token
+     * @param oauth2IdP Name of the IdP issuing access tokens
+     * @param accessToken The access token for OAuth2 based services
+     * @param accessTokenTTL Time to live of the accessToken in seconds
      * @param rangeWriteSupport Type of write support for the storage: none,
      * sabredav or moddav
      * @param connectionPoolSize Number of parallel connections (sockets) to the
@@ -238,7 +241,8 @@ public:
      */
     WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
         WebDAVCredentialsType credentialsType, folly::fbstring credentials,
-        folly::fbstring authorizationHeader,
+        folly::fbstring authorizationHeader, folly::fbstring oauth2IdP,
+        folly::fbstring accessToken, std::chrono::seconds accessTokenTTL,
         WebDAVRangeWriteSupport rangeWriteSupport, uint32_t connectionPoolSize,
         size_t maximumUploadSize, std::shared_ptr<folly::IOExecutor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
@@ -317,10 +321,14 @@ public:
 
     folly::fbstring credentials() const { return m_credentials; }
 
+    folly::fbstring oauth2IdP() const { return m_oauth2IdP; }
+
     folly::fbstring authorizationHeader() const
     {
         return m_authorizationHeader;
     }
+
+    folly::fbstring accessToken() const { return m_accessToken; }
 
     size_t maximumUploadSize() const { return m_maximumUploadSize; }
 
@@ -336,6 +344,14 @@ public:
 
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
+    /**
+     * In case credentials are provisioned by OAuth2 IdP, this method checks
+     * if the current access token is still valid based on TTL received
+     * when creating the helper.
+     * @return true if access token is still valid
+     */
+    bool isAccessTokenValid() const;
+
 private:
     struct WebDAVSessionThreadContext {
         folly::HHWheelTimer::UniquePtr timer;
@@ -346,6 +362,10 @@ private:
     const WebDAVCredentialsType m_credentialsType;
     const folly::fbstring m_credentials;
     const folly::fbstring m_authorizationHeader;
+    const folly::fbstring m_oauth2IdP;
+    const folly::fbstring m_accessToken;
+    const std::chrono::seconds m_accessTokenTTL;
+    const std::chrono::system_clock::time_point m_createdOn;
     const WebDAVRangeWriteSupport m_rangeWriteSupport;
     const uint32_t m_connectionPoolSize;
     const size_t m_maximumUploadSize;
@@ -684,6 +704,7 @@ public:
         constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
         constexpr auto kDefaultConnectionPoolSize = 10u;
         constexpr auto kDefaultMaximumPoolSize = 0u;
+        constexpr auto kDefaultAccessTokenTTL = 0u;
 
         const auto &endpoint = getParam(parameters, "endpoint");
         const auto &verifyServerCertificateStr =
@@ -693,6 +714,10 @@ public:
         const auto &credentials = getParam(parameters, "credentials");
         auto authorizationHeader = getParam<std::string>(
             parameters, "authorizationHeader", kDefaultAuthorizationHeader);
+        auto oauth2IdP = getParam<std::string>(parameters, "oauth2IdP", "");
+        auto accessToken = getParam<std::string>(parameters, "accessToken", "");
+        auto accessTokenTTL = getParam<uint64_t>(
+            parameters, "accessTokenTTL", kDefaultAccessTokenTTL);
         const auto &rangeWriteSupportStr =
             getParam(parameters, "rangeWriteSupport", "none");
         const auto connectionPoolSize = getParam<uint32_t>(
@@ -709,7 +734,7 @@ public:
         LOG_FCALL() << LOG_FARG(endpoint)
                     << LOG_FARG(verifyServerCertificateStr)
                     << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
-                    << LOG_FARG(authorizationHeader)
+                    << LOG_FARG(authorizationHeader) << LOG_FARG(accessTokenTTL)
                     << LOG_FARG(rangeWriteSupportStr)
                     << LOG_FARG(connectionPoolSize)
                     << LOG_FARG(maximumUploadSize);
@@ -788,6 +813,8 @@ public:
             credentialsType = WebDAVCredentialsType::BASIC;
         else if (credentialsTypeStr == "token")
             credentialsType = WebDAVCredentialsType::TOKEN;
+        else if (credentialsTypeStr == "oauth2")
+            credentialsType = WebDAVCredentialsType::OAUTH2;
         else
             throw std::invalid_argument("Invalid credentials type: " +
                 credentialsTypeStr.toStdString());
@@ -806,8 +833,9 @@ public:
 
         return std::make_shared<WebDAVHelper>(std::move(endpointUrl),
             verifyServerCertificate, credentialsType, credentials,
-            authorizationHeader, rangeWriteSupport, connectionPoolSize,
-            maximumUploadSize, m_executor, timeout);
+            authorizationHeader, oauth2IdP, accessToken,
+            std::chrono::seconds{accessTokenTTL}, rangeWriteSupport,
+            connectionPoolSize, maximumUploadSize, m_executor, timeout);
     }
 
 private:

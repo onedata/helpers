@@ -253,7 +253,8 @@ const Timeout &WebDAVFileHandle::timeout() { return m_helper->timeout(); }
 
 WebDAVHelper::WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
     WebDAVCredentialsType credentialsType, folly::fbstring credentials,
-    folly::fbstring authorizationHeader,
+    folly::fbstring authorizationHeader, folly::fbstring oauth2IdP,
+    folly::fbstring accessToken, std::chrono::seconds accessTokenTTL,
     WebDAVRangeWriteSupport rangeWriteSupport, uint32_t connectionPoolSize,
     size_t maximumUploadSize, std::shared_ptr<folly::IOExecutor> executor,
     Timeout timeout)
@@ -262,6 +263,10 @@ WebDAVHelper::WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
     , m_credentialsType{credentialsType}
     , m_credentials{std::move(credentials)}
     , m_authorizationHeader{std::move(authorizationHeader)}
+    , m_oauth2IdP{std::move(oauth2IdP)}
+    , m_accessToken{std::move(accessToken)}
+    , m_accessTokenTTL{accessTokenTTL}
+    , m_createdOn{std::chrono::system_clock::now()}
     , m_rangeWriteSupport{rangeWriteSupport}
     , m_connectionPoolSize{connectionPoolSize}
     , m_maximumUploadSize{maximumUploadSize}
@@ -294,6 +299,17 @@ WebDAVHelper::~WebDAVHelper()
                 [session = s->session] { session->setInfoCallback(nullptr); });
         }
     }
+}
+
+bool WebDAVHelper::isAccessTokenValid() const
+{
+    if (m_credentialsType == WebDAVCredentialsType::OAUTH2) {
+        return std::chrono::duration_cast<std::chrono::seconds>(
+                   std::chrono::system_clock::now() - m_createdOn) <
+            m_accessTokenTTL;
+    }
+
+    return true;
 }
 
 folly::Future<FileHandlePtr> WebDAVHelper::open(const folly::fbstring &fileId,
@@ -765,6 +781,9 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect()
 {
     LOG_FCALL();
 
+    if (!isAccessTokenValid())
+        return makeFuturePosixException<WebDAVSession *>(EKEYEXPIRED);
+
     // Wait for an webdav session to be available
     WebDAVSession *webDAVSession{nullptr};
     m_idleSessionPool.blockingRead(webDAVSession);
@@ -975,6 +994,15 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
                 LOG(WARNING) << "Unexpected token authorization header value: "
                              << m_helper->authorizationHeader();
             }
+        }
+        else if (m_helper->credentialsType() == WebDAVCredentialsType::OAUTH2) {
+            std::stringstream b64Stream;
+            Poco::Base64Encoder b64Encoder(b64Stream);
+            b64Encoder << m_helper->credentials() << ":"
+                       << m_helper->accessToken();
+            b64Encoder.close();
+            m_request.getHeaders().add(
+                "Authorization", folly::sformat("Basic {}", b64Stream.str()));
         }
     }
 }
