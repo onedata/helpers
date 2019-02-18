@@ -45,13 +45,21 @@ public:
     WebDAVHelperProxy(std::string endpoint, std::string credentials)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               kWebDAVHelperThreadCount)}
-        , m_helper{std::make_shared<one::helpers::WebDAVHelper>(
-              Poco::URI(endpoint), true,
-              one::helpers::WebDAVCredentialsType::BASIC, credentials, "", "",
-              "", std::chrono::seconds{0},
-              one::helpers::WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE,
-              kWebDAVConnectionPoolSize, kWebDAVMaximumUploadSize, m_executor)}
     {
+        using namespace one::helpers;
+
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params["endpoint"] = endpoint;
+        params["verifyServerCertificate"] = "true";
+        params["credentialsType"] = "basic";
+        params["credentials"] = credentials;
+        params["rangeWriteSupport"] = "sabredav";
+        params["connectionPoolSize"] =
+            std::to_string(kWebDAVConnectionPoolSize);
+        params["maximumUploadSize"] = std::to_string(kWebDAVMaximumUploadSize);
+
+        m_helper = std::make_shared<WebDAVHelper>(
+            WebDAVHelperParams::create(params), m_executor);
     }
 
     ~WebDAVHelperProxy() {}

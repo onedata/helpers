@@ -251,36 +251,18 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
 
 const Timeout &WebDAVFileHandle::timeout() { return m_helper->timeout(); }
 
-WebDAVHelper::WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
-    WebDAVCredentialsType credentialsType, folly::fbstring credentials,
-    folly::fbstring authorizationHeader, folly::fbstring oauth2IdP,
-    folly::fbstring accessToken, std::chrono::seconds accessTokenTTL,
-    WebDAVRangeWriteSupport rangeWriteSupport, uint32_t connectionPoolSize,
-    size_t maximumUploadSize, std::shared_ptr<folly::IOExecutor> executor,
-    Timeout timeout)
-    : m_endpoint{endpoint}
-    , m_verifyServerCertificate{verifyServerCertificate}
-    , m_credentialsType{credentialsType}
-    , m_credentials{std::move(credentials)}
-    , m_authorizationHeader{std::move(authorizationHeader)}
-    , m_oauth2IdP{std::move(oauth2IdP)}
-    , m_accessToken{std::move(accessToken)}
-    , m_accessTokenTTL{accessTokenTTL}
-    , m_createdOn{std::chrono::system_clock::now()}
-    , m_rangeWriteSupport{rangeWriteSupport}
-    , m_connectionPoolSize{connectionPoolSize}
-    , m_maximumUploadSize{maximumUploadSize}
-    , m_executor{std::move(executor)}
-    , m_timeout{timeout}
+WebDAVHelper::WebDAVHelper(std::shared_ptr<WebDAVHelperParams> params,
+    std::shared_ptr<folly::IOExecutor> executor)
+    : m_executor{std::move(executor)}
 {
-    LOG_FCALL() << LOG_FARG(m_endpoint.toString()) << LOG_FARG(m_credentials)
-                << LOG_FARG(m_authorizationHeader);
-
     m_nsMap.declarePrefix("d", kNSDAV);
     m_nsMap.declarePrefix("o", kNSOnedata);
 
+    auto p = invalidateParams();
+    p->setValue(params);
+
     // Initialize HTTP session pool
-    for (auto i = 0u; i < m_connectionPoolSize; i++) {
+    for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
         auto webDAVSession = std::make_unique<WebDAVSession>();
         webDAVSession->helper = this;
         m_idleSessionPool.write(webDAVSession.get());
@@ -301,12 +283,12 @@ WebDAVHelper::~WebDAVHelper()
     }
 }
 
-bool WebDAVHelper::isAccessTokenValid() const
+bool WebDAVHelper::isAccessTokenValid()
 {
-    if (m_credentialsType == WebDAVCredentialsType::OAUTH2) {
+    if (P()->credentialsType() == WebDAVCredentialsType::OAUTH2) {
         return std::chrono::duration_cast<std::chrono::seconds>(
-                   std::chrono::system_clock::now() - m_createdOn) <
-            m_accessTokenTTL;
+                   std::chrono::system_clock::now() - P()->createdOn()) <
+            P()->accessTokenTTL();
     }
 
     return true;
@@ -806,6 +788,8 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect()
         if (!self)
             return makeFuturePosixException<WebDAVSession *>(ECANCELED);
 
+        auto p = self->params().get();
+
         if (!webDAVSession->closedByRemote &&
             (webDAVSession->session != nullptr)) {
             // NOLINTNEXTLINE
@@ -817,7 +801,7 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect()
             m_sessionContext->timer = folly::HHWheelTimer::newTimer(evb,
                 std::chrono::milliseconds(
                     folly::HHWheelTimer::DEFAULT_TICK_INTERVAL),
-                folly::AsyncTimeout::InternalEnum::NORMAL, m_timeout);
+                folly::AsyncTimeout::InternalEnum::NORMAL, P()->timeout());
         }
 
         // Create a connector instance for the webdav session object
@@ -832,23 +816,23 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect()
             webDAVSession->reset();
 
             folly::SocketAddress address{
-                m_endpoint.getHost(), m_endpoint.getPort(), true};
+                P()->endpoint().getHost(), P()->endpoint().getPort(), true};
 
-            LOG_DBG(2) << "Connecting to " << m_endpoint.getHost() << ":"
-                       << m_endpoint.getPort();
+            LOG_DBG(2) << "Connecting to " << P()->endpoint().getHost() << ":"
+                       << P()->endpoint().getPort();
 
             static const folly::AsyncSocket::OptionMap socketOptions{
                 {{SOL_SOCKET, SO_REUSEADDR}, 1}};
 
-            if (m_endpoint.getScheme() == "https") {
+            if (P()->endpoint().getScheme() == "https") {
                 auto sslContext = std::make_shared<folly::SSLContext>();
 
-                sslContext->authenticate(m_verifyServerCertificate, false);
+                sslContext->authenticate(P()->verifyServerCertificate(), false);
 
                 folly::ssl::setSignatureAlgorithms<
                     folly::ssl::SSLCommonOptions>(*sslContext);
 
-                sslContext->setVerificationOption(m_verifyServerCertificate
+                sslContext->setVerificationOption(P()->verifyServerCertificate()
                         ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
                         : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
@@ -863,12 +847,13 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect()
                         SSL_SESS_CACHE_CLIENT);
 
                 webDAVSession->connector->connectSSL(evb, address, sslContext,
-                    nullptr, m_timeout, socketOptions,
-                    folly::AsyncSocket::anyAddress(), m_endpoint.getHost());
+                    nullptr, P()->timeout(), socketOptions,
+                    folly::AsyncSocket::anyAddress(),
+                    P()->endpoint().getHost());
             }
             else {
                 webDAVSession->connector->connect(
-                    evb, address, m_timeout, socketOptions);
+                    evb, address, P()->timeout(), socketOptions);
             }
         }
 
@@ -957,6 +942,9 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
     , m_resultBody{std::make_unique<folly::IOBufQueue>(
           folly::IOBufQueue::cacheChainLength())}
 {
+    auto p =
+        std::dynamic_pointer_cast<WebDAVHelperParams>(helper->params().get());
+
     m_request.setHTTPVersion(kWebDAVHTTPVersionMajor, kWebDAVHTTPVersionMinor);
     if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0u) {
         m_request.getHeaders().add("User-Agent", "Onedata");
@@ -971,35 +959,34 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
         m_request.getHeaders().add("Host", session->host);
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u) {
-        if (m_helper->credentialsType() == WebDAVCredentialsType::BASIC) {
+        if (p->credentialsType() == WebDAVCredentialsType::BASIC) {
             std::stringstream b64Stream;
             Poco::Base64Encoder b64Encoder(b64Stream);
-            b64Encoder << m_helper->credentials();
+            b64Encoder << p->credentials();
             b64Encoder.close();
             m_request.getHeaders().add(
                 "Authorization", folly::sformat("Basic {}", b64Stream.str()));
         }
-        else if (m_helper->credentialsType() == WebDAVCredentialsType::TOKEN) {
+        else if (p->credentialsType() == WebDAVCredentialsType::TOKEN) {
             std::vector<folly::StringPiece> authHeader;
-            folly::split(":", m_helper->authorizationHeader(), authHeader);
+            folly::split(":", p->authorizationHeader(), authHeader);
             if (authHeader.size() == 1)
                 m_request.getHeaders().add(
                     folly::sformat("{}", folly::trimWhitespace(authHeader[0])),
-                    m_helper->credentials().toStdString());
+                    p->credentials().toStdString());
             else if (authHeader.size() == 2) {
                 m_request.getHeaders().add(folly::sformat("{}", authHeader[0]),
-                    folly::sformat(authHeader[1], m_helper->credentials()));
+                    folly::sformat(authHeader[1], p->credentials()));
             }
             else {
                 LOG(WARNING) << "Unexpected token authorization header value: "
-                             << m_helper->authorizationHeader();
+                             << p->authorizationHeader();
             }
         }
-        else if (m_helper->credentialsType() == WebDAVCredentialsType::OAUTH2) {
+        else if (p->credentialsType() == WebDAVCredentialsType::OAUTH2) {
             std::stringstream b64Stream;
             Poco::Base64Encoder b64Encoder(b64Stream);
-            b64Encoder << m_helper->credentials() << ":"
-                       << m_helper->accessToken();
+            b64Encoder << p->credentials() << ":" << p->accessToken();
             b64Encoder.close();
             m_request.getHeaders().add(
                 "Authorization", folly::sformat("Basic {}", b64Stream.str()));

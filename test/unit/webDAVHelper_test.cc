@@ -52,7 +52,6 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
 
     EXPECT_EQ(helper1->endpoint().getScheme(), "http");
     EXPECT_EQ(helper1->endpoint().getPort(), 80);
-
     Params p2;
     p2.emplace("type", "webdav");
     p2.emplace("name", "webdav");

@@ -27,6 +27,7 @@
 #include <folly/FBString.h>
 #include <folly/FBVector.h>
 #include <folly/futures/Future.h>
+#include <folly/futures/SharedPromise.h>
 #include <folly/io/IOBufQueue.h>
 #include <tbb/concurrent_hash_map.h>
 
@@ -397,6 +398,22 @@ protected:
     Params m_openParams;
 };
 
+class StorageHelperParams {
+public:
+    virtual ~StorageHelperParams() = default;
+
+    virtual void initializeFromParams(const Params &parameters)
+    {
+        m_timeout = Timeout{getParam<std::size_t>(
+            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+    }
+
+    const Timeout &timeout() const { return m_timeout; }
+
+private:
+    Timeout m_timeout;
+};
+
 /**
  * The StorageHelper interface.
  * Base class of all storage helpers. Unifies their interface.
@@ -405,7 +422,17 @@ protected:
  */
 class StorageHelper {
 public:
+    using StorageHelperParamsPromise =
+        folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
+
+    StorageHelper()
+        : m_params{std::make_shared<StorageHelperParamsPromise>()}
+    {
+    }
+
     virtual ~StorageHelper() = default;
+
+    virtual bool isValid() { return true; }
 
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId)
     {
@@ -543,7 +570,27 @@ public:
                 std::make_error_code(std::errc::function_not_supported)});
     }
 
-    virtual const Timeout &timeout() = 0;
+    folly::Future<std::shared_ptr<StorageHelperParams>> params()
+    {
+        std::lock_guard<std::mutex> m_lock{m_paramsMutex};
+        return m_params->getFuture();
+    }
+
+    std::shared_ptr<StorageHelperParamsPromise> invalidateParams()
+    {
+        std::lock_guard<std::mutex> m_lock{m_paramsMutex};
+        m_params = std::make_shared<StorageHelperParamsPromise>();
+        return m_params;
+    };
+
+    virtual const Timeout &timeout() { return params().get()->timeout(); }
+
+protected:
+    // Pointer to a promise of a shared pointers to helper parameters
+    // This allows the parameters to be safely updated as with
+    // existing handles and parallel read/write operations.
+    std::shared_ptr<StorageHelperParamsPromise> m_params;
+    std::mutex m_paramsMutex;
 };
 
 } // namespace helpers
