@@ -402,6 +402,8 @@ class StorageHelperParams {
 public:
     virtual ~StorageHelperParams() = default;
 
+    static std::shared_ptr<StorageHelperParams> create(const Params &params);
+
     virtual void initializeFromParams(const Params &parameters)
     {
         m_timeout = Timeout{getParam<std::size_t>(
