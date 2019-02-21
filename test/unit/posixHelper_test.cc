@@ -56,8 +56,14 @@ struct PosixHelperTest : public ::testing::Test {
 
         executor = std::make_shared<folly::ManualExecutor>();
 
-        proxy =
-            std::make_shared<PosixHelper>(root, getuid(), getgid(), executor);
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params["type"] = "posix";
+        params["mountPoint"] = root.c_str();
+        params["uid"] = std::to_string(getuid());
+        params["gid"] = std::to_string(getgid());
+
+        proxy = std::make_shared<PosixHelper>(
+            PosixHelperParams::create(params), executor);
 
         handle = std::static_pointer_cast<one::helpers::PosixFileHandle>(
             proxy->open(testFileId, O_RDWR, {}).getVia(executor.get()));

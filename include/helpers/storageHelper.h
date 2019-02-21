@@ -572,7 +572,7 @@ public:
                 std::make_error_code(std::errc::function_not_supported)});
     }
 
-    folly::Future<std::shared_ptr<StorageHelperParams>> params()
+    folly::Future<std::shared_ptr<StorageHelperParams>> params() const
     {
         std::lock_guard<std::mutex> m_lock{m_paramsMutex};
         return m_params->getFuture();
@@ -592,7 +592,7 @@ protected:
     // This allows the parameters to be safely updated as with
     // existing handles and parallel read/write operations.
     std::shared_ptr<StorageHelperParamsPromise> m_params;
-    std::mutex m_paramsMutex;
+    mutable std::mutex m_paramsMutex;
 };
 
 } // namespace helpers

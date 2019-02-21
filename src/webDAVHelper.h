@@ -282,26 +282,32 @@ public:
 
     std::shared_ptr<folly::IOExecutor> executor() { return m_executor; }
 
-    WebDAVRangeWriteSupport rangeWriteSupport()
+    WebDAVRangeWriteSupport rangeWriteSupport() const
     {
         return P()->rangeWriteSupport();
     }
 
-    WebDAVCredentialsType credentialsType() { return P()->credentialsType(); }
+    WebDAVCredentialsType credentialsType() const
+    {
+        return P()->credentialsType();
+    }
 
-    Poco::URI endpoint() { return P()->endpoint(); }
+    Poco::URI endpoint() const { return P()->endpoint(); }
 
-    folly::fbstring credentials() { return P()->credentials(); }
+    folly::fbstring credentials() const { return P()->credentials(); }
 
-    folly::fbstring oauth2IdP() { return P()->oauth2IdP(); }
+    folly::fbstring oauth2IdP() const { return P()->oauth2IdP(); }
 
-    folly::fbstring authorizationHeader() { return P()->authorizationHeader(); }
+    folly::fbstring authorizationHeader() const
+    {
+        return P()->authorizationHeader();
+    }
 
-    folly::fbstring accessToken() { return P()->accessToken(); }
+    folly::fbstring accessToken() const { return P()->accessToken(); }
 
-    size_t maximumUploadSize() { return P()->maximumUploadSize(); }
+    size_t maximumUploadSize() const { return P()->maximumUploadSize(); }
 
-    uint32_t connectionPoolSize() { return P()->connectionPoolSize(); }
+    uint32_t connectionPoolSize() const { return P()->connectionPoolSize(); }
 
     /**
      * Returns a WebDAVSession instance to the idle connection pool
@@ -319,10 +325,10 @@ public:
      * when creating the helper.
      * @return true if access token is still valid
      */
-    bool isAccessTokenValid();
+    bool isAccessTokenValid() const;
 
 private:
-    std::shared_ptr<WebDAVHelperParams> P()
+    std::shared_ptr<WebDAVHelperParams> P() const
     {
         return std::dynamic_pointer_cast<WebDAVHelperParams>(params().get());
     }

@@ -9,6 +9,7 @@
 #include "helpers/storageHelper.h"
 #include "fuseOperations.h"
 #include "helpers/logging.h"
+#include "posixHelperParams.h"
 #include "webDAVHelperParams.h"
 
 #include <folly/futures/Future.h>
@@ -69,6 +70,11 @@ std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
     const Params &params)
 {
     const auto helperName = getParam(params, "type");
+
+    if (helperName == POSIX_HELPER_NAME) {
+        return PosixHelperParams::create(params);
+    }
+
     if (helperName == WEBDAV_HELPER_NAME) {
         return WebDAVHelperParams::create(params);
     }
@@ -125,8 +131,8 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
         // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         future =
-            future.then([this, shouldHaveWrittenSoFar, buf = std::move(buf)](
-                            const std::size_t wroteSoFar) mutable {
+            future.then([ this, shouldHaveWrittenSoFar, buf = std::move(buf) ](
+                const std::size_t wroteSoFar) mutable {
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);

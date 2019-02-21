@@ -50,9 +50,17 @@ public:
     PosixHelperProxy(std::string mountPoint, uid_t uid, gid_t gid)
         : m_service{POSIX_HELPER_WORKER_THREADS}
         , m_idleWork{asio::make_work_guard(m_service)}
-        , m_helper{std::make_shared<one::helpers::PosixHelper>(mountPoint, uid,
-              gid, std::make_shared<one::AsioExecutor>(m_service))}
     {
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params["type"] = "posix";
+        params["testMountPoint"] = mountPoint;
+        params["uid"] = std::to_string(uid);
+        params["gid"] = std::to_string(gid);
+
+        m_helper = std::make_shared<one::helpers::PosixHelper>(
+            PosixHelperParams::create(params),
+            std::make_shared<one::AsioExecutor>(m_service));
+
         for (int i = 0; i < POSIX_HELPER_WORKER_THREADS; i++) {
             m_workers.push_back(std::thread([=]() { m_service.run(); }));
         }

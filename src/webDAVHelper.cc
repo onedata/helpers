@@ -283,7 +283,7 @@ WebDAVHelper::~WebDAVHelper()
     }
 }
 
-bool WebDAVHelper::isAccessTokenValid()
+bool WebDAVHelper::isAccessTokenValid() const
 {
     if (P()->credentialsType() == WebDAVCredentialsType::OAUTH2) {
         return std::chrono::duration_cast<std::chrono::seconds>(

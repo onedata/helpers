@@ -413,15 +413,14 @@ folly::Future<folly::Unit> PosixFileHandle::fsync(bool /*isDataSync*/)
     return opScheduler->schedule(FsyncOp{});
 }
 
-PosixHelper::PosixHelper(boost::filesystem::path mountPoint, const uid_t uid,
-    const gid_t gid, std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : m_mountPoint{mountPoint}
-    , m_uid{uid}
-    , m_gid{gid}
-    , m_executor{std::move(executor)}
-    , m_timeout{timeout}
+PosixHelper::PosixHelper(std::shared_ptr<PosixHelperParams> params,
+    std::shared_ptr<folly::Executor> executor)
+    : m_executor{std::move(executor)}
 {
-    LOG_FCALL() << LOG_FARG(mountPoint) << LOG_FARG(uid) << LOG_FARG(gid);
+    LOG_FCALL();
+
+    auto p = invalidateParams();
+    p->setValue(params);
 }
 
 folly::Future<struct stat> PosixHelper::getattr(const folly::fbstring &fileId)
@@ -429,7 +428,7 @@ folly::Future<struct stat> PosixHelper::getattr(const folly::fbstring &fileId)
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.getattr");
 
             struct stat stbuf = {};
@@ -460,7 +459,7 @@ folly::Future<folly::Unit> PosixHelper::access(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mask);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), mask, uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), mask, uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.access");
 
             UserCtxSetter userCTX{uid, gid};
@@ -479,7 +478,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
     return folly::via(m_executor.get(), [
-        filePath = root(fileId), offset, count, uid = m_uid, gid = m_gid
+        filePath = root(fileId), offset, count, uid = uid(), gid = gid()
     ] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.readdir");
 
@@ -544,7 +543,7 @@ folly::Future<folly::fbstring> PosixHelper::readlink(
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(), [
-        filePath = root(fileId), uid = m_uid, gid = m_gid
+        filePath = root(fileId), uid = uid(), gid = gid()
     ] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.readlink");
 
@@ -587,7 +586,7 @@ folly::Future<folly::Unit> PosixHelper::mknod(const folly::fbstring &fileId,
 
     const mode_t mode = unmaskedMode | flagsToMask(flags);
     return folly::via(m_executor.get(), [
-        filePath = root(fileId), mode, rdev, uid = m_uid, gid = m_gid
+        filePath = root(fileId), mode, rdev, uid = uid(), gid = gid()
     ] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.mknod");
 
@@ -634,7 +633,7 @@ folly::Future<folly::Unit> PosixHelper::mkdir(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), mode, uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), mode, uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.mkdir");
 
             UserCtxSetter userCTX{uid, gid};
@@ -651,7 +650,7 @@ folly::Future<folly::Unit> PosixHelper::unlink(
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.unlink");
 
             UserCtxSetter userCTX{uid, gid};
@@ -667,7 +666,7 @@ folly::Future<folly::Unit> PosixHelper::rmdir(const folly::fbstring &fileId)
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.rmdir");
 
             UserCtxSetter userCTX{uid, gid};
@@ -684,7 +683,7 @@ folly::Future<folly::Unit> PosixHelper::symlink(
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
     return folly::via(m_executor.get(),
-        [ from = root(from), to = root(to), uid = m_uid, gid = m_gid ] {
+        [ from = root(from), to = root(to), uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.symlink");
 
             UserCtxSetter userCTX{uid, gid};
@@ -701,7 +700,7 @@ folly::Future<folly::Unit> PosixHelper::rename(
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
     return folly::via(m_executor.get(),
-        [ from = root(from), to = root(to), uid = m_uid, gid = m_gid ] {
+        [ from = root(from), to = root(to), uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.rename");
 
             UserCtxSetter userCTX{uid, gid};
@@ -718,7 +717,7 @@ folly::Future<folly::Unit> PosixHelper::link(
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
     return folly::via(m_executor.get(),
-        [ from = root(from), to = root(to), uid = m_uid, gid = m_gid ] {
+        [ from = root(from), to = root(to), uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.link");
 
             UserCtxSetter userCTX{uid, gid};
@@ -735,7 +734,7 @@ folly::Future<folly::Unit> PosixHelper::chmod(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), mode, uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), mode, uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.chmod");
 
             UserCtxSetter userCTX{uid, gid};
@@ -752,8 +751,8 @@ folly::Future<folly::Unit> PosixHelper::chown(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
 
     return folly::via(m_executor.get(), [
-        filePath = root(fileId), argUid = uid, argGid = gid, uid = m_uid,
-        gid = m_gid
+        filePath = root(fileId), argUid = uid, argGid = gid, uid = this->uid(),
+        gid = this->gid()
     ] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.chown");
 
@@ -771,7 +770,7 @@ folly::Future<folly::Unit> PosixHelper::truncate(const folly::fbstring &fileId,
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), size, uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), size, uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.truncate");
 
             UserCtxSetter userCTX{uid, gid};
@@ -789,7 +788,7 @@ folly::Future<FileHandlePtr> PosixHelper::open(const folly::fbstring &fileId,
 
     return folly::via(m_executor.get(), [
         fileId, filePath = root(fileId), flags, executor = m_executor,
-        uid = m_uid, gid = m_gid, timeout = m_timeout
+        uid = uid(), gid = gid(), timeout = timeout()
     ]() mutable {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.open");
 
@@ -820,7 +819,7 @@ folly::Future<folly::fbstring> PosixHelper::getxattr(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), name, uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), name, uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.getxattr");
 
             UserCtxSetter userCTX{uid, gid};
@@ -878,8 +877,8 @@ folly::Future<folly::Unit> PosixHelper::setxattr(const folly::fbstring &fileId,
                 << LOG_FARG(create) << LOG_FARG(replace);
 
     return folly::via(m_executor.get(), [
-        filePath = root(fileId), name, value, create, replace, uid = m_uid,
-        gid = m_gid
+        filePath = root(fileId), name, value, create, replace, uid = uid(),
+        gid = gid()
     ] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.setxattr");
 
@@ -915,7 +914,7 @@ folly::Future<folly::Unit> PosixHelper::removexattr(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
     return folly::via(m_executor.get(),
-        [ filePath = root(fileId), name, uid = m_uid, gid = m_gid ] {
+        [ filePath = root(fileId), name, uid = uid(), gid = gid() ] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.removexattr");
 
             UserCtxSetter userCTX{uid, gid};
@@ -939,7 +938,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::listxattr(
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(), [
-        filePath = root(fileId), uid = m_uid, gid = m_gid
+        filePath = root(fileId), uid = uid(), gid = gid()
     ] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.listxattr");
 
