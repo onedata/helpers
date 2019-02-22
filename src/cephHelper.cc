@@ -151,7 +151,7 @@ const Timeout &CephFileHandle::timeout() { return m_helper->timeout(); }
 
 CephHelper::CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
     folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-    std::unique_ptr<folly::Executor> executor, Timeout timeout)
+    std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : m_clusterName{std::move(clusterName)}
     , m_monHost{std::move(monHost)}
     , m_poolName{std::move(poolName)}

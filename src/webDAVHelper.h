@@ -280,7 +280,7 @@ public:
      */
     folly::Future<WebDAVSession *> connect();
 
-    std::shared_ptr<folly::IOExecutor> executor() { return m_executor; }
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
     WebDAVRangeWriteSupport rangeWriteSupport() const
     {

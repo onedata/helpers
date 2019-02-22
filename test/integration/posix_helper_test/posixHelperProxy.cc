@@ -32,7 +32,7 @@ using namespace one::helpers;
 /*
  * Minimum 4 threads are required to run this helper proxy.
  */
-constexpr int POSIX_HELPER_WORKER_THREADS = 8;
+constexpr int POSIX_HELPER_WORKER_THREADS = 4;
 
 class ReleaseGIL {
 public:
@@ -53,7 +53,7 @@ public:
     {
         std::unordered_map<folly::fbstring, folly::fbstring> params;
         params["type"] = "posix";
-        params["testMountPoint"] = mountPoint;
+        params["mountPoint"] = mountPoint;
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
 
@@ -248,6 +248,21 @@ public:
         return res;
     }
 
+    void refreshParams(std::string mountPoint, int uid, int gid)
+    {
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params["type"] = "posix";
+        params["mountPoint"] = mountPoint;
+        params["uid"] = std::to_string(uid);
+        params["gid"] = std::to_string(gid);
+
+        auto p = PosixHelperParams::create(params);
+
+        m_helper->refreshParams(std::move(p)).get();
+    }
+
+    std::string mountpoint() { return m_helper->mountPoint().c_str(); }
+
 private:
     asio::io_service m_service;
     asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
@@ -287,5 +302,7 @@ BOOST_PYTHON_MODULE(posix_helper)
         .def("getxattr", &PosixHelperProxy::getxattr)
         .def("setxattr", &PosixHelperProxy::setxattr)
         .def("removexattr", &PosixHelperProxy::removexattr)
-        .def("listxattr", &PosixHelperProxy::listxattr);
+        .def("listxattr", &PosixHelperProxy::listxattr)
+        .def("refresh_params", &PosixHelperProxy::refreshParams)
+        .def("mountpoint", &PosixHelperProxy::mountpoint);
 }

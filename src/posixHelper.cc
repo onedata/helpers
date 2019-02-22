@@ -419,8 +419,7 @@ PosixHelper::PosixHelper(std::shared_ptr<PosixHelperParams> params,
 {
     LOG_FCALL();
 
-    auto p = invalidateParams();
-    p->setValue(params);
+    invalidateParams()->setValue(std::move(params));
 }
 
 folly::Future<struct stat> PosixHelper::getattr(const folly::fbstring &fileId)

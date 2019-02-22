@@ -246,6 +246,8 @@ public:
 
     gid_t gid() const { return P()->gid(); }
 
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; };
+
 private:
     std::shared_ptr<PosixHelperParams> P() const
     {

@@ -77,6 +77,11 @@ public:
 
     const Timeout &timeout() override { return m_timeout; }
 
+    std::shared_ptr<folly::Executor> executor() override
+    {
+        return m_communicator.executor();
+    };
+
 private:
     folly::fbstring m_storageId;
     communication::Communicator &m_communicator;

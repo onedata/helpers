@@ -258,8 +258,7 @@ WebDAVHelper::WebDAVHelper(std::shared_ptr<WebDAVHelperParams> params,
     m_nsMap.declarePrefix("d", kNSDAV);
     m_nsMap.declarePrefix("o", kNSOnedata);
 
-    auto p = invalidateParams();
-    p->setValue(params);
+    invalidateParams()->setValue(std::move(params));
 
     // Initialize HTTP session pool
     for (auto i = 0u; i < P()->connectionPoolSize(); i++) {

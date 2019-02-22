@@ -578,6 +578,20 @@ public:
         return m_params->getFuture();
     }
 
+    folly::Future<folly::Unit> refreshParams(
+        std::shared_ptr<StorageHelperParams> params)
+    {
+        return folly::via(
+            executor().get(), [ this, params = std::move(params) ]() {
+                invalidateParams()->setValue(std::move(params));
+            });
+    }
+
+    virtual const Timeout &timeout() { return params().get()->timeout(); }
+
+    virtual std::shared_ptr<folly::Executor> executor() { return {}; };
+
+protected:
     std::shared_ptr<StorageHelperParamsPromise> invalidateParams()
     {
         std::lock_guard<std::mutex> m_lock{m_paramsMutex};
@@ -585,9 +599,6 @@ public:
         return m_params;
     };
 
-    virtual const Timeout &timeout() { return params().get()->timeout(); }
-
-protected:
     // Pointer to a promise of a shared pointers to helper parameters
     // This allows the parameters to be safely updated as with
     // existing handles and parallel read/write operations.

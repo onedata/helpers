@@ -234,6 +234,8 @@ public:
 
     const Timeout &timeout() override { return m_timeout; }
 
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
+
     bool applies(const folly::fbstring &operationName);
 
     bool randomTimeout();

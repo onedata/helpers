@@ -134,6 +134,8 @@ public:
 
     const Timeout &timeout() override;
 
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; };
+
 private:
     std::shared_ptr<KeyValueHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
