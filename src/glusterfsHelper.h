@@ -104,7 +104,6 @@ public:
     const Timeout &timeout() override;
 
 private:
-    std::shared_ptr<GlusterFSHelper> m_helper;
     std::shared_ptr<glfs_fd_t> m_glfsFd;
     std::atomic_bool m_needsRelease{true};
     const uid_t m_uid;

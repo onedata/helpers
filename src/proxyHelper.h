@@ -20,6 +20,8 @@
 namespace one {
 namespace helpers {
 
+class ProxyHelper;
+
 /**
  * The @c FileHandle implementation for Proxy storage helper.
  */
@@ -32,10 +34,11 @@ public:
      * @param openParams Parameters associated with the handle.
      * @param communicator Communicator that will be used for communication
      * with a provider.
+     * @param helper Shared ptr to underlying helper.
      */
     ProxyFileHandle(folly::fbstring fileId, folly::fbstring storageId,
         Params openParams, communication::Communicator &communicator,
-        Timeout timeout);
+        std::shared_ptr<ProxyHelper> helper, Timeout timeout);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
@@ -60,7 +63,8 @@ private:
  * @c ProxyHelper is responsible for providing a POSIX-like API for operations
  * on files proxied through a onedata provider.
  */
-class ProxyHelper : public StorageHelper {
+class ProxyHelper : public StorageHelper,
+                    public std::enable_shared_from_this<ProxyHelper> {
 public:
     /**
      * Constructor.

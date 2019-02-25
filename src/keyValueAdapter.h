@@ -29,6 +29,7 @@ template <typename T> struct StdHashCompare {
     std::size_t hash(const T &a) const { return std::hash<T>()(a); }
 };
 
+class KeyValueAdapter;
 class KeyValueHelper;
 
 /**
@@ -45,12 +46,13 @@ public:
     /**
      * Constructor.
      * @param fileId Helper-specific ID of the open file.
+     * @param helper Pointer to KeyValueAdapter instance.
      * @param blockSize Blocksize to use for read/write operations.
      * @param locks A structure for helper-wide locks of block ranges.
      * @param service @c io_service that will be used for some async operations.
      */
     KeyValueFileHandle(folly::fbstring fileId,
-        std::shared_ptr<KeyValueHelper> helper, const std::size_t blockSize,
+        std::shared_ptr<KeyValueAdapter> helper, const std::size_t blockSize,
         std::shared_ptr<Locks> locks,
         std::shared_ptr<folly::Executor> executor);
 
@@ -74,7 +76,6 @@ private:
     void writeBlock(
         folly::IOBufQueue buf, const uint64_t blockId, const off_t blockOffset);
 
-    std::shared_ptr<KeyValueHelper> m_helper;
     const std::size_t m_blockSize;
     std::shared_ptr<Locks> m_locks;
     std::shared_ptr<folly::Executor> m_executor;
@@ -85,7 +86,8 @@ private:
  * available on key-value storage by splitting consistent range of bytes into
  * blocks.
  */
-class KeyValueAdapter : public StorageHelper {
+class KeyValueAdapter : public StorageHelper,
+                        public std::enable_shared_from_this<KeyValueAdapter> {
     using Locks = tbb::concurrent_hash_map<folly::fbstring, bool,
         StdHashCompare<folly::fbstring>>;
 
@@ -135,6 +137,8 @@ public:
     const Timeout &timeout() override;
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
+
+    std::shared_ptr<KeyValueHelper> helper() { return m_helper; };
 
 private:
     std::shared_ptr<KeyValueHelper> m_helper;

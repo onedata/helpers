@@ -161,6 +161,7 @@ struct FlagHash {
 
 class FileHandle;
 class StorageHelper;
+class StorageHelperParams;
 using FlagsSet = std::unordered_set<Flag, FlagHash>;
 using Params = std::unordered_map<folly::fbstring, folly::fbstring>;
 using StorageHelperPtr = std::shared_ptr<StorageHelper>;
@@ -336,8 +337,8 @@ public:
      * Constructor.
      * @param fileId Helper-specific ID of the open file.
      */
-    FileHandle(folly::fbstring fileId)
-        : FileHandle{std::move(fileId), {}}
+    FileHandle(folly::fbstring fileId, std::shared_ptr<StorageHelper> helper)
+        : FileHandle{std::move(fileId), {}, std::move(helper)}
     {
     }
 
@@ -345,13 +346,17 @@ public:
      * @copydoc FileHandle(fileId)
      * @param openParams Additional parameters associated with the handle.
      */
-    FileHandle(folly::fbstring fileId, Params openParams)
+    FileHandle(folly::fbstring fileId, Params openParams,
+        std::shared_ptr<StorageHelper> helper)
         : m_fileId{std::move(fileId)}
         , m_openParams{std::move(openParams)}
+        , m_helper{std::move(helper)}
     {
     }
 
     virtual ~FileHandle() = default;
+
+    std::shared_ptr<StorageHelper> helper() { return m_helper; }
 
     virtual folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) = 0;
@@ -393,9 +398,20 @@ public:
 
     virtual bool isConcurrencyEnabled() const { return false; }
 
+    /**
+     * Updates the underlying helper storage parameters. Override in case the
+     * file handle for a specific helper needs to be updated after this
+     * operation.
+     *
+     * @param params Storage helper parameters
+     */
+    virtual folly::Future<folly::Unit> refreshHelperParams(
+        std::shared_ptr<StorageHelperParams> params);
+
 protected:
     folly::fbstring m_fileId;
     Params m_openParams;
+    std::shared_ptr<StorageHelper> m_helper;
 };
 
 class StorageHelperParams {

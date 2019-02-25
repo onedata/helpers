@@ -157,8 +157,7 @@ void WebDAVSession::reset()
 
 WebDAVFileHandle::WebDAVFileHandle(
     folly::fbstring fileId, std::shared_ptr<WebDAVHelper> helper)
-    : FileHandle{fileId}
-    , m_helper{std::move(helper)}
+    : FileHandle{fileId, std::move(helper)}
     , m_fileId{fileId}
 {
     LOG_FCALL() << LOG_FARG(fileId);
@@ -171,9 +170,12 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.read");
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper);
+
+    return helper->connect().then([
         fileId = m_fileId, offset, size, timer = std::move(timer),
-        helper = m_helper, self = shared_from_this()
+        helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
+        self = shared_from_this()
     ](WebDAVSession * session) mutable {
         auto getRequest = std::make_shared<WebDAVGET>(helper.get(), session);
 
@@ -193,17 +195,19 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.write");
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper);
+
+    return helper->connect().then([
         fileId = m_fileId, offset, buf = std::move(buf),
-        rangeWriteSupport = m_helper->rangeWriteSupport(),
-        timer = std::move(timer), helper = m_helper,
+        timer = std::move(timer),
+        helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
         s = std::weak_ptr<WebDAVFileHandle>{shared_from_this()}
     ](WebDAVSession * session) mutable {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException<std::size_t>(ECANCELED);
 
-        if (rangeWriteSupport ==
+        if (helper->rangeWriteSupport() ==
             WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE) {
             auto patchRequest =
                 std::make_shared<WebDAVPATCH>(helper.get(), session);
@@ -225,7 +229,8 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
                 });
         }
 
-        if (rangeWriteSupport == WebDAVRangeWriteSupport::MODDAV_PUTRANGE) {
+        if (helper->rangeWriteSupport() ==
+            WebDAVRangeWriteSupport::MODDAV_PUTRANGE) {
             auto putRequest =
                 std::make_shared<WebDAVPUT>(helper.get(), session);
 

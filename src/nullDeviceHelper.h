@@ -128,7 +128,6 @@ private:
         std::weak_ptr<NullDeviceFileHandle> m_handle;
     };
 
-    std::shared_ptr<NullDeviceHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
     std::shared_ptr<FlatOpScheduler<HandleOp, OpExec>> opScheduler;
     Timeout m_timeout;

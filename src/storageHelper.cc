@@ -115,6 +115,12 @@ FlagsSet maskToFlags(int mask)
     return flags;
 }
 
+folly::Future<folly::Unit> FileHandle::refreshHelperParams(
+    std::shared_ptr<StorageHelperParams> params)
+{
+    return m_helper->refreshParams(std::move(params));
+}
+
 folly::Future<std::size_t> FileHandle::multiwrite(
     folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs)
 {

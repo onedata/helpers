@@ -102,26 +102,14 @@ private:
     size_t m_writeBuffersReservedSize;
 };
 
+class BufferAgent;
+
 class BufferedFileHandle : public FileHandle {
 public:
     BufferedFileHandle(folly::fbstring fileId, FileHandlePtr wrappedHandle,
         const BufferLimits &bl, Scheduler &scheduler,
-        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
-        : FileHandle{std::move(fileId)}
-        , m_wrappedHandle{std::move(wrappedHandle)}
-        , m_bufferLimits{bl}
-        , m_scheduler{scheduler}
-        , m_readCache{std::make_shared<ReadCache>(bl.readBufferMinSize,
-              bl.readBufferMaxSize, bl.readBufferPrefetchDuration,
-              bl.prefetchPowerBase, bl.targetLatency, *m_wrappedHandle)}
-        , m_writeBuffer{std::make_shared<WriteBuffer>(bl.writeBufferMinSize,
-              bl.writeBufferMaxSize, bl.writeBufferFlushDelay, *m_wrappedHandle,
-              m_scheduler, m_readCache)}
-        , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
-    {
-        LOG_FCALL() << LOG_FARG(fileId);
-        m_writeBuffer->scheduleFlush();
-    }
+        std::shared_ptr<BufferAgent> bufferAgent,
+        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 
     ~BufferedFileHandle()
     {
@@ -219,7 +207,8 @@ private:
     std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
 };
 
-class BufferAgent : public StorageHelper {
+class BufferAgent : public StorageHelper,
+                    public std::enable_shared_from_this<BufferAgent> {
 public:
     BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
         Scheduler &scheduler,
@@ -244,7 +233,7 @@ public:
                     << LOG_FARGM(params);
 
         return m_helper->open(fileId, flags, params).then([
-            fileId, bl = m_bufferLimits,
+            fileId, agent = shared_from_this(), bl = m_bufferLimits,
             memoryLimitGuard = m_bufferMemoryLimitGuard,
             &scheduler = m_scheduler
         ](FileHandlePtr handle) {
@@ -252,7 +241,8 @@ public:
                     bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
                 return static_cast<FileHandlePtr>(
                     std::make_shared<BufferedFileHandle>(std::move(fileId),
-                        std::move(handle), bl, scheduler, memoryLimitGuard));
+                        std::move(handle), bl, scheduler, std::move(agent),
+                        memoryLimitGuard));
             }
 
             LOG_DBG(1) << "Couldn't create buffered file handle for file "

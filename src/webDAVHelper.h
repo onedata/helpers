@@ -637,10 +637,7 @@ public:
 
     const Timeout &timeout() override;
 
-    std::shared_ptr<WebDAVHelper> helper() { return m_helper; }
-
 private:
-    std::shared_ptr<WebDAVHelper> m_helper;
     const folly::fbstring m_fileId;
 };
 

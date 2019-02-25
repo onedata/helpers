@@ -60,6 +60,3 @@ def test_helper_should_refresh_params(helper, file_id):
     helper.refresh_params("/tmp", -1, -1)
 
     assert helper.mountpoint() == "/tmp"
-
-
-

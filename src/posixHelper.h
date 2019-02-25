@@ -56,6 +56,8 @@ private:
     const gid_t m_currGid;
 };
 
+class PosixHelper;
+
 /**
  * The @c FileHandle implementation for POSIX storage helper.
  */
@@ -67,10 +69,12 @@ public:
      * @param uid UserID under which the helper will work.
      * @param gid GroupID under which the helper will work.
      * @param fileHandle POSIX file descriptor for the open file.
+     * @param helper Shared ptr to underlying helper.
      * @param executor Executor for driving async file operations.
      */
     static std::shared_ptr<PosixFileHandle> create(folly::fbstring fileId,
         const uid_t uid, const gid_t gid, const int fileHandle,
+        std::shared_ptr<PosixHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
@@ -109,7 +113,8 @@ private:
      * @param executor Executor for driving async file operations.
      */
     PosixFileHandle(folly::fbstring fileId, const uid_t uid, const gid_t gid,
-        const int fileHandle, std::shared_ptr<folly::Executor> executor,
+        const int fileHandle, std::shared_ptr<PosixHelper> helper,
+        std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
     void initOpScheduler(std::shared_ptr<PosixFileHandle>);
@@ -166,7 +171,8 @@ private:
  * The PosixHelper class provides access to files on mounted as local
  * filesystem.
  */
-class PosixHelper : public StorageHelper {
+class PosixHelper : public StorageHelper,
+                    public std::enable_shared_from_this<PosixHelper> {
 public:
     /**
      * Constructor.

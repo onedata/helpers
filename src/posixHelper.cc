@@ -29,6 +29,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 
@@ -157,18 +158,20 @@ bool UserCtxSetter::valid() const { return true; }
 
 std::shared_ptr<PosixFileHandle> PosixFileHandle::create(folly::fbstring fileId,
     const uid_t uid, const gid_t gid, const int fileHandle,
+    std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
-    auto ptr = std::shared_ptr<PosixFileHandle>(new PosixFileHandle(
-        std::move(fileId), uid, gid, fileHandle, std::move(executor), timeout));
+    auto ptr = std::shared_ptr<PosixFileHandle>(
+        new PosixFileHandle(std::move(fileId), uid, gid, fileHandle,
+            std::move(helper), std::move(executor), timeout));
     ptr->initOpScheduler(ptr);
     return ptr;
 }
 
 PosixFileHandle::PosixFileHandle(folly::fbstring fileId, const uid_t uid,
-    const gid_t gid, const int fileHandle,
+    const gid_t gid, const int fileHandle, std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : FileHandle{fileId}
+    : FileHandle{fileId, std::move(helper)}
     , m_uid{uid}
     , m_gid{gid}
     , m_fh{fileHandle}
@@ -787,7 +790,7 @@ folly::Future<FileHandlePtr> PosixHelper::open(const folly::fbstring &fileId,
 
     return folly::via(m_executor.get(), [
         fileId, filePath = root(fileId), flags, executor = m_executor,
-        uid = uid(), gid = gid(), timeout = timeout()
+        uid = uid(), gid = gid(), self = shared_from_this(), timeout = timeout()
     ]() mutable {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.open");
 
@@ -805,8 +808,8 @@ folly::Future<FileHandlePtr> PosixHelper::open(const folly::fbstring &fileId,
         if (res == -1)
             return makeFuturePosixException<FileHandlePtr>(errno);
 
-        auto handle = PosixFileHandle::create(
-            fileId, uid, gid, res, std::move(executor), timeout);
+        auto handle = PosixFileHandle::create(fileId, uid, gid, res,
+            std::move(self), std::move(executor), timeout);
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
     });

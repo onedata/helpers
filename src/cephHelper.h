@@ -51,7 +51,6 @@ public:
     const Timeout &timeout() override;
 
 private:
-    std::shared_ptr<CephHelper> m_helper;
     librados::IoCtx &m_ioCTX;
 };
 
