@@ -149,6 +149,9 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
         throw std::invalid_argument("Invalid range write support specified: " +
             rangeWriteSupportStr.toStdString());
 
+    const auto testTokenRefreshMode =
+        getParam(parameters, "testTokenRefreshMode", "false");
+
     m_endpoint = endpointUrl;
     m_verifyServerCertificate = verifyServerCertificate;
     m_credentialsType = credentialsType;
@@ -161,6 +164,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     m_connectionPoolSize = connectionPoolSize;
     m_maximumUploadSize = maximumUploadSize;
     m_createdOn = std::chrono::system_clock::now();
+    m_testTokenRefreshMode = (testTokenRefreshMode == "true");
 }
 
 const Poco::URI &WebDAVHelperParams::endpoint() const { return m_endpoint; }
@@ -217,6 +221,11 @@ size_t WebDAVHelperParams::maximumUploadSize() const
 std::chrono::system_clock::time_point WebDAVHelperParams::createdOn() const
 {
     return m_createdOn;
+}
+
+bool WebDAVHelperParams::testTokenRefreshMode() const
+{
+    return m_testTokenRefreshMode;
 }
 } // namespace helpers
 } // namespace one

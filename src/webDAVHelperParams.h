@@ -60,6 +60,8 @@ public:
 
     std::chrono::system_clock::time_point createdOn() const;
 
+    bool testTokenRefreshMode() const;
+
 private:
     Poco::URI m_endpoint;
     bool m_verifyServerCertificate;
@@ -73,6 +75,9 @@ private:
     uint32_t m_connectionPoolSize;
     size_t m_maximumUploadSize;
     std::chrono::system_clock::time_point m_createdOn;
+
+    // This is for integration tests only
+    bool m_testTokenRefreshMode;
 };
 } // namespace helpers
 } // namespace one
