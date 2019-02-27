@@ -107,6 +107,8 @@ public:
         std::shared_ptr<folly::Executor> executor,
         std::size_t blockSize = DEFAULT_BLOCK_SIZE);
 
+    virtual folly::fbstring name() const override;
+
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 

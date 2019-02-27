@@ -76,6 +76,8 @@ public:
         communication::Communicator &communicator,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
+    folly::fbstring name() const { return PROXY_HELPER_NAME; };
+
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 

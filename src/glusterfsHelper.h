@@ -143,6 +143,8 @@ public:
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
+    folly::fbstring name() const { return GLUSTERFS_HELPER_NAME; };
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(

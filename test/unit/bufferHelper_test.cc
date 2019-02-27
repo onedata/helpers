@@ -45,6 +45,8 @@ public:
     {
     }
 
+    folly::fbstring name() const override { return "teststorage"; }
+
     folly::Future<one::helpers::FileHandlePtr> open(
         const folly::fbstring &fileId, const int /*flags*/,
         const one::helpers::Params & /*openParams*/) override

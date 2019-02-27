@@ -450,7 +450,7 @@ public:
 
     virtual ~StorageHelper() = default;
 
-    virtual bool isValid() { return true; }
+    virtual folly::fbstring name() const = 0;
 
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId)
     {

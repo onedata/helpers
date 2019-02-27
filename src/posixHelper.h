@@ -186,6 +186,8 @@ public:
     PosixHelper(std::shared_ptr<PosixHelperParams> params,
         std::shared_ptr<folly::Executor> executor);
 
+    folly::fbstring name() const { return POSIX_HELPER_NAME; };
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(

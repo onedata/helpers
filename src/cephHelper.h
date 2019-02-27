@@ -81,6 +81,8 @@ public:
      */
     ~CephHelper();
 
+    folly::fbstring name() const override { return CEPH_HELPER_NAME; };
+
     folly::Future<FileHandlePtr> open(
         const folly::fbstring &fileId, const int, const Params &) override;
 

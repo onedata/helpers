@@ -226,6 +226,8 @@ public:
                     << LOG_FARG(bufferLimits.writeBufferFlushDelay.count());
     }
 
+    folly::fbstring name() const override { return m_helper->name(); }
+
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &params) override
     {

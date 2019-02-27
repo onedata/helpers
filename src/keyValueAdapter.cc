@@ -162,6 +162,8 @@ KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
     LOG_FCALL() << LOG_FARG(blockSize);
 }
 
+folly::fbstring KeyValueAdapter::name() const { return m_helper->name(); }
+
 folly::Future<folly::Unit> KeyValueAdapter::unlink(
     const folly::fbstring &fileId, const size_t currentSize)
 {

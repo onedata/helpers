@@ -228,6 +228,8 @@ public:
      */
     ~WebDAVHelper();
 
+    folly::fbstring name() const override { return WEBDAV_HELPER_NAME; };
+
     folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, const int mask) override;
 
