@@ -67,20 +67,18 @@ folly::fbstring getParam<folly::fbstring, folly::fbstring>(
 }
 
 std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
-    const Params &params)
+    const folly::fbstring &name, const Params &params)
 {
-    const auto helperName = getParam(params, "type");
-
-    if (helperName == POSIX_HELPER_NAME) {
+    if (name == POSIX_HELPER_NAME) {
         return PosixHelperParams::create(params);
     }
 
-    if (helperName == WEBDAV_HELPER_NAME) {
+    if (name == WEBDAV_HELPER_NAME) {
         return WebDAVHelperParams::create(params);
     }
 
     throw std::invalid_argument(
-        "Unsupported storage helper type: " + helperName.toStdString());
+        "Unsupported storage helper type: " + name.toStdString());
 }
 
 int flagsToMask(const FlagsSet &flags)

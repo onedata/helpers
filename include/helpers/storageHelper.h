@@ -418,7 +418,8 @@ class StorageHelperParams {
 public:
     virtual ~StorageHelperParams() = default;
 
-    static std::shared_ptr<StorageHelperParams> create(const Params &params);
+    static std::shared_ptr<StorageHelperParams> create(
+        const folly::fbstring &name, const Params &params);
 
     virtual void initializeFromParams(const Params &parameters)
     {
