@@ -48,6 +48,8 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
         parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
     const auto maximumUploadSize = getParam<size_t>(
         parameters, "maximumUploadSize", kDefaultMaximumPoolSize);
+    const auto fileMode = getParam(parameters, "fileMode", "0644");
+    const auto dirMode = getParam(parameters, "dirMode", "0775");
 
     if (authorizationHeader.empty())
         authorizationHeader = kDefaultAuthorizationHeader;
@@ -165,6 +167,26 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     m_maximumUploadSize = maximumUploadSize;
     m_createdOn = std::chrono::system_clock::now();
     m_testTokenRefreshMode = (testTokenRefreshMode == "true");
+    m_fileMode = parsePosixPermissions(fileMode);
+    m_dirMode = parsePosixPermissions(dirMode);
+}
+
+mode_t WebDAVHelperParams::parsePosixPermissions(folly::fbstring p)
+{
+    if ((p.length() != 3) && (p.length() != 4)) {
+        throw std::invalid_argument(
+            "Invalid permission string: " + p.toStdString());
+    }
+
+    if (p.length() == 3)
+        p = "0" + p;
+
+    mode_t result = 0;
+
+    for (auto i = 0u; i < 4; i++) {
+        result += (p[i] - '0') << (3 * (3 - i));
+    }
+    return result;
 }
 
 const Poco::URI &WebDAVHelperParams::endpoint() const { return m_endpoint; }
@@ -227,5 +249,9 @@ bool WebDAVHelperParams::testTokenRefreshMode() const
 {
     return m_testTokenRefreshMode;
 }
+
+mode_t WebDAVHelperParams::fileMode() const { return m_fileMode; }
+
+mode_t WebDAVHelperParams::dirMode() const { return m_dirMode; }
 } // namespace helpers
 } // namespace one

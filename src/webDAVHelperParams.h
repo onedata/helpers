@@ -62,7 +62,13 @@ public:
 
     bool testTokenRefreshMode() const;
 
+    mode_t fileMode() const;
+
+    mode_t dirMode() const;
+
 private:
+    mode_t parsePosixPermissions(folly::fbstring p);
+
     Poco::URI m_endpoint;
     bool m_verifyServerCertificate;
     WebDAVCredentialsType m_credentialsType;
@@ -75,6 +81,8 @@ private:
     uint32_t m_connectionPoolSize;
     size_t m_maximumUploadSize;
     std::chrono::system_clock::time_point m_createdOn;
+    mode_t m_fileMode;
+    mode_t m_dirMode;
 
     // This is for integration tests only
     bool m_testTokenRefreshMode;

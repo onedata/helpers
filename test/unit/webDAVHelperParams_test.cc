@@ -54,6 +54,8 @@ TEST_F(WebDAVHelperParamsTest, webDAVHelperParamsShouldInitializeFromParams)
     p1.emplace("connectionPoolSize", "16");
     p1.emplace("maximumUploadSize", "1024");
     p1.emplace("timeout", "30");
+    p1.emplace("fileMode", "664");
+    p1.emplace("dirMode", "2775");
 
     auto params = WebDAVHelperParams::create(p1);
 
@@ -71,4 +73,6 @@ TEST_F(WebDAVHelperParamsTest, webDAVHelperParamsShouldInitializeFromParams)
     EXPECT_EQ(params->connectionPoolSize(), 16);
     EXPECT_EQ(params->maximumUploadSize(), 1024);
     EXPECT_EQ(params->timeout().count(), 30);
+    EXPECT_EQ(params->fileMode(), 0664);
+    EXPECT_EQ(params->dirMode(), 02775);
 }
