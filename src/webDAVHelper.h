@@ -9,6 +9,7 @@
 #pragma once
 
 #include "helpers/storageHelper.h"
+#include "webDAVHelperParams.h"
 
 #include "asioExecutor.h"
 #include "helpers/logging.h"
@@ -44,13 +45,6 @@ namespace helpers {
 
 class WebDAVHelper;
 
-enum class WebDAVCredentialsType { NONE, BASIC, TOKEN };
-
-enum class WebDAVRangeWriteSupport {
-    NONE,                   // No write support
-    SABREDAV_PARTIALUPDATE, // Range write using SabreDAV PATCH extension
-    MODDAV_PUTRANGE         // Range write using mod_dav PUT with Content-Range
-};
 constexpr auto kWebDAVHTTPVersionMajor = 1;
 constexpr auto kWebDAVHTTPVersionMinor = 1;
 
@@ -221,27 +215,11 @@ class WebDAVHelper : public StorageHelper,
 public:
     /**
      * Constructor.
-     * @param endpoint Complete WebDAV endpoint.
-     * @param credentialsType Type of credentials to use.
-     * @param credentials Actual credentials, e.g. basic auth pair or access
-     * token
-     * @param authorizationHeader Optional authorization header to use with
-     * access token
-     * @param rangeWriteSupport Type of write support for the storage: none,
-     * sabredav or moddav
-     * @param connectionPoolSize Number of parallel connections (sockets) to the
-     * storage
-     * @param maximumUploadSize Maximum size of single PUT or PATCH request
-     * supported by server. 0 means unlimited.
      * @param executor Executor that will drive the helper's async
      * operations.
      */
-    WebDAVHelper(Poco::URI endpoint, bool verifyServerCertificate,
-        WebDAVCredentialsType credentialsType, folly::fbstring credentials,
-        folly::fbstring authorizationHeader,
-        WebDAVRangeWriteSupport rangeWriteSupport, uint32_t connectionPoolSize,
-        size_t maximumUploadSize, std::shared_ptr<folly::IOExecutor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+    WebDAVHelper(std::shared_ptr<WebDAVHelperParams>,
+        std::shared_ptr<folly::IOExecutor> executor);
 
     /**
      * Destructor.
@@ -249,6 +227,8 @@ public:
      * context object.
      */
     ~WebDAVHelper();
+
+    folly::fbstring name() const override { return WEBDAV_HELPER_NAME; };
 
     folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, const int mask) override;
@@ -297,34 +277,39 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
     /**
      * Establishes connection to the WebDAV storage cluster.
      */
     folly::Future<WebDAVSession *> connect();
 
-    std::shared_ptr<folly::IOExecutor> executor() { return m_executor; }
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
     WebDAVRangeWriteSupport rangeWriteSupport() const
     {
-        return m_rangeWriteSupport;
+        return P()->rangeWriteSupport();
     }
 
-    WebDAVCredentialsType credentialsType() const { return m_credentialsType; }
+    WebDAVCredentialsType credentialsType() const
+    {
+        return P()->credentialsType();
+    }
 
-    Poco::URI endpoint() const { return m_endpoint; }
+    Poco::URI endpoint() const { return P()->endpoint(); }
 
-    folly::fbstring credentials() const { return m_credentials; }
+    folly::fbstring credentials() const { return P()->credentials(); }
+
+    folly::fbstring oauth2IdP() const { return P()->oauth2IdP(); }
 
     folly::fbstring authorizationHeader() const
     {
-        return m_authorizationHeader;
+        return P()->authorizationHeader();
     }
 
-    size_t maximumUploadSize() const { return m_maximumUploadSize; }
+    folly::fbstring accessToken() const { return P()->accessToken(); }
 
-    uint32_t connectionPoolSize() const { return m_connectionPoolSize; }
+    size_t maximumUploadSize() const { return P()->maximumUploadSize(); }
+
+    uint32_t connectionPoolSize() const { return P()->connectionPoolSize(); }
 
     /**
      * Returns a WebDAVSession instance to the idle connection pool
@@ -336,24 +321,27 @@ public:
 
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
+    /**
+     * In case credentials are provisioned by OAuth2 IdP, this method checks
+     * if the current access token is still valid based on TTL received
+     * when creating the helper.
+     * @return true if access token is still valid
+     */
+    bool isAccessTokenValid() const;
+
 private:
+    std::shared_ptr<WebDAVHelperParams> P() const
+    {
+        return std::dynamic_pointer_cast<WebDAVHelperParams>(params().get());
+    }
+
     struct WebDAVSessionThreadContext {
         folly::HHWheelTimer::UniquePtr timer;
     };
 
-    Poco::URI m_endpoint;
-    const bool m_verifyServerCertificate;
-    const WebDAVCredentialsType m_credentialsType;
-    const folly::fbstring m_credentials;
-    const folly::fbstring m_authorizationHeader;
-    const WebDAVRangeWriteSupport m_rangeWriteSupport;
-    const uint32_t m_connectionPoolSize;
-    const size_t m_maximumUploadSize;
-
     folly::ThreadLocal<WebDAVSessionThreadContext> m_sessionContext;
 
     std::shared_ptr<folly::IOExecutor> m_executor;
-    Timeout m_timeout;
 
     folly::MPMCQueue<WebDAVSession *, std::atomic, true> m_idleSessionPool{100};
     folly::fbvector<WebDAVSessionPtr> m_sessionPool;
@@ -409,6 +397,7 @@ public:
 protected:
     WebDAVHelper *m_helper;
     WebDAVSession *m_session;
+    std::shared_ptr<WebDAVHelperParams> m_params;
     proxygen::HTTPTransaction *m_txn;
     proxygen::HTTPMessage m_request;
     folly::fbstring m_path;
@@ -651,7 +640,6 @@ public:
     const Timeout &timeout() override;
 
 private:
-    std::shared_ptr<WebDAVHelper> m_helper;
     const folly::fbstring m_fileId;
 };
 
@@ -681,133 +669,8 @@ public:
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
     {
-        constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
-        constexpr auto kDefaultConnectionPoolSize = 10u;
-        constexpr auto kDefaultMaximumPoolSize = 0u;
-
-        const auto &endpoint = getParam(parameters, "endpoint");
-        const auto &verifyServerCertificateStr =
-            getParam(parameters, "verifyServerCertificate", "true");
-        const auto &credentialsTypeStr =
-            getParam(parameters, "credentialsType", "basic");
-        const auto &credentials = getParam(parameters, "credentials");
-        auto authorizationHeader = getParam<std::string>(
-            parameters, "authorizationHeader", kDefaultAuthorizationHeader);
-        const auto &rangeWriteSupportStr =
-            getParam(parameters, "rangeWriteSupport", "none");
-        const auto connectionPoolSize = getParam<uint32_t>(
-            parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
-        const auto maximumUploadSize = getParam<size_t>(
-            parameters, "maximumUploadSize", kDefaultMaximumPoolSize);
-
-        if (authorizationHeader.empty())
-            authorizationHeader = kDefaultAuthorizationHeader;
-
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-
-        LOG_FCALL() << LOG_FARG(endpoint)
-                    << LOG_FARG(verifyServerCertificateStr)
-                    << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
-                    << LOG_FARG(authorizationHeader)
-                    << LOG_FARG(rangeWriteSupportStr)
-                    << LOG_FARG(connectionPoolSize)
-                    << LOG_FARG(maximumUploadSize);
-
-        Poco::URI endpointUrl;
-
-        constexpr auto kHTTPDefaultPort = 80;
-        constexpr auto kHTTPSDefaultPort = 443;
-
-        try {
-            std::string scheme;
-
-            if (endpoint.find(":") == folly::fbstring::npos) {
-                // The endpoint does not contain neither scheme or port
-                scheme = "http://";
-            }
-            else if (endpoint.find("http") != 0) {
-                // The endpoint contains port but not a valid HTTP scheme
-                if (endpoint.find(":443") == folly::fbstring::npos)
-                    scheme = "http://";
-                else
-                    scheme = "https://";
-            }
-
-            // Remove trailing '/' from endpoint path if exists
-            auto normalizedEndpoint = endpoint.toStdString();
-            auto endpointIt = normalizedEndpoint.end() - 1;
-            if (*endpointIt == '/')
-                normalizedEndpoint.erase(endpointIt);
-
-            endpointUrl = scheme + normalizedEndpoint;
-        }
-        catch (Poco::SyntaxException &e) {
-            throw std::invalid_argument(
-                "Invalid WebDAV endpoint: " + endpoint.toStdString());
-        }
-
-        if (endpointUrl.getHost().empty())
-            throw std::invalid_argument(
-                "Invalid WebDAV endpoint - missing hostname: " +
-                endpoint.toStdString());
-
-        if (endpointUrl.getScheme().empty()) {
-            if (endpointUrl.getPort() == 0) {
-                endpointUrl.setScheme("http");
-                endpointUrl.setPort(kHTTPDefaultPort);
-            }
-            else if (endpointUrl.getPort() == kHTTPSDefaultPort) {
-                endpointUrl.setScheme("https");
-            }
-            else {
-                endpointUrl.setScheme("http");
-            }
-        }
-        else if (endpointUrl.getScheme() != "http" &&
-            endpointUrl.getScheme() != "https") {
-            throw std::invalid_argument(
-                "Invalid WebDAV endpoint - invalid scheme: " +
-                endpointUrl.getScheme());
-        }
-
-        if (endpointUrl.getPort() == 0) {
-            endpointUrl.setPort(endpointUrl.getScheme() == "https"
-                    ? kHTTPSDefaultPort
-                    : kHTTPDefaultPort);
-        }
-
-        bool verifyServerCertificate{true};
-        if (verifyServerCertificateStr != "true")
-            verifyServerCertificate = false;
-
-        WebDAVCredentialsType credentialsType;
-        if (credentialsTypeStr == "none")
-            credentialsType = WebDAVCredentialsType::NONE;
-        else if (credentialsTypeStr == "basic")
-            credentialsType = WebDAVCredentialsType::BASIC;
-        else if (credentialsTypeStr == "token")
-            credentialsType = WebDAVCredentialsType::TOKEN;
-        else
-            throw std::invalid_argument("Invalid credentials type: " +
-                credentialsTypeStr.toStdString());
-
-        WebDAVRangeWriteSupport rangeWriteSupport;
-        if (rangeWriteSupportStr.empty() || rangeWriteSupportStr == "none")
-            rangeWriteSupport = WebDAVRangeWriteSupport::NONE;
-        else if (rangeWriteSupportStr == "sabredav")
-            rangeWriteSupport = WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE;
-        else if (rangeWriteSupportStr == "moddav")
-            rangeWriteSupport = WebDAVRangeWriteSupport::MODDAV_PUTRANGE;
-        else
-            throw std::invalid_argument(
-                "Invalid range write support specified: " +
-                rangeWriteSupportStr.toStdString());
-
-        return std::make_shared<WebDAVHelper>(std::move(endpointUrl),
-            verifyServerCertificate, credentialsType, credentials,
-            authorizationHeader, rangeWriteSupport, connectionPoolSize,
-            maximumUploadSize, m_executor, timeout);
+        return std::make_shared<WebDAVHelper>(
+            WebDAVHelperParams::create(parameters), m_executor);
     }
 
 private:

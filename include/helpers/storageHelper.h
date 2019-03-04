@@ -27,6 +27,7 @@
 #include <folly/FBString.h>
 #include <folly/FBVector.h>
 #include <folly/futures/Future.h>
+#include <folly/futures/SharedPromise.h>
 #include <folly/io/IOBufQueue.h>
 #include <tbb/concurrent_hash_map.h>
 
@@ -160,6 +161,7 @@ struct FlagHash {
 
 class FileHandle;
 class StorageHelper;
+class StorageHelperParams;
 using FlagsSet = std::unordered_set<Flag, FlagHash>;
 using Params = std::unordered_map<folly::fbstring, folly::fbstring>;
 using StorageHelperPtr = std::shared_ptr<StorageHelper>;
@@ -335,8 +337,8 @@ public:
      * Constructor.
      * @param fileId Helper-specific ID of the open file.
      */
-    FileHandle(folly::fbstring fileId)
-        : FileHandle{std::move(fileId), {}}
+    FileHandle(folly::fbstring fileId, std::shared_ptr<StorageHelper> helper)
+        : FileHandle{std::move(fileId), {}, std::move(helper)}
     {
     }
 
@@ -344,13 +346,17 @@ public:
      * @copydoc FileHandle(fileId)
      * @param openParams Additional parameters associated with the handle.
      */
-    FileHandle(folly::fbstring fileId, Params openParams)
+    FileHandle(folly::fbstring fileId, Params openParams,
+        std::shared_ptr<StorageHelper> helper)
         : m_fileId{std::move(fileId)}
         , m_openParams{std::move(openParams)}
+        , m_helper{std::move(helper)}
     {
     }
 
     virtual ~FileHandle() = default;
+
+    std::shared_ptr<StorageHelper> helper() { return m_helper; }
 
     virtual folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) = 0;
@@ -392,9 +398,39 @@ public:
 
     virtual bool isConcurrencyEnabled() const { return false; }
 
+    /**
+     * Updates the underlying helper storage parameters. Override in case the
+     * file handle for a specific helper needs to be updated after this
+     * operation.
+     *
+     * @param params Storage helper parameters
+     */
+    virtual folly::Future<folly::Unit> refreshHelperParams(
+        std::shared_ptr<StorageHelperParams> params);
+
 protected:
     folly::fbstring m_fileId;
     Params m_openParams;
+    std::shared_ptr<StorageHelper> m_helper;
+};
+
+class StorageHelperParams {
+public:
+    virtual ~StorageHelperParams() = default;
+
+    static std::shared_ptr<StorageHelperParams> create(
+        const folly::fbstring &name, const Params &params);
+
+    virtual void initializeFromParams(const Params &parameters)
+    {
+        m_timeout = Timeout{getParam<std::size_t>(
+            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+    }
+
+    const Timeout &timeout() const { return m_timeout; }
+
+private:
+    Timeout m_timeout;
 };
 
 /**
@@ -405,7 +441,17 @@ protected:
  */
 class StorageHelper {
 public:
+    using StorageHelperParamsPromise =
+        folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
+
+    StorageHelper()
+        : m_params{std::make_shared<StorageHelperParamsPromise>()}
+    {
+    }
+
     virtual ~StorageHelper() = default;
+
+    virtual folly::fbstring name() const = 0;
 
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId)
     {
@@ -543,7 +589,38 @@ public:
                 std::make_error_code(std::errc::function_not_supported)});
     }
 
-    virtual const Timeout &timeout() = 0;
+    folly::Future<std::shared_ptr<StorageHelperParams>> params() const
+    {
+        std::lock_guard<std::mutex> m_lock{m_paramsMutex};
+        return m_params->getFuture();
+    }
+
+    folly::Future<folly::Unit> refreshParams(
+        std::shared_ptr<StorageHelperParams> params)
+    {
+        return folly::via(
+            executor().get(), [ this, params = std::move(params) ]() {
+                invalidateParams()->setValue(std::move(params));
+            });
+    }
+
+    virtual const Timeout &timeout() { return params().get()->timeout(); }
+
+    virtual std::shared_ptr<folly::Executor> executor() { return {}; };
+
+protected:
+    std::shared_ptr<StorageHelperParamsPromise> invalidateParams()
+    {
+        std::lock_guard<std::mutex> m_lock{m_paramsMutex};
+        m_params = std::make_shared<StorageHelperParamsPromise>();
+        return m_params;
+    };
+
+    // Pointer to a promise of a shared pointers to helper parameters
+    // This allows the parameters to be safely updated as with
+    // existing handles and parallel read/write operations.
+    std::shared_ptr<StorageHelperParamsPromise> m_params;
+    mutable std::mutex m_paramsMutex;
 };
 
 } // namespace helpers

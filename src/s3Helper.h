@@ -102,6 +102,8 @@ public:
         folly::fbstring accessKey, folly::fbstring secretKey,
         const bool useHttps = true, Timeout timeout = ASYNC_OPS_TIMEOUT);
 
+    folly::fbstring name() const override { return S3_HELPER_NAME; };
+
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
 

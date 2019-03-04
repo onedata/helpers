@@ -51,7 +51,6 @@ public:
     const Timeout &timeout() override;
 
 private:
-    std::shared_ptr<CephHelper> m_helper;
     librados::IoCtx &m_ioCTX;
 };
 
@@ -72,7 +71,7 @@ public:
      */
     CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-        std::unique_ptr<folly::Executor> executor,
+        std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
     /**
@@ -81,6 +80,8 @@ public:
      * object.
      */
     ~CephHelper();
+
+    folly::fbstring name() const override { return CEPH_HELPER_NAME; };
 
     folly::Future<FileHandlePtr> open(
         const folly::fbstring &fileId, const int, const Params &) override;
@@ -124,6 +125,8 @@ public:
 
     const Timeout &timeout() override { return m_timeout; }
 
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
+
     libradosstriper::RadosStriper &getRadosStriper() { return m_radosStriper; }
 
     librados::IoCtx &getIoCTX() { return m_ioCTX; }
@@ -152,7 +155,7 @@ private:
     const size_t m_stripeCount = 8;
     const size_t m_objectSize = 16 * 1024 * 1024;
 
-    std::unique_ptr<folly::Executor> m_executor;
+    std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
     librados::Rados m_cluster;
@@ -200,7 +203,7 @@ public:
                     << LOG_FARG(key);
 
         return std::make_shared<CephHelper>(clusterName, monHost, poolName,
-            userName, key, std::make_unique<AsioExecutor>(m_service),
+            userName, key, std::make_shared<AsioExecutor>(m_service),
             std::move(timeout));
     }
 

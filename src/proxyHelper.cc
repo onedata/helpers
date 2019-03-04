@@ -23,8 +23,9 @@ namespace helpers {
 
 ProxyFileHandle::ProxyFileHandle(folly::fbstring fileId,
     folly::fbstring storageId, Params openParams,
-    communication::Communicator &communicator, Timeout timeout)
-    : FileHandle{fileId, openParams}
+    communication::Communicator &communicator,
+    std::shared_ptr<ProxyHelper> helper, Timeout timeout)
+    : FileHandle{fileId, openParams, std::move(helper)}
     , m_storageId{std::move(storageId)}
     , m_communicator{communicator}
     , m_timeout{timeout}
@@ -121,9 +122,9 @@ folly::Future<FileHandlePtr> ProxyHelper::open(
     LOG_DBG(2) << "Attempting to open file " << fileId << " with flags "
                << LOG_OCT(flags);
 
-    return folly::makeFuture(
-        static_cast<FileHandlePtr>(std::make_shared<ProxyFileHandle>(
-            fileId, m_storageId, openParams, m_communicator, m_timeout)));
+    return folly::makeFuture(static_cast<FileHandlePtr>(
+        std::make_shared<ProxyFileHandle>(fileId, m_storageId, openParams,
+            m_communicator, shared_from_this(), m_timeout)));
 }
 
 } // namespace helpers

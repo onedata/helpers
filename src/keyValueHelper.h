@@ -37,6 +37,8 @@ public:
 
     virtual ~KeyValueHelper() = default;
 
+    virtual folly::fbstring name() const = 0;
+
     /**
      * @param prefix Arbitrary sequence of characters that provides value
      * namespace.

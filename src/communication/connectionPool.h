@@ -132,6 +132,8 @@ public:
      */
     void stop();
 
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
+
 private:
     /**
      * Close connections and handler pipelines.

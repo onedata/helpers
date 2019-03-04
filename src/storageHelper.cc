@@ -9,6 +9,8 @@
 #include "helpers/storageHelper.h"
 #include "fuseOperations.h"
 #include "helpers/logging.h"
+#include "posixHelperParams.h"
+#include "webDAVHelperParams.h"
 
 #include <folly/futures/Future.h>
 
@@ -64,6 +66,21 @@ folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     return std::forward<folly::fbstring>(def);
 }
 
+std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
+    const folly::fbstring &name, const Params &params)
+{
+    if (name == POSIX_HELPER_NAME) {
+        return PosixHelperParams::create(params);
+    }
+
+    if (name == WEBDAV_HELPER_NAME) {
+        return WebDAVHelperParams::create(params);
+    }
+
+    throw std::invalid_argument(
+        "Unsupported storage helper type: " + name.toStdString());
+}
+
 int flagsToMask(const FlagsSet &flags)
 {
     int value = 0;
@@ -94,6 +111,12 @@ FlagsSet maskToFlags(int mask)
     }
 
     return flags;
+}
+
+folly::Future<folly::Unit> FileHandle::refreshHelperParams(
+    std::shared_ptr<StorageHelperParams> params)
+{
+    return m_helper->refreshParams(std::move(params));
 }
 
 folly::Future<std::size_t> FileHandle::multiwrite(

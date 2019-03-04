@@ -57,7 +57,8 @@ public:
         : m_service{NULL_DEVICE_HELPER_WORKER_THREADS}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
-        , m_helper{one::helpers::buffering::BufferLimits{},
+        , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
+              one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
                   latencyMax, timeoutProbability, std::move(filter),
                   std::vector<std::pair<long int, long int>>{}, 0.0,
@@ -65,7 +66,7 @@ public:
               *m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
-                  one::helpers::buffering::BufferLimits{})}
+                  one::helpers::buffering::BufferLimits{}))}
     {
         for (int i = 0; i < NULL_DEVICE_HELPER_WORKER_THREADS; i++) {
             m_workers.push_back(std::thread([=]() { m_service.run(); }));
@@ -83,7 +84,7 @@ public:
     BufferedFileHandlePtr open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
-        auto handle = m_helper.open(fileId, flags, {}).get();
+        auto handle = m_helper->open(fileId, flags, {}).get();
         return std::dynamic_pointer_cast<
             one::helpers::buffering::BufferedFileHandle>(handle);
     }
@@ -133,20 +134,20 @@ public:
     void mknod(std::string fileId, mode_t mode, std::vector<Flag> flags)
     {
         ReleaseGIL guard;
-        m_helper.mknod(fileId, mode, FlagsSet(flags.begin(), flags.end()), 0)
+        m_helper->mknod(fileId, mode, FlagsSet(flags.begin(), flags.end()), 0)
             .get();
     }
 
     void unlink(std::string fileId)
     {
         ReleaseGIL guard;
-        m_helper.unlink(fileId, 0).get();
+        m_helper->unlink(fileId, 0).get();
     }
 
     void truncate(std::string fileId, int offset)
     {
         ReleaseGIL guard;
-        m_helper.truncate(fileId, offset, 0).get();
+        m_helper->truncate(fileId, offset, 0).get();
     }
 
 private:
@@ -154,7 +155,7 @@ private:
     asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
     std::vector<std::thread> m_workers;
     std::shared_ptr<one::Scheduler> m_scheduler;
-    one::helpers::buffering::BufferAgent m_helper;
+    std::shared_ptr<one::helpers::buffering::BufferAgent> m_helper;
 };
 
 namespace {

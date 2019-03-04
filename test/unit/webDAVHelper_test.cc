@@ -52,7 +52,6 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
 
     EXPECT_EQ(helper1->endpoint().getScheme(), "http");
     EXPECT_EQ(helper1->endpoint().getPort(), 80);
-
     Params p2;
     p2.emplace("type", "webdav");
     p2.emplace("name", "webdav");
@@ -134,4 +133,43 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
     EXPECT_EQ(helper3->endpoint().getPort(), 8080);
     EXPECT_EQ(helper3->connectionPoolSize(), 123);
     EXPECT_EQ(helper3->maximumUploadSize(), 100'000'000'000);
+}
+
+TEST_F(WebDAVHelperTest, webDAVHelperShouldCheckAccessTokenTTL)
+{
+    WebDAVHelperFactory factory{folly::getIOExecutor()};
+
+    Params p1;
+    p1.emplace("type", "webdav");
+    p1.emplace("name", "webdav");
+    p1.emplace("endpoint", "https://172.17.0.2");
+    p1.emplace("credentialsType", "oauth2");
+    p1.emplace("credentials", "user2341");
+    p1.emplace("oauth2IdP", "github");
+    p1.emplace("accessToken", "ABCDEFG");
+    p1.emplace("accessTokenTTL", "1");
+
+    auto helper1 = std::dynamic_pointer_cast<WebDAVHelper>(
+        factory.createStorageHelper(p1));
+
+    EXPECT_EQ(helper1->credentialsType(), WebDAVCredentialsType::OAUTH2);
+    EXPECT_EQ(helper1->oauth2IdP(), "github");
+
+    EXPECT_TRUE(helper1->isAccessTokenValid());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    EXPECT_FALSE(helper1->isAccessTokenValid());
+
+    bool eKeyExpiredThrown = false;
+
+    try {
+        helper1->connect().get();
+    }
+    catch (const std::system_error &e) {
+        if (e.code().value() == EKEYEXPIRED)
+            eKeyExpiredThrown = true;
+    }
+
+    EXPECT_TRUE(eKeyExpiredThrown);
 }
