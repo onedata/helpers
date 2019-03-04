@@ -353,8 +353,10 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId)
         folly::fbvector<folly::fbstring> propFilter;
 
         return (*request)(fileId, 0, propFilter).then(session->evb, [
-            &nsMap = self->m_nsMap, fileId, request
+            &nsMap = self->m_nsMap, fileId, request,
+            fileMode = self->P()->fileMode(), dirMode = self->P()->dirMode()
         ](PAPtr<pxml::Document> && multistatus) {
+
             struct stat attrs {
             };
 
@@ -365,11 +367,11 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId)
 
             if (!resourceType->hasChildNodes()) {
                 // Regular file
-                attrs.st_mode = S_IFREG;
+                attrs.st_mode = S_IFREG | fileMode;
             }
             else {
                 // Collection
-                attrs.st_mode = S_IFDIR;
+                attrs.st_mode = S_IFDIR | dirMode;
             }
 
             auto getLastModified = multistatus->getNodeByPathNS(
