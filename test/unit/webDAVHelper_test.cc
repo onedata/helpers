@@ -147,7 +147,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldCheckAccessTokenTTL)
     p1.emplace("credentials", "user2341");
     p1.emplace("oauth2IdP", "github");
     p1.emplace("accessToken", "ABCDEFG");
-    p1.emplace("accessTokenTTL", "1");
+    p1.emplace("accessTokenTTL", "61");
 
     auto helper1 = std::dynamic_pointer_cast<WebDAVHelper>(
         factory.createStorageHelper(p1));

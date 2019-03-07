@@ -48,6 +48,9 @@ class WebDAVHelper;
 constexpr auto kWebDAVHTTPVersionMajor = 1;
 constexpr auto kWebDAVHTTPVersionMinor = 1;
 
+constexpr auto kWebDAVRetryCount = 6;
+const auto kWebDAVRetryMinimumDelay = std::chrono::milliseconds{5};
+
 constexpr auto kNSDAV = "DAV:";
 constexpr auto kNSOnedata = "http://onedata.org/metadata";
 
@@ -130,7 +133,7 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
 
     std::string host;
 
-    // Set to true when server return 'Connection: close' header in response
+    // Set to true when server returned 'Connection: close' header in response
     // to a request
     bool closedByRemote{false};
 
@@ -233,7 +236,13 @@ public:
     folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, const int mask) override;
 
+    folly::Future<folly::Unit> access(
+        const folly::fbstring &fileId, const int mask, const int retryCount);
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
+
+    folly::Future<struct stat> getattr(
+        const folly::fbstring &fileId, const int retryCount);
 
     folly::Future<FileHandlePtr> open(
         const folly::fbstring &fileId, const int, const Params &) override;
@@ -241,19 +250,38 @@ public:
     folly::Future<folly::Unit> unlink(
         const folly::fbstring &fileId, const size_t currentSize) override;
 
+    folly::Future<folly::Unit> unlink(const folly::fbstring &fileId,
+        const size_t currentSize, const int retryCount);
+
     folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
+
+    folly::Future<folly::Unit> rmdir(
+        const folly::fbstring &fileId, const int retryCount);
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
         const off_t size, const size_t currentSize) override;
 
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize, const int retryCount);
+
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
+
+    folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev,
+        const int retryCount);
 
     folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override;
 
+    folly::Future<folly::Unit> mkdir(
+        const folly::fbstring &fileId, const mode_t mode, const int retryCount);
+
     folly::Future<folly::Unit> rename(
         const folly::fbstring &from, const folly::fbstring &to) override;
+
+    folly::Future<folly::Unit> rename(const folly::fbstring &from,
+        const folly::fbstring &to, const int retryCount);
 
     folly::Future<folly::Unit> chmod(
         const folly::fbstring &fileId, const mode_t mode) override
@@ -261,21 +289,44 @@ public:
         return folly::makeFuture();
     }
 
+    folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
+        const uid_t uid, const gid_t gid) override
+    {
+        return folly::makeFuture();
+    }
+
     folly::Future<folly::fbvector<folly::fbstring>> readdir(
         const folly::fbstring &fileId, off_t offset, size_t count) override;
 
+    folly::Future<folly::fbvector<folly::fbstring>> readdir(
+        const folly::fbstring &fileId, off_t offset, size_t count,
+        const int retryCount);
+
     folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;
+
+    folly::Future<folly::fbstring> getxattr(const folly::fbstring &fileId,
+        const folly::fbstring &name, const int retryCount);
 
     folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
         bool replace) override;
 
+    folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
+        const folly::fbstring &name, const folly::fbstring &value, bool create,
+        bool replace, const int retryCount);
+
     folly::Future<folly::Unit> removexattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;
 
+    folly::Future<folly::Unit> removexattr(const folly::fbstring &fileId,
+        const folly::fbstring &name, const int retryCount);
+
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
+
+    folly::Future<folly::fbvector<folly::fbstring>> listxattr(
+        const folly::fbstring &fileId, const int retryCount);
 
     /**
      * Establishes connection to the WebDAV storage cluster.
@@ -634,8 +685,14 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
+    folly::Future<folly::IOBufQueue> read(
+        const off_t offset, const std::size_t size, const int retryCount);
+
     folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf) override;
+
+    folly::Future<std::size_t> write(
+        const off_t offset, folly::IOBufQueue buf, const int retryCount);
 
     const Timeout &timeout() override;
 
