@@ -589,13 +589,25 @@ public:
                 std::make_error_code(std::errc::function_not_supported)});
     }
 
-    folly::Future<std::shared_ptr<StorageHelperParams>> params() const
+    /**
+     * Returns a future to an instance of storage helper parameters.
+     * It allows for overriding for special helpers such as @c BufferAgent.
+     */
+    virtual folly::Future<std::shared_ptr<StorageHelperParams>> params() const
     {
         std::lock_guard<std::mutex> m_lock{m_paramsMutex};
         return m_params->getFuture();
     }
 
-    folly::Future<folly::Unit> refreshParams(
+    /**
+     * Updates the helper parameters by replacing the parameters promise stored
+     * in storage helper with a new one. In this way requests already created
+     * will be allowed to execute with the old set of parameters while all
+     * new requests will use the new set.
+     *
+     * @param params Shared instance of @c StorageHelperParams
+     */
+    virtual folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params)
     {
         return folly::via(
@@ -616,6 +628,7 @@ protected:
         return m_params;
     };
 
+private:
     // Pointer to a promise of a shared pointers to helper parameters
     // This allows the parameters to be safely updated as with
     // existing handles and parallel read/write operations.

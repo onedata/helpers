@@ -198,6 +198,12 @@ public:
 
     FileHandlePtr wrappedHandle() { return m_wrappedHandle; }
 
+    virtual folly::Future<folly::Unit> refreshHelperParams(
+        std::shared_ptr<StorageHelperParams> params) override
+    {
+        return m_wrappedHandle->refreshHelperParams(std::move(params));
+    }
+
 private:
     FileHandlePtr m_wrappedHandle;
     BufferLimits m_bufferLimits;
@@ -401,6 +407,21 @@ public:
 
         return m_helper->listxattr(uuid);
     }
+
+    virtual folly::Future<std::shared_ptr<StorageHelperParams>>
+    params() const override
+    {
+        return m_helper->params();
+    }
+
+    virtual folly::Future<folly::Unit> refreshParams(
+        std::shared_ptr<StorageHelperParams> params) override
+    {
+        LOG_FCALL();
+        return m_helper->refreshParams(std::move(params));
+    }
+
+    StorageHelperPtr helper() { return m_helper; }
 
     const Timeout &timeout() override { return m_helper->timeout(); }
 

@@ -108,6 +108,21 @@ def helper(server):
 
 
 @pytest.mark.directory_operations_tests
+def test_mknod_should_return_enoent_on_missing_parent(helper, file_id):
+    dir1_id = random_str()
+    dir2_id = random_str()
+    dir3_id = random_str()
+    data = random_str()
+    offset = random_int()
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.write(dir1_id+"/"+dir2_id+"/"+dir3_id+"/"+file_id,
+                data, offset)
+
+    assert 'No such file or directory' in str(excinfo.value)
+
+
+@pytest.mark.directory_operations_tests
 def test_rmdir_should_remove_directory(helper, file_id):
     dir_id = file_id
     file1_id = random_str()
