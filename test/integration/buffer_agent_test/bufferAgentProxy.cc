@@ -38,13 +38,14 @@ public:
         std::string storageId, std::string host, const unsigned short port)
         : m_communicator{5, 2, host, port, false, true, false}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
-        , m_helper{one::helpers::buffering::BufferLimits{},
+        , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
+              one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::ProxyHelper>(
                   storageId, m_communicator),
               *m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
-                  one::helpers::buffering::BufferLimits{})}
+                  one::helpers::buffering::BufferLimits{}))}
     {
         m_communicator.setScheduler(m_scheduler);
         m_communicator.connect();
@@ -54,7 +55,7 @@ public:
         const std::unordered_map<folly::fbstring, folly::fbstring> &parameters)
     {
         ReleaseGIL guard;
-        return m_helper.open(fileId, 0, parameters).get();
+        return m_helper->open(fileId, 0, parameters).get();
     }
 
     int write(one::helpers::FileHandlePtr handle, std::string data, int offset)
@@ -86,7 +87,7 @@ public:
 private:
     one::communication::Communicator m_communicator;
     std::shared_ptr<one::Scheduler> m_scheduler;
-    one::helpers::buffering::BufferAgent m_helper;
+    std::shared_ptr<one::helpers::buffering::BufferAgent> m_helper;
 };
 
 namespace {

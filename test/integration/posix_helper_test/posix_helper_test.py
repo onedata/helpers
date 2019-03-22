@@ -48,3 +48,15 @@ def helper(server):
         server.mountpoint,
         server.uid,
         server.gid)
+
+def test_helper_should_refresh_params(helper, file_id):
+    data = random_str()
+    offset = random_int()
+
+    helper.refresh_params("/tmp/invalid_mountpoint", -1, -1)
+
+    assert helper.mountpoint() == "/tmp/invalid_mountpoint"
+
+    helper.refresh_params("/tmp", -1, -1)
+
+    assert helper.mountpoint() == "/tmp"

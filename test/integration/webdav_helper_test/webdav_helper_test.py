@@ -108,6 +108,21 @@ def helper(server):
 
 
 @pytest.mark.directory_operations_tests
+def test_mknod_should_return_enoent_on_missing_parent(helper, file_id):
+    dir1_id = random_str()
+    dir2_id = random_str()
+    dir3_id = random_str()
+    data = random_str()
+    offset = random_int()
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.write(dir1_id+"/"+dir2_id+"/"+dir3_id+"/"+file_id,
+                data, offset)
+
+    assert 'No such file or directory' in str(excinfo.value)
+
+
+@pytest.mark.directory_operations_tests
 def test_rmdir_should_remove_directory(helper, file_id):
     dir_id = file_id
     file1_id = random_str()
@@ -135,3 +150,22 @@ def test_rmdir_should_remove_directory(helper, file_id):
         helper.readdir(dir_id, 0, 1024)
     assert 'No such file or directory' in str(excinfo.value)
 
+
+def test_getattr_should_return_default_permissions(helper, file_id):
+    dir_id = file_id
+    data = random_str()
+    offset = random_int()
+    default_dir_mode = 0775
+    default_file_mode = 0644
+
+    try:
+        helper.mkdir(dir_id, 0777)
+        helper.write(dir_id+"/"+file_id, data, offset)
+    except:
+        pytest.fail("Couldn't create directory: %s"%(dir_id))
+
+    # WebDAV doesn't store permissions, so the dir_id directory will
+    # return the permissions defined in the helper not the ones used
+    # in mkdir call
+    assert helper.getattr(dir_id).st_mode&0777 == default_dir_mode
+    assert helper.getattr(dir_id+"/"+file_id).st_mode&0777 == default_file_mode

@@ -13,6 +13,7 @@
 
 #include "flatOpScheduler.h"
 #include "monitoring/monitoring.h"
+#include "posixHelperParams.h"
 
 #include <boost/filesystem/path.hpp>
 #include <boost/variant.hpp>
@@ -55,6 +56,8 @@ private:
     const gid_t m_currGid;
 };
 
+class PosixHelper;
+
 /**
  * The @c FileHandle implementation for POSIX storage helper.
  */
@@ -66,10 +69,12 @@ public:
      * @param uid UserID under which the helper will work.
      * @param gid GroupID under which the helper will work.
      * @param fileHandle POSIX file descriptor for the open file.
+     * @param helper Shared ptr to underlying helper.
      * @param executor Executor for driving async file operations.
      */
     static std::shared_ptr<PosixFileHandle> create(folly::fbstring fileId,
         const uid_t uid, const gid_t gid, const int fileHandle,
+        std::shared_ptr<PosixHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
@@ -108,7 +113,8 @@ private:
      * @param executor Executor for driving async file operations.
      */
     PosixFileHandle(folly::fbstring fileId, const uid_t uid, const gid_t gid,
-        const int fileHandle, std::shared_ptr<folly::Executor> executor,
+        const int fileHandle, std::shared_ptr<PosixHelper> helper,
+        std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
     void initOpScheduler(std::shared_ptr<PosixFileHandle>);
@@ -165,7 +171,8 @@ private:
  * The PosixHelper class provides access to files on mounted as local
  * filesystem.
  */
-class PosixHelper : public StorageHelper {
+class PosixHelper : public StorageHelper,
+                    public std::enable_shared_from_this<PosixHelper> {
 public:
     /**
      * Constructor.
@@ -176,9 +183,10 @@ public:
      * @param gid GroupID under which the helper will work.
      * @param executor Executor for driving async file operations.
      */
-    PosixHelper(boost::filesystem::path mountPoint, const uid_t uid,
-        const gid_t gid, std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+    PosixHelper(std::shared_ptr<PosixHelperParams> params,
+        std::shared_ptr<folly::Executor> executor);
+
+    folly::fbstring name() const { return POSIX_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -237,19 +245,29 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
-private:
-    boost::filesystem::path root(const folly::fbstring &fileId) const
+    const boost::filesystem::path &mountPoint() const
     {
-        return m_mountPoint / fileId.toStdString();
+        return P()->mountPoint();
     }
 
-    boost::filesystem::path m_mountPoint;
-    const uid_t m_uid;
-    const gid_t m_gid;
+    uid_t uid() const { return P()->uid(); }
+
+    gid_t gid() const { return P()->gid(); }
+
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; };
+
+private:
+    std::shared_ptr<PosixHelperParams> P() const
+    {
+        return std::dynamic_pointer_cast<PosixHelperParams>(params().get());
+    }
+
+    boost::filesystem::path root(const folly::fbstring &fileId) const
+    {
+        return mountPoint() / fileId.toStdString();
+    }
+
     std::shared_ptr<folly::Executor> m_executor;
-    Timeout m_timeout;
 };
 
 /**
@@ -276,14 +294,9 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {
-        const auto &mountPoint = getParam(parameters, "mountPoint");
-        const auto &uid = getParam<int>(parameters, "uid", -1);
-        const auto &gid = getParam<int>(parameters, "gid", -1);
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-
-        return std::make_shared<PosixHelper>(mountPoint.toStdString(), uid, gid,
-            std::make_shared<AsioExecutor>(m_service), std::move(timeout));
+        return std::make_shared<PosixHelper>(
+            PosixHelperParams::create(parameters),
+            std::make_shared<AsioExecutor>(m_service));
     }
 
 private:

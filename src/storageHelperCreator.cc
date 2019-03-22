@@ -220,10 +220,10 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
             "Invalid storage helper name: '" + name.toStdString() + "'"};
     }
 
-    if (buffered) {
+    if (buffered && !(name == WEBDAV_HELPER_NAME)) {
         LOG_DBG(1) << "Created buffered helper of type: " << name;
-        return std::make_shared<buffering::BufferAgent>(
-            m_bufferLimits, helper, *m_scheduler, m_bufferMemoryLimitGuard);
+        return std::make_shared<buffering::BufferAgent>(m_bufferLimits,
+            std::move(helper), *m_scheduler, m_bufferMemoryLimitGuard);
     }
 
     LOG_DBG(1) << "Created non-buffered helper of type: " << name;

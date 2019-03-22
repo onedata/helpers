@@ -128,7 +128,6 @@ private:
         std::weak_ptr<NullDeviceFileHandle> m_handle;
     };
 
-    std::shared_ptr<NullDeviceHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
     std::shared_ptr<FlatOpScheduler<HandleOp, OpExec>> opScheduler;
     Timeout m_timeout;
@@ -174,6 +173,8 @@ public:
         double simulatedFilesystemGrowSpeed,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
+
+    folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -233,6 +234,8 @@ public:
         const folly::fbstring &fileId) override;
 
     const Timeout &timeout() override { return m_timeout; }
+
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
     bool applies(const folly::fbstring &operationName);
 

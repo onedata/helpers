@@ -68,10 +68,9 @@ namespace one {
 namespace helpers {
 
 KeyValueFileHandle::KeyValueFileHandle(folly::fbstring fileId,
-    std::shared_ptr<KeyValueHelper> helper, const std::size_t blockSize,
+    std::shared_ptr<KeyValueAdapter> helper, const std::size_t blockSize,
     std::shared_ptr<Locks> locks, std::shared_ptr<folly::Executor> executor)
-    : FileHandle{std::move(fileId)}
-    , m_helper{std::move(helper)}
+    : FileHandle{std::move(fileId), std::move(helper)}
     , m_blockSize{blockSize}
     , m_locks{std::move(locks)}
     , m_executor{std::move(executor)}
@@ -162,6 +161,8 @@ KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
 {
     LOG_FCALL() << LOG_FARG(blockSize);
 }
+
+folly::fbstring KeyValueAdapter::name() const { return m_helper->name(); }
 
 folly::Future<folly::Unit> KeyValueAdapter::unlink(
     const folly::fbstring &fileId, const size_t currentSize)
@@ -318,13 +319,16 @@ folly::IOBufQueue KeyValueFileHandle::readBlock(
 {
     LOG_FCALL() << LOG_FARG(blockId) << LOG_FARG(blockOffset) << LOG_FARG(size);
 
-    auto key = m_helper->getKey(m_fileId, blockId);
+    auto helper =
+        std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper();
+
+    auto key = helper->getKey(m_fileId, blockId);
 
     Locks::accessor acc;
     m_locks->insert(acc, key);
 
     try {
-        auto ret = ::readBlock(m_helper, key, blockOffset, size);
+        auto ret = ::readBlock(helper, key, blockOffset, size);
         m_locks->erase(acc);
         return ret;
     }
@@ -340,17 +344,20 @@ void KeyValueFileHandle::writeBlock(
     LOG_FCALL() << LOG_FARG(buf.chainLength()) << LOG_FARG(blockId)
                 << LOG_FARG(blockOffset);
 
-    auto key = m_helper->getKey(m_fileId, blockId);
+    auto helper =
+        std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper();
+
+    auto key = helper->getKey(m_fileId, blockId);
     Locks::accessor acc;
     m_locks->insert(acc, key);
 
     try {
         if (buf.chainLength() != m_blockSize) {
-            if (m_helper->hasRandomAccess()) {
-                m_helper->putObject(key, std::move(buf), blockOffset);
+            if (helper->hasRandomAccess()) {
+                helper->putObject(key, std::move(buf), blockOffset);
             }
             else {
-                auto fetchedBuf = ::readBlock(m_helper, key, 0, m_blockSize);
+                auto fetchedBuf = ::readBlock(helper, key, 0, m_blockSize);
 
                 folly::IOBufQueue filledBuf{
                     folly::IOBufQueue::cacheChainLength()};
@@ -375,11 +382,11 @@ void KeyValueFileHandle::writeBlock(
                     filledBuf.append(std::move(fetchedBuf));
                 }
 
-                m_helper->putObject(key, std::move(filledBuf));
+                helper->putObject(key, std::move(filledBuf));
             }
         }
         else {
-            m_helper->putObject(key, std::move(buf));
+            helper->putObject(key, std::move(buf));
         }
 
         m_locks->erase(acc);
@@ -397,7 +404,7 @@ folly::Future<FileHandlePtr> KeyValueAdapter::open(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGM(openParams);
 
     FileHandlePtr handle = std::make_shared<KeyValueFileHandle>(
-        fileId, m_helper, m_blockSize, m_locks, m_executor);
+        fileId, shared_from_this(), m_blockSize, m_locks, m_executor);
 
     return folly::makeFuture(std::move(handle));
 }
