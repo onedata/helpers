@@ -36,20 +36,24 @@ inline folly::Future<folly::Unit> setResult(
 // NOLINTNEXTLINE
 #define SIMULATE_HANDLE_STORAGE_ISSUES(helper, name, type)                     \
     {                                                                          \
-        if ((helper)->simulateTimeout(name)) {                                 \
+        if (std::dynamic_pointer_cast<NullDeviceHelper>(helper)                \
+                ->simulateTimeout(name)) {                                     \
             op.promise.setException(makePosixException(EAGAIN));               \
             return;                                                            \
         }                                                                      \
-        (helper)->simulateLatency(name);                                       \
+        std::dynamic_pointer_cast<NullDeviceHelper>(helper)->simulateLatency(  \
+            name);                                                             \
     }
 
 // NOLINTNEXTLINE
 #define SIMULATE_STORAGE_ISSUES(helper, name, type)                            \
     {                                                                          \
-        if ((helper)->simulateTimeout(name)) {                                 \
+        if (std::dynamic_pointer_cast<NullDeviceHelper>(helper)                \
+                ->simulateTimeout(name)) {                                     \
             throw one::helpers::makePosixException(EAGAIN);                    \
         }                                                                      \
-        (helper)->simulateLatency(name);                                       \
+        std::dynamic_pointer_cast<NullDeviceHelper>(helper)->simulateLatency(  \
+            name);                                                             \
     }
 
 namespace one {
@@ -79,8 +83,7 @@ std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
 NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
     std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : FileHandle{fileId}
-    , m_helper{std::move(helper)}
+    : FileHandle{fileId, std::move(helper)}
     , m_executor{std::move(executor)}
     , m_timeout{timeout}
     , m_readBytes{0}
@@ -336,7 +339,6 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
     return folly::via(m_executor.get(), [
         this, fileId, self = shared_from_this()
     ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getattr");
 
         SIMULATE_STORAGE_ISSUES(self, "getattr", struct stat)
@@ -425,7 +427,6 @@ folly::Future<folly::Unit> NullDeviceHelper::access(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mask);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.access");
 
         SIMULATE_STORAGE_ISSUES(self, "access", folly::Unit)
@@ -443,7 +444,6 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdir(
 
     return folly::via(m_executor.get(),
         [ this, fileId, offset, count, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readdir");
 
             SIMULATE_STORAGE_ISSUES(
@@ -509,7 +509,6 @@ folly::Future<folly::fbstring> NullDeviceHelper::readlink(
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readlink");
 
         SIMULATE_STORAGE_ISSUES(self, "readlink", folly::fbstring)
@@ -533,7 +532,6 @@ folly::Future<folly::Unit> NullDeviceHelper::mknod(
                 << LOG_FARG(flagsToMask(flags));
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.mknod");
 
         SIMULATE_STORAGE_ISSUES(self, "mknod", folly::Unit)
@@ -548,7 +546,6 @@ folly::Future<folly::Unit> NullDeviceHelper::mkdir(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.mkdir");
 
         SIMULATE_STORAGE_ISSUES(self, "mkdir", folly::Unit)
@@ -563,7 +560,6 @@ folly::Future<folly::Unit> NullDeviceHelper::unlink(
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.unlink");
 
         SIMULATE_STORAGE_ISSUES(self, "unlink", folly::Unit)
@@ -578,7 +574,6 @@ folly::Future<folly::Unit> NullDeviceHelper::rmdir(
     LOG_FCALL() << LOG_FARG(fileId);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.rmdir");
 
         SIMULATE_STORAGE_ISSUES(self, "rmdir", folly::Unit)
@@ -594,7 +589,6 @@ folly::Future<folly::Unit> NullDeviceHelper::symlink(
 
     return folly::via(
         m_executor.get(), [ from = from, to = to, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.symlink");
 
             SIMULATE_STORAGE_ISSUES(self, "symlink", folly::Unit)
@@ -610,7 +604,6 @@ folly::Future<folly::Unit> NullDeviceHelper::rename(
 
     return folly::via(
         m_executor.get(), [ from = from, to = to, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.rename");
 
             SIMULATE_STORAGE_ISSUES(self, "rename", folly::Unit)
@@ -626,7 +619,6 @@ folly::Future<folly::Unit> NullDeviceHelper::link(
 
     return folly::via(
         m_executor.get(), [ from = from, to = to, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.link");
 
             SIMULATE_STORAGE_ISSUES(self, "link", folly::Unit)
@@ -641,7 +633,6 @@ folly::Future<folly::Unit> NullDeviceHelper::chmod(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.chmod");
 
         SIMULATE_STORAGE_ISSUES(self, "chmod", folly::Unit)
@@ -656,7 +647,6 @@ folly::Future<folly::Unit> NullDeviceHelper::chown(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.chown");
 
         SIMULATE_STORAGE_ISSUES(self, "chown", folly::Unit)
@@ -672,7 +662,6 @@ folly::Future<folly::Unit> NullDeviceHelper::truncate(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.truncate");
 
         SIMULATE_STORAGE_ISSUES(self, "truncate", folly::Unit)
@@ -691,7 +680,6 @@ folly::Future<FileHandlePtr> NullDeviceHelper::open(
         fileId, executor = m_executor, timeout = m_timeout,
         self = shared_from_this()
     ]() mutable {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.open");
 
         SIMULATE_STORAGE_ISSUES(self, "open", FileHandlePtr)
@@ -710,7 +698,6 @@ folly::Future<folly::fbstring> NullDeviceHelper::getxattr(
 
     return folly::via(
         m_executor.get(), [ fileId, name, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getxattr");
 
             SIMULATE_STORAGE_ISSUES(self, "getxattr", folly::fbstring)
@@ -729,7 +716,6 @@ folly::Future<folly::Unit> NullDeviceHelper::setxattr(
 
     return folly::via(m_executor.get(),
         [ fileId, name, value, create, replace, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.setxattr");
 
             SIMULATE_STORAGE_ISSUES(self, "setxattr", folly::Unit)
@@ -749,13 +735,11 @@ folly::Future<folly::Unit> NullDeviceHelper::removexattr(
 
     return folly::via(
         m_executor.get(), [ fileId, name, self = shared_from_this() ] {
-
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.removexattr");
 
             SIMULATE_STORAGE_ISSUES(self, "removexattr", folly::Unit)
 
             return folly::makeFuture();
-
         });
 }
 
@@ -766,7 +750,6 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::listxattr(
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(), [ fileId, self = shared_from_this() ] {
-
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.listxattr");
 
         SIMULATE_STORAGE_ISSUES(

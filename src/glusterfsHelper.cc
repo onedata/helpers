@@ -138,8 +138,7 @@ static std::mutex connectionMutex;
 GlusterFSFileHandle::GlusterFSFileHandle(folly::fbstring fileId,
     std::shared_ptr<GlusterFSHelper> helper, std::shared_ptr<glfs_fd_t> glfsFd,
     uid_t uid, gid_t gid)
-    : FileHandle{fileId}
-    , m_helper{std::move(helper)}
+    : FileHandle{fileId, std::move(helper)}
     , m_glfsFd{std::move(glfsFd)}
     , m_uid(uid)
     , m_gid(gid)
@@ -169,7 +168,9 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.glusterfs.read");
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+
+    return helper->connect().then([
         offset, size, glfsFd = m_glfsFd, uid = m_uid, gid = m_gid,
         fileId = m_fileId, timer = std::move(timer),
         s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}
@@ -216,7 +217,9 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.glusterfs.write");
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+
+    return helper->connect().then([
         offset, buf = std::move(buf), glfsFd = m_glfsFd, uid = m_uid,
         fileId = m_fileId, timer = std::move(timer), gid = m_gid,
         s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}
@@ -274,7 +277,9 @@ folly::Future<folly::Unit> GlusterFSFileHandle::release()
     if (!m_needsRelease.exchange(false))
         return folly::makeFuture();
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+
+    return helper->connect().then([
         glfsFd = m_glfsFd, uid = m_uid, gid = m_gid,
         s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}
     ] {
@@ -295,14 +300,18 @@ folly::Future<folly::Unit> GlusterFSFileHandle::flush()
 {
     LOG_FCALL();
 
-    return m_helper->connect().then([] { return folly::makeFuture(); });
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+
+    return helper->connect().then([] { return folly::makeFuture(); });
 }
 
 folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
 {
     LOG_FCALL() << LOG_FARG(isDataSync);
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+
+    return helper->connect().then([
         glfsFd = m_glfsFd, isDataSync, uid = m_uid, gid = m_gid,
         fileId = m_fileId,
         s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}
@@ -322,7 +331,6 @@ folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
 
         LOG_DBG(2) << "Performing sync on file " << fileId;
         return setHandleResult("glfs_fsync", glfs_fsync, glfsFd.get());
-
     });
 }
 
@@ -363,8 +371,8 @@ folly::Future<folly::Unit> GlusterFSHelper::connect()
 
         // glfs api allows to set user and group id's per thread only, so we
         // have to set it in each lambda, which can be scheduled on
-        // an arbitrary worker thread by Folly executor using glfs_setfsuid()
-        // and glfs_setfsgid()
+        // an arbitrary worker thread by Folly executor using
+        // glfs_setfsuid() and glfs_setfsgid()
         auto ctxId =
             GlusterFSConnection::generateCtxId(m_hostname, m_port, m_volume);
 
@@ -533,7 +541,6 @@ folly::Future<folly::Unit> GlusterFSHelper::access(
 
     return connect().then(
         [ this, filePath = root(fileId), mask, uid = m_uid, gid = m_gid ] {
-
             glfs_setfsuid(uid);
             glfs_setfsgid(gid);
 

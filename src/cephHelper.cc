@@ -42,8 +42,7 @@ inline bool CephRetryCondition(int result, const std::string &operation)
 
 CephFileHandle::CephFileHandle(folly::fbstring fileId,
     std::shared_ptr<CephHelper> helper, librados::IoCtx &ioCTX)
-    : FileHandle{std::move(fileId)}
-    , m_helper{std::move(helper)}
+    : FileHandle{std::move(fileId), std::move(helper)}
     , m_ioCTX{ioCTX}
 {
     LOG_FCALL() << LOG_FARG(fileId);
@@ -56,9 +55,11 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.ceph.read");
 
-    return m_helper->connect().then([
+    auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
+
+    return helper->connect().then([
         this, offset, size,
-        s = std::weak_ptr<CephFileHandle>{shared_from_this()},
+        s = std::weak_ptr<CephFileHandle>{shared_from_this()}, helper,
         timer = std::move(timer)
     ] {
         auto self = s.lock();
@@ -68,7 +69,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
         folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
         char *raw = static_cast<char *>(buffer.preallocate(size, size).first);
         librados::bufferlist data;
-        libradosstriper::RadosStriper &rs = m_helper->getRadosStriper();
+        libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
         LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
                    << offset << " from file " << m_fileId;
@@ -105,8 +106,10 @@ folly::Future<std::size_t> CephFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.ceph.write");
 
-    return m_helper->connect().then([
-        this, buf = std::move(buf), offset,
+    auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
+
+    return helper->connect().then([
+        this, buf = std::move(buf), offset, helper,
         s = std::weak_ptr<CephFileHandle>{shared_from_this()},
         timer = std::move(timer)
     ]() mutable {
@@ -124,7 +127,7 @@ folly::Future<std::size_t> CephFileHandle::write(
 
         LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
                    << offset << " to file " << m_fileId;
-        libradosstriper::RadosStriper &rs = m_helper->getRadosStriper();
+        libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
         auto ret = retry([&, data = std::move(data) ]() {
             return rs.write(m_fileId.toStdString(), data, size, offset);
@@ -151,7 +154,7 @@ const Timeout &CephFileHandle::timeout() { return m_helper->timeout(); }
 
 CephHelper::CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
     folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-    std::unique_ptr<folly::Executor> executor, Timeout timeout)
+    std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : m_clusterName{std::move(clusterName)}
     , m_monHost{std::move(monHost)}
     , m_poolName{std::move(poolName)}

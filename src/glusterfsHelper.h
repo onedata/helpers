@@ -104,7 +104,6 @@ public:
     const Timeout &timeout() override;
 
 private:
-    std::shared_ptr<GlusterFSHelper> m_helper;
     std::shared_ptr<glfs_fd_t> m_glfsFd;
     std::atomic_bool m_needsRelease{true};
     const uid_t m_uid;
@@ -143,6 +142,8 @@ public:
         folly::fbstring xlatorOptions,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
+
+    folly::fbstring name() const { return GLUSTERFS_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -202,6 +203,8 @@ public:
         const folly::fbstring &fileId) override;
 
     const Timeout &timeout() override { return m_timeout; }
+
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
     folly::Future<folly::Unit> connect();
 

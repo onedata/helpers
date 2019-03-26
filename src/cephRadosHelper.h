@@ -96,6 +96,8 @@ public:
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
+    folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };
+
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
 

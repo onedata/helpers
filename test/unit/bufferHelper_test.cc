@@ -14,38 +14,21 @@
 #include <atomic>
 #include <chrono>
 
+class StorageHelper;
+
 class FileHandle : public one::helpers::FileHandle {
 public:
     FileHandle(const folly::fbstring &fileId, folly::Executor &executor,
-        std::atomic<bool> &wasSimultaneous)
-        : one::helpers::FileHandle{fileId}
-        , m_executor{executor}
-        , m_wasSimultaneous{wasSimultaneous}
-    {
-    }
+        std::atomic<bool> &wasSimultaneous,
+        std::shared_ptr<StorageHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) override
-    {
-        return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
-    }
+        const off_t offset, const std::size_t size) override;
 
     folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override
-    {
-        return folly::via(&m_executor, [ this, size = buf.chainLength() ] {
-            if (++m_simultaneous > 1)
-                m_wasSimultaneous = true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            --m_simultaneous;
-            return size;
-        });
-    }
+        const off_t offset, folly::IOBufQueue buf) override;
 
-    const one::helpers::Timeout &timeout() override
-    {
-        return one::helpers::ASYNC_OPS_TIMEOUT;
-    }
+    const one::helpers::Timeout &timeout() override;
 
 private:
     folly::Executor &m_executor;
@@ -53,7 +36,8 @@ private:
     std::atomic<size_t> m_simultaneous{0};
 };
 
-class StorageHelper : public one::helpers::StorageHelper {
+class StorageHelper : public one::helpers::StorageHelper,
+                      public std::enable_shared_from_this<StorageHelper> {
 public:
     StorageHelper(folly::Executor &executor, std::atomic<bool> &wasSimultaneous)
         : m_executor{executor}
@@ -61,13 +45,15 @@ public:
     {
     }
 
+    folly::fbstring name() const override { return "teststorage"; }
+
     folly::Future<one::helpers::FileHandlePtr> open(
         const folly::fbstring &fileId, const int /*flags*/,
         const one::helpers::Params & /*openParams*/) override
     {
         return folly::makeFuture(static_cast<one::helpers::FileHandlePtr>(
             std::make_shared<FileHandle>(
-                fileId, m_executor, m_wasSimultaneous)));
+                fileId, m_executor, m_wasSimultaneous, shared_from_this())));
     }
 
     const one::helpers::Timeout &timeout() override
@@ -97,6 +83,41 @@ protected:
     std::shared_ptr<one::helpers::buffering::BufferAgentsMemoryLimitGuard>
         limitGuard;
 };
+
+// FileHandle implementation
+
+FileHandle::FileHandle(const folly::fbstring &fileId, folly::Executor &executor,
+    std::atomic<bool> &wasSimultaneous, std::shared_ptr<StorageHelper> helper)
+    : one::helpers::FileHandle{fileId, std::move(helper)}
+    , m_executor{executor}
+    , m_wasSimultaneous{wasSimultaneous}
+{
+}
+
+folly::Future<folly::IOBufQueue> FileHandle::read(
+    const off_t offset, const std::size_t size)
+{
+    return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
+}
+
+folly::Future<std::size_t> FileHandle::write(
+    const off_t offset, folly::IOBufQueue buf)
+{
+    return folly::via(&m_executor, [ this, size = buf.chainLength() ] {
+        if (++m_simultaneous > 1)
+            m_wasSimultaneous = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        --m_simultaneous;
+        return size;
+    });
+}
+
+const one::helpers::Timeout &FileHandle::timeout()
+{
+    return one::helpers::ASYNC_OPS_TIMEOUT;
+}
+
+// FileHandle implementation
 
 TEST_F(BufferAgentsMemoryLimitGuardTest, shouldReserveMemoryForBufferedHandles)
 {
