@@ -52,7 +52,6 @@ private:
         const one::clproto::HandshakeResponse &msg);
 
     errors::handshake::ErrorCode m_status;
-    std::vector<std::string> m_compatibleOneclientVersions;
 };
 
 } // namespace messages
