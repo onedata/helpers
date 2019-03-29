@@ -117,6 +117,25 @@ enum HTTPStatus {
 };
 
 class WebDAVHelper;
+class WebDAVSession;
+
+using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
+using WebDAVSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
+
+/**
+ * Handle 302 redirect by retrying the request.
+ */
+class HTTPFoundException : public proxygen::HTTPException {
+public:
+    HTTPFoundException(const std::string &locationHeader)
+        : proxygen::HTTPException(proxygen::HTTPException::Direction::INGRESS,
+              "302 redirect to " + locationHeader)
+        , location{locationHeader}
+    {
+    }
+
+    const std::string location;
+};
 
 /**
  * @c WebDAVSession holds structures related to a @c
@@ -132,6 +151,8 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
     std::unique_ptr<folly::SharedPromise<folly::Unit>> connectionPromise;
 
     std::string host;
+
+    WebDAVSessionPoolKey key;
 
     // Set to true when server returned 'Connection: close' header in response
     // to a request
@@ -206,8 +227,6 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
     void onEgressBufferCleared(const proxygen::HTTPSession &) override {}
     /**@}*/
 };
-
-using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
 
 /**
  * The WebDAVHelper class provides access to WebDAV storage via librados
@@ -331,7 +350,7 @@ public:
     /**
      * Establishes connection to the WebDAV storage cluster.
      */
-    folly::Future<WebDAVSession *> connect();
+    folly::Future<WebDAVSession *> connect(WebDAVSessionPoolKey key = {});
 
     std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
@@ -367,7 +386,7 @@ public:
      */
     void releaseSession(WebDAVSession *session)
     {
-        m_idleSessionPool.write(std::move(session));
+        m_idleSessionPool[session->key].write(std::move(session));
     };
 
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
@@ -381,6 +400,25 @@ public:
     bool isAccessTokenValid() const;
 
 private:
+    void initializeSessionPool(const WebDAVSessionPoolKey &key)
+    {
+        // Initialize HTTP session pool with connection to the
+        // main host:port as defined in the helper parameters
+        // Since some requests may create redirects, these will
+        // be added to the session pool with different keys
+        m_sessionPool[key] = folly::fbvector<WebDAVSessionPtr>();
+        m_idleSessionPool[key] =
+            folly::MPMCQueue<WebDAVSession *, std::atomic, true>(100);
+
+        for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
+            auto webDAVSession = std::make_unique<WebDAVSession>();
+            webDAVSession->helper = this;
+            webDAVSession->key = key;
+            m_idleSessionPool[key].write(webDAVSession.get());
+            m_sessionPool[key].emplace_back(std::move(webDAVSession));
+        }
+    }
+
     std::shared_ptr<WebDAVHelperParams> P() const
     {
         return std::dynamic_pointer_cast<WebDAVHelperParams>(params().get());
@@ -394,8 +432,11 @@ private:
 
     std::shared_ptr<folly::IOExecutor> m_executor;
 
-    folly::MPMCQueue<WebDAVSession *, std::atomic, true> m_idleSessionPool{100};
-    folly::fbvector<WebDAVSessionPtr> m_sessionPool;
+    std::map<WebDAVSessionPoolKey,
+        folly::MPMCQueue<WebDAVSession *, std::atomic, true>>
+        m_idleSessionPool;
+    std::map<WebDAVSessionPoolKey, folly::fbvector<WebDAVSessionPtr>>
+        m_sessionPool;
 
     pxml::NamespaceSupport m_nsMap;
 };
@@ -417,6 +458,13 @@ public:
             m_helper->releaseSession(std::move(m_session));
         }
     };
+
+    void setRedirectURL(const Poco::URI &redirectURL)
+    {
+        m_redirectURL = redirectURL;
+    }
+
+    Poco::URI redirectURL() const { return m_redirectURL; }
 
     folly::Future<proxygen::HTTPTransaction *> startTransaction();
 
@@ -452,6 +500,7 @@ protected:
     proxygen::HTTPTransaction *m_txn;
     proxygen::HTTPMessage m_request;
     folly::fbstring m_path;
+    Poco::URI m_redirectURL;
 
     uint16_t m_resultCode;
     std::unique_ptr<folly::IOBufQueue> m_resultBody;
@@ -685,8 +734,9 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size, const int retryCount);
+    folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf) override;

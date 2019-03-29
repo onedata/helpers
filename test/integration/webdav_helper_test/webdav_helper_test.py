@@ -9,6 +9,7 @@ import sys
 import time
 import subprocess
 from os.path import expanduser
+from urlparse import urlparse
 
 import pytest
 
@@ -106,6 +107,23 @@ def server(request):
 def helper(server):
     return WebDAVHelperProxy(server.endpoint, server.credentials)
 
+
+@pytest.fixture
+def helper_redirect(server):
+    redirect_port = "8080"
+    endpoint = urlparse(server.endpoint)
+    redirect_url = endpoint._replace(
+        netloc=endpoint.netloc.replace(
+            str(endpoint.port), redirect_port)).geturl()
+
+    return WebDAVHelperProxy(redirect_url, server.credentials)
+
+def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id):
+    data = random_str()
+    helper.write(file_id, data, 0)
+    data2 = helper_redirect.read(file_id, 0, len(data))
+
+    assert data == data2
 
 @pytest.mark.directory_operations_tests
 def test_mknod_should_return_enoent_on_missing_parent(helper, file_id):
