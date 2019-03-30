@@ -86,7 +86,7 @@ def server(request):
             self.endpoint = endpoint
             self.credentials = credentials
 
-    result = webdav.up('onedata/sabredav', 'storage',
+    result = webdav.up('onedata/sabredav:v2', 'storage',
                        common.generate_uid())
 
     [container] = result['docker_ids']
