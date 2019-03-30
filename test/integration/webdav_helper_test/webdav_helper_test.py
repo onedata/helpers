@@ -118,12 +118,22 @@ def helper_redirect(server):
 
     return WebDAVHelperProxy(redirect_url, server.credentials)
 
+
 def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id):
     data = random_str()
     helper.write(file_id, data, 0)
     data2 = helper_redirect.read(file_id, 0, len(data))
 
     assert data == data2
+
+
+def test_write_should_follow_temporary_redirect(helper_redirect, file_id):
+    data = random_str()
+    helper_redirect.write(file_id, data, 0)
+    data2 = helper_redirect.read(file_id, 0, len(data))
+
+    assert data == data2
+
 
 @pytest.mark.directory_operations_tests
 def test_mknod_should_return_enoent_on_missing_parent(helper, file_id):
