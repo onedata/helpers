@@ -137,6 +137,18 @@ public:
     const std::string location;
 };
 
+struct WebDAVSessionPoolKeyCompare {
+    bool equal(
+        const WebDAVSessionPoolKey &a, const WebDAVSessionPoolKey &b) const
+    {
+        return a == b;
+    }
+    std::size_t hash(const WebDAVSessionPoolKey &a) const
+    {
+        return std::hash<WebDAVSessionPoolKey>()(a);
+    }
+};
+
 /**
  * @c WebDAVSession holds structures related to a @c
  * proxygen::HTTPUpstreamSession running on a specific @c folly::EventBase
@@ -386,7 +398,9 @@ public:
      */
     void releaseSession(WebDAVSession *session)
     {
-        m_idleSessionPool[session->key].write(std::move(session));
+        decltype(m_idleSessionPool)::accessor ispAcc;
+        if (m_idleSessionPool.find(ispAcc, session->key))
+            ispAcc->second.write(std::move(session));
     };
 
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
@@ -406,16 +420,27 @@ private:
         // main host:port as defined in the helper parameters
         // Since some requests may create redirects, these will
         // be added to the session pool with different keys
-        m_sessionPool[key] = folly::fbvector<WebDAVSessionPtr>();
-        m_idleSessionPool[key] =
+        decltype(m_sessionPool)::accessor spAcc;
+        decltype(m_idleSessionPool)::accessor ispAcc;
+
+        auto inserted = m_sessionPool.insert(spAcc, key);
+
+        if (!inserted)
+            // Pool for this key already exists
+            return;
+
+        spAcc->second = folly::fbvector<WebDAVSessionPtr>();
+
+        m_idleSessionPool.insert(ispAcc, key);
+        ispAcc->second =
             folly::MPMCQueue<WebDAVSession *, std::atomic, true>(100);
 
         for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
             auto webDAVSession = std::make_unique<WebDAVSession>();
             webDAVSession->helper = this;
             webDAVSession->key = key;
-            m_idleSessionPool[key].write(webDAVSession.get());
-            m_sessionPool[key].emplace_back(std::move(webDAVSession));
+            ispAcc->second.write(webDAVSession.get());
+            spAcc->second.emplace_back(std::move(webDAVSession));
         }
     }
 
@@ -432,10 +457,12 @@ private:
 
     std::shared_ptr<folly::IOExecutor> m_executor;
 
-    std::map<WebDAVSessionPoolKey,
-        folly::MPMCQueue<WebDAVSession *, std::atomic, true>>
+    tbb::concurrent_hash_map<WebDAVSessionPoolKey,
+        folly::MPMCQueue<WebDAVSession *, std::atomic, true>,
+        WebDAVSessionPoolKeyCompare>
         m_idleSessionPool;
-    std::map<WebDAVSessionPoolKey, folly::fbvector<WebDAVSessionPtr>>
+    tbb::concurrent_hash_map<WebDAVSessionPoolKey,
+        folly::fbvector<WebDAVSessionPtr>, WebDAVSessionPoolKeyCompare>
         m_sessionPool;
 
     pxml::NamespaceSupport m_nsMap;

@@ -1397,12 +1397,13 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
         key = WebDAVSessionPoolKey{
             P()->endpoint().getHost(), P()->endpoint().getPort()};
 
-    if (m_sessionPool.find(key) == m_sessionPool.end())
-        initializeSessionPool(key);
+    initializeSessionPool(key);
 
     // Wait for a webdav session to be available
     WebDAVSession *webDAVSession{nullptr};
-    m_idleSessionPool[key].blockingRead(webDAVSession);
+    decltype(m_idleSessionPool)::accessor ispAcc;
+    m_idleSessionPool.find(ispAcc, key);
+    ispAcc->second.blockingRead(webDAVSession);
 
     assert(webDAVSession != nullptr);
 
