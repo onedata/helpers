@@ -275,8 +275,8 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
     return write(offset, std::move(buf), kWebDAVRetryCount);
 }
 
-folly::Future<std::size_t> WebDAVFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf, const int retryCount)
+folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
+    folly::IOBufQueue buf, const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
@@ -284,9 +284,16 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
 
     auto helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper);
 
-    return helper->connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return helper->connect(sessionPoolKey).then([
         fileId = m_fileId, offset, buf = std::move(buf),
-        timer = std::move(timer), retryCount,
+        timer = std::move(timer), retryCount, redirectURL,
         helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
         s = std::weak_ptr<WebDAVFileHandle>{shared_from_this()}
     ](WebDAVSession * session) mutable {
@@ -304,6 +311,9 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
             WebDAVRangeWriteSupport::MODDAV_PUTRANGE) {
             request = std::make_shared<WebDAVPUT>(helper.get(), session);
         }
+
+        if (!redirectURL.empty())
+            request->setRedirectURL(redirectURL);
 
         if (request) {
             auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
@@ -334,6 +344,13 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
                         ONE_METRIC_TIMERCTX_STOP(timer, size);
                         return size;
                     })
+                .onError([fileId, self, offset, queue, retryCount](
+                             const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV write request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->write(offset, std::move(*queue),
+                        retryCount - 1, Poco::URI(redirect.location));
+                })
                 .onError([self, offset, queue, retryCount](
                              std::system_error &e) mutable {
                     if (shouldRetryError(e.code().value()) && retryCount > 0) {
@@ -444,14 +461,21 @@ folly::Future<folly::Unit> WebDAVHelper::access(
     return access(fileId, {}, kWebDAVRetryCount);
 }
 
-folly::Future<folly::Unit> WebDAVHelper::access(
-    const folly::fbstring &fileId, const int /*mask*/, const int retryCount)
+folly::Future<folly::Unit> WebDAVHelper::access(const folly::fbstring &fileId,
+    const int /*mask*/, const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.access");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, timer = std::move(timer), retryCount,
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -467,6 +491,13 @@ folly::Future<folly::Unit> WebDAVHelper::access(
                 [](PAPtr<pxml::Document> && /*multistatus*/) {
                     return folly::makeFuture();
                 })
+            .onError(
+                [fileId, self, retryCount](const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV access request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->access(fileId, {}, retryCount - 1,
+                        Poco::URI(redirect.location));
+                })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -478,7 +509,7 @@ folly::Future<folly::Unit> WebDAVHelper::access(
                         });
                 }
 
-                LOG(INFO) << "Received error " << e.code().value();
+                LOG_DBG(2) << "Received access error " << e.code().value();
                 return makeFuturePosixException<folly::Unit>(e.code().value());
             })
             .onError([=](const proxygen::HTTPException & /*unused*/) {
@@ -502,14 +533,21 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId)
     return getattr(fileId, kWebDAVRetryCount);
 }
 
-folly::Future<struct stat> WebDAVHelper::getattr(
-    const folly::fbstring &fileId, const int retryCount)
+folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
+    const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.getattr");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, timer = std::move(timer), retryCount,
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -575,6 +613,13 @@ folly::Future<struct stat> WebDAVHelper::getattr(
 
                     return attrs;
                 })
+            .onError(
+                [fileId, self, retryCount](const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV getattr request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->getattr(
+                        fileId, retryCount - 1, Poco::URI(redirect.location));
+                })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -611,13 +656,21 @@ folly::Future<folly::Unit> WebDAVHelper::unlink(
 }
 
 folly::Future<folly::Unit> WebDAVHelper::unlink(const folly::fbstring &fileId,
-    const size_t /*currentSize*/, const int retryCount)
+    const size_t /*currentSize*/, const int retryCount,
+    const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.unlink");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -629,6 +682,13 @@ folly::Future<folly::Unit> WebDAVHelper::unlink(const folly::fbstring &fileId,
 
         return (*request)(fileId)
             .then(session->evb, [request]() { return folly::makeFuture(); })
+            .onError(
+                [fileId, self, retryCount](const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV unlink request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->unlink(fileId, {}, retryCount - 1,
+                        Poco::URI(redirect.location));
+                })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -663,14 +723,21 @@ folly::Future<folly::Unit> WebDAVHelper::rmdir(const folly::fbstring &fileId)
     return rmdir(fileId, kWebDAVRetryCount);
 }
 
-folly::Future<folly::Unit> WebDAVHelper::rmdir(
-    const folly::fbstring &fileId, const int retryCount)
+folly::Future<folly::Unit> WebDAVHelper::rmdir(const folly::fbstring &fileId,
+    const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.rmdir");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -682,6 +749,13 @@ folly::Future<folly::Unit> WebDAVHelper::rmdir(
 
         return (*request)(fileId)
             .then(session->evb, [request]() { return folly::makeFuture(); })
+            .onError(
+                [fileId, self, retryCount](const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV rmdir request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->rmdir(
+                        fileId, retryCount - 1, Poco::URI(redirect.location));
+                })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -717,7 +791,8 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(
 }
 
 folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
-    off_t size, const size_t currentSize, const int retryCount)
+    off_t size, const size_t currentSize, const int retryCount,
+    const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
@@ -731,7 +806,14 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
             return makeFuturePosixException(ERANGE);
     }
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, retryCount, timer = std::move(timer), size, currentSize,
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -752,6 +834,13 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
             fillBuf->writableData()[i] = 0;
         return (*request)(fileId, size, std::move(fillBuf))
             .then(session->evb, [request]() { return folly::makeFuture(); })
+            .onError([fileId, size, currentSize, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV truncate request of file "
+                           << fileId << " to: " << redirect.location;
+                return self->truncate(fileId, size, currentSize, retryCount - 1,
+                    Poco::URI(redirect.location));
+            })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -790,13 +879,20 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
 
 folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
     const mode_t /*mode*/, const FlagsSet & /*flags*/, const dev_t /*rdev*/,
-    const int retryCount)
+    const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.mknod");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -807,6 +903,13 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
         auto request = std::make_shared<WebDAVPUT>(self.get(), session);
 
         return (*request)(fileId, 0, std::make_unique<folly::IOBuf>())
+            .onError(
+                [fileId, self, retryCount](const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV mknod request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->mknod(fileId, {}, {}, {}, retryCount - 1,
+                        Poco::URI(redirect.location));
+                })
             .onError([self, fileId, retryCount](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     return self->mknod(fileId, {}, {}, {});
@@ -816,9 +919,9 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
                     LOG_DBG(2) << "Received EPERM when creating file " << fileId
                                << " - could be missing parent directory...";
 
-                    // EPERM during mknod can be returned in case some directory
-                    // on the path doesn't exist, if this is the case, return
-                    // ENOENT instead
+                    // EPERM during mknod can be returned in case some
+                    // directory on the path doesn't exist, if this is the
+                    // case, return ENOENT instead
                     Poco::StringTokenizer pathElements(fileId.toStdString(),
                         "/",
                         Poco::StringTokenizer::TOK_IGNORE_EMPTY |
@@ -855,8 +958,8 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(
     return mkdir(fileId, {}, kWebDAVRetryCount);
 }
 
-folly::Future<folly::Unit> WebDAVHelper::mkdir(
-    const folly::fbstring &fileId, const mode_t /*mode*/, const int retryCount)
+folly::Future<folly::Unit> WebDAVHelper::mkdir(const folly::fbstring &fileId,
+    const mode_t /*mode*/, const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
@@ -865,7 +968,14 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.mkdir");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -877,10 +987,18 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(
 
         return (*request)(fileId)
             .then(session->evb, [request]() { return folly::makeFuture(); })
+            .onError(
+                [fileId, self, retryCount](const HTTPFoundException &redirect) {
+                    LOG_DBG(2) << "Redirecting WebDAV mkdir request of file "
+                               << fileId << " to: " << redirect.location;
+                    return self->mkdir(fileId, {}, retryCount - 1,
+                        Poco::URI(redirect.location));
+                })
             .onError([=](std::system_error &e) {
                 if (e.code().value() == ENOTSUP) {
-                    // Some WebDAV implementations return MethodNotAllowed error
-                    // in case the collection at given path already exists
+                    // Some WebDAV implementations return MethodNotAllowed
+                    // error in case the collection at given path already
+                    // exists
                     return folly::makeFuture();
                 }
 
@@ -918,13 +1036,21 @@ folly::Future<folly::Unit> WebDAVHelper::rename(
 }
 
 folly::Future<folly::Unit> WebDAVHelper::rename(const folly::fbstring &from,
-    const folly::fbstring &to, const int retryCount)
+    const folly::fbstring &to, const int retryCount,
+    const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.rename");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         from, to, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -936,6 +1062,13 @@ folly::Future<folly::Unit> WebDAVHelper::rename(const folly::fbstring &from,
 
         return (*request)(from, to)
             .then(session->evb, [request]() { return folly::makeFuture(); })
+            .onError([from, to, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV rename request of file "
+                           << from << " to: " << redirect.location;
+                return self->rename(
+                    from, to, retryCount - 1, Poco::URI(redirect.location));
+            })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -972,13 +1105,20 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
 
 folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
     const folly::fbstring &fileId, off_t offset, size_t count,
-    const int retryCount)
+    const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.readdir");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, offset, count, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -1046,7 +1186,8 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                                     pathElements[pathElements.count() - 1];
                                 LOG_DBG(3)
                                     << "WebDAV::readdir: Added '" << pa
-                                    << "' to response dir list. (rootPath = "
+                                    << "' to response dir list. (rootPath "
+                                       "= "
                                     << rootPath << ")";
                                 result.emplace_back(std::move(pa));
                             }
@@ -1062,6 +1203,13 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                         throw makePosixException(EIO);
                     }
                 })
+            .onError([fileId, offset, count, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV readdir request of file "
+                           << fileId << " to: " << redirect.location;
+                return self->readdir(fileId, offset, count, retryCount - 1,
+                    Poco::URI(redirect.location));
+            })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -1102,13 +1250,20 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
 
 folly::Future<folly::fbstring> WebDAVHelper::getxattr(
     const folly::fbstring &fileId, const folly::fbstring &name,
-    const int retryCount)
+    const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.getxattr");
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, name, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -1154,6 +1309,13 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
 
                     return result;
                 })
+            .onError([fileId, name, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV getxattr request of file "
+                           << fileId << " to: " << redirect.location;
+                return self->getxattr(
+                    fileId, name, retryCount - 1, Poco::URI(redirect.location));
+            })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -1192,7 +1354,7 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
 
 folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
     const folly::fbstring &name, const folly::fbstring &value, bool /*create*/,
-    bool /*replace*/, const int retryCount)
+    bool /*replace*/, const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name) << LOG_FARG(value);
 
@@ -1202,7 +1364,14 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
         return connect().then([] {});
     }
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, name, value, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -1214,6 +1383,13 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
 
         return (*request)(fileId, name, value, false)
             .then(session->evb, [fileId, name, request]() {})
+            .onError([fileId, name, value, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV setxattr request of file "
+                           << fileId << " to: " << redirect.location;
+                return self->setxattr(fileId, name, value, {}, {},
+                    retryCount - 1, Poco::URI(redirect.location));
+            })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -1252,7 +1428,7 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
 
 folly::Future<folly::Unit> WebDAVHelper::removexattr(
     const folly::fbstring &fileId, const folly::fbstring &name,
-    const int retryCount)
+    const int retryCount, const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
@@ -1263,7 +1439,14 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
         return connect().then([] {});
     }
 
-    return connect().then([
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
+    return connect(sessionPoolKey).then([
         fileId, name, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -1275,6 +1458,13 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
 
         return (*request)(fileId, name, "", true)
             .then(session->evb, [fileId, name, request]() {})
+            .onError([fileId, name, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV removexattr request of file "
+                           << fileId << " to: " << redirect.location;
+                return self->removexattr(
+                    fileId, name, retryCount - 1, Poco::URI(redirect.location));
+            })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
                     ONE_METRIC_COUNTER_INC(
@@ -1312,15 +1502,23 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
-    const folly::fbstring &fileId, const int retryCount)
+    const folly::fbstring &fileId, const int retryCount,
+    const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
     auto timer =
         ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.listxattr");
 
+    auto sessionPoolKey = WebDAVSessionPoolKey{};
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey =
+            WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
+    }
+
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-    return connect().then([
+    return connect(sessionPoolKey).then([
         fileId, retryCount, timer = std::move(timer),
         s = std::weak_ptr<WebDAVHelper>{shared_from_this()}
     ](WebDAVSession * session) {
@@ -1352,6 +1550,13 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
                 }
 
                 return result;
+            })
+            .onError([fileId, self, retryCount](
+                         const HTTPFoundException &redirect) {
+                LOG_DBG(2) << "Redirecting WebDAV listxattr request of file "
+                           << fileId << " to: " << redirect.location;
+                return self->listxattr(
+                    fileId, retryCount - 1, Poco::URI(redirect.location));
             })
             .onError([=](std::system_error &e) {
                 if (shouldRetryError(e.code().value()) && retryCount > 0) {
@@ -1702,7 +1907,7 @@ void WebDAVRequest::onHeadersComplete(
         }
     }
     if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
-        LOG(ERROR) << "Received 302 redirect response to: "
+        LOG_DBG(2) << "Received 302 redirect response to: "
                    << msg->getHeaders().rawGet("Location");
         m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
     }
@@ -1724,19 +1929,8 @@ void WebDAVRequest::onEgressPaused() noexcept {}
 
 void WebDAVRequest::onEgressResumed() noexcept {}
 
-/**
- * GET
- */
-folly::Future<folly::IOBufQueue> WebDAVGET::operator()(
-    const folly::fbstring &resource, const off_t offset, const size_t size)
+void WebDAVRequest::updateRequestURL(const folly::fbstring &resource)
 {
-    if (size == 0)
-        return folly::via(m_session->evb, [] {
-            return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
-        });
-
-    m_request.setMethod("GET");
-
     if (m_redirectURL.empty()) {
         m_request.rawSetURL(
             ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
@@ -1750,6 +1944,22 @@ folly::Future<folly::IOBufQueue> WebDAVGET::operator()(
                 ensureHttpPath(folly::sformat("{}/{}", m_path, resource)),
                 m_redirectURL.getQuery()));
     }
+}
+
+/**
+ * GET
+ */
+folly::Future<folly::IOBufQueue> WebDAVGET::operator()(
+    const folly::fbstring &resource, const off_t offset, const size_t size)
+{
+    if (size == 0)
+        return folly::via(m_session->evb, [] {
+            return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
+        });
+
+    m_request.setMethod("GET");
+
+    updateRequestURL(resource);
 
     if (offset == 0 && size == 1) {
         m_firstByteRequest = true;
@@ -1815,8 +2025,9 @@ folly::Future<folly::Unit> WebDAVPUT::operator()(
     std::unique_ptr<folly::IOBuf> buf)
 {
     m_request.setMethod("PUT");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
+
     if (buf->length() > 0) {
         m_request.getHeaders().add("Content-Range",
             folly::sformat(
@@ -1838,6 +2049,13 @@ folly::Future<folly::Unit> WebDAVPUT::operator()(
 
 void WebDAVPUT::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
     if (result == 0) {
         m_resultPromise.setValue();
@@ -1863,8 +2081,9 @@ folly::Future<folly::Unit> WebDAVPATCH::operator()(
         return folly::makeFuture();
 
     m_request.setMethod("PATCH");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
+
     m_request.getHeaders().add("X-Update-Range",
         folly::sformat("bytes={}-{}", offset, offset + buf->length() - 1));
     m_request.getHeaders().add(
@@ -1891,6 +2110,13 @@ void WebDAVPATCH::onHeadersComplete(
 
 void WebDAVPATCH::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
     if (result == 0) {
         m_resultPromise.setValue();
@@ -1912,8 +2138,8 @@ folly::Future<folly::Unit> WebDAVMKCOL::operator()(
     const folly::fbstring &resource)
 {
     m_request.setMethod("MKCOL");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
 
     m_destructionGuard = shared_from_this();
 
@@ -1926,6 +2152,13 @@ folly::Future<folly::Unit> WebDAVMKCOL::operator()(
 
 void WebDAVMKCOL::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
     if (result == 0) {
         m_resultPromise.setValue();
@@ -1948,8 +2181,9 @@ folly::Future<PAPtr<pxml::Document>> WebDAVPROPFIND::operator()(
     const folly::fbvector<folly::fbstring> & /*propFilter*/)
 {
     m_request.setMethod("PROPFIND");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
+
     m_request.getHeaders().add(
         "Depth", (depth >= 0) ? std::to_string(depth) : "infinity");
 
@@ -1976,6 +2210,13 @@ void WebDAVPROPFIND::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void WebDAVPROPFIND::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
 
     if (result == 0) {
@@ -2021,8 +2262,9 @@ folly::Future<folly::Unit> WebDAVPROPPATCH::operator()(
     const folly::fbstring &value, const bool remove)
 {
     m_request.setMethod("PROPPATCH");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
+
     m_request.getHeaders().add(
         "Content-type", "application/x-www-form-urlencoded");
 
@@ -2107,6 +2349,13 @@ void WebDAVPROPPATCH::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void WebDAVPROPPATCH::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
 
     if (result == 0) {
@@ -2167,8 +2416,8 @@ folly::Future<folly::Unit> WebDAVDELETE::operator()(
     const folly::fbstring &resource)
 {
     m_request.setMethod("DELETE");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
 
     m_destructionGuard = shared_from_this();
 
@@ -2181,6 +2430,13 @@ folly::Future<folly::Unit> WebDAVDELETE::operator()(
 
 void WebDAVDELETE::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
     if (result == 0) {
         m_resultPromise.setValue();
@@ -2202,8 +2458,9 @@ folly::Future<folly::Unit> WebDAVMOVE::operator()(
     const folly::fbstring &resource, const folly::fbstring &destination)
 {
     m_request.setMethod("MOVE");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
+
     m_request.getHeaders().add("Destination", destination.toStdString());
 
     m_destructionGuard = shared_from_this();
@@ -2217,6 +2474,13 @@ folly::Future<folly::Unit> WebDAVMOVE::operator()(
 
 void WebDAVMOVE::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
     if (result == 0) {
         m_resultPromise.setValue();
@@ -2238,8 +2502,9 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
     const folly::fbstring &resource, const folly::fbstring &destination)
 {
     m_request.setMethod("COPY");
-    m_request.rawSetURL(
-        ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+
+    updateRequestURL(resource);
+
     m_request.getHeaders().add("Destination", destination.toStdString());
 
     m_destructionGuard = shared_from_this();
@@ -2254,6 +2519,13 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
 
 void WebDAVCOPY::onEOM() noexcept
 {
+    if (m_resultCode == HTTPStatus::Found) {
+        // The request is being redirected to another URL
+        m_resultPromise.setException(
+            HTTPFoundException{m_redirectURL.toString()});
+        return;
+    }
+
     auto result = httpStatusToPosixError(m_resultCode);
     if (result == 0) {
         m_resultPromise.setValue();
