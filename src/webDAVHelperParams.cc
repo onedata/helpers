@@ -35,7 +35,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
         getParam(parameters, "verifyServerCertificate", "true");
     const auto &credentialsTypeStr =
         getParam(parameters, "credentialsType", "basic");
-    const auto &credentials = getParam(parameters, "credentials");
+    const auto &credentials = getParam(parameters, "credentials", "");
     auto authorizationHeader = getParam<std::string>(
         parameters, "authorizationHeader", kDefaultAuthorizationHeader);
     auto oauth2IdP = getParam<std::string>(parameters, "oauth2IdP", "");
