@@ -606,9 +606,23 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
                         "d:getcontentlength",
                         nsMap);
 
-                    if (getContentLength != nullptr) {
-                        attrs.st_size =
-                            std::stoi(getContentLength->innerText());
+                    if ((getContentLength != nullptr) &&
+                        !getContentLength->innerText().empty()) {
+                        try {
+                            attrs.st_size =
+                                std::stoi(getContentLength->innerText());
+                        }
+                        catch (const std::invalid_argument &e) {
+                            LOG(ERROR) << "Failed to parse resource content "
+                                          "length: '"
+                                       << getContentLength->innerText()
+                                       << "' for resource: " << fileId;
+
+                            attrs.st_size = 0;
+                        }
+                    }
+                    else {
+                        attrs.st_size = 0;
                     }
 
                     return attrs;
@@ -1802,7 +1816,9 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
         m_request.getHeaders().add("Host", session->host);
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u) {
-        if (p->credentialsType() == WebDAVCredentialsType::BASIC) {
+        if (p->credentialsType() == WebDAVCredentialsType::NONE) {
+        }
+        else if (p->credentialsType() == WebDAVCredentialsType::BASIC) {
             std::stringstream b64Stream;
             Poco::Base64Encoder b64Encoder(b64Stream);
             b64Encoder << p->credentials();
