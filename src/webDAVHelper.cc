@@ -1125,6 +1125,9 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.readdir");
 
+    if (count == 0 || offset < 0)
+        return folly::fbvector<folly::fbstring>{};
+
     auto sessionPoolKey = WebDAVSessionPoolKey{};
 
     if (!redirectURL.getHost().empty()) {
@@ -1147,7 +1150,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
         return (*request)(fileId, 1, propFilter)
             .then(session->evb,
                 [
-                    &nsMap = self->m_nsMap,
+                    &nsMap = self->m_nsMap, offset, count,
                     endpointPath = std::string(self->P()->endpoint().getPath()),
                     fileId, request
                 ](PAPtr<pxml::Document> && multistatus) {
@@ -1157,7 +1160,6 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                                 kNSDAV, "response");
 
                         folly::fbvector<folly::fbstring> result;
-                        result.reserve(responses->length());
 
                         Poco::StringTokenizer fileIdElements(
                             fileId.toStdString(), "/",
@@ -1165,6 +1167,11 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                                 Poco::StringTokenizer::TOK_TRIM);
 
                         auto entryCount = responses->length();
+
+                        if (static_cast<size_t>(offset) >= entryCount)
+                            return result;
+
+                        result.reserve(responses->length());
 
                         auto directoryPath = ensureCollectionPath(fileId);
 
@@ -1205,6 +1212,16 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                                     << rootPath << ")";
                                 result.emplace_back(std::move(pa));
                             }
+                        }
+
+                        std::sort(result.begin(), result.end());
+
+                        if ((offset > 0) || (count < entryCount)) {
+                            folly::fbvector<folly::fbstring> subResult;
+                            std::copy_n(result.begin() + offset,
+                                std::min<size_t>(count, result.size() - offset),
+                                std::back_inserter(subResult));
+                            return subResult;
                         }
 
                         return result;
