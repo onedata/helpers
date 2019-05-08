@@ -197,3 +197,37 @@ def test_getattr_should_return_default_permissions(helper, file_id):
     # in mkdir call
     assert helper.getattr(dir_id).st_mode&0777 == default_dir_mode
     assert helper.getattr(dir_id+"/"+file_id).st_mode&0777 == default_file_mode
+
+
+def test_readdir_should_handle_offset_properly(helper):
+    def to_python_list(readdir_result):
+        r = [e for e in readdir_result]
+        r.sort()
+        return r
+
+    test_dir = 'offset_test'
+
+    helper.mkdir(test_dir, 0777)
+
+    files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
+
+    for file in files:
+        helper.write(test_dir+'/'+file, random_str(), 0)
+
+    dirs = to_python_list(helper.readdir(test_dir, 0, 100))
+    assert dirs == files
+
+    dirs = to_python_list(helper.readdir(test_dir, 0, 1))
+    assert dirs == files[0:1]
+
+    dirs = to_python_list(helper.readdir(test_dir, 0, 2))
+    assert dirs == files[0:2]
+
+    dirs = to_python_list(helper.readdir(test_dir, 3, 100))
+    assert dirs == files[3:5]
+
+    dirs = to_python_list(helper.readdir(test_dir, 100, 100))
+    assert dirs == []
+
+    dirs = to_python_list(helper.readdir(test_dir, 0, 0))
+    assert dirs == []
