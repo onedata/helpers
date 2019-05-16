@@ -117,6 +117,37 @@ enum HTTPStatus {
 };
 
 class WebDAVHelper;
+class WebDAVSession;
+
+using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
+using WebDAVSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
+
+/**
+ * Handle 302 redirect by retrying the request.
+ */
+class HTTPFoundException : public proxygen::HTTPException {
+public:
+    HTTPFoundException(const std::string &locationHeader)
+        : proxygen::HTTPException(proxygen::HTTPException::Direction::INGRESS,
+              "302 redirect to " + locationHeader)
+        , location{locationHeader}
+    {
+    }
+
+    const std::string location;
+};
+
+struct WebDAVSessionPoolKeyCompare {
+    bool equal(
+        const WebDAVSessionPoolKey &a, const WebDAVSessionPoolKey &b) const
+    {
+        return a == b;
+    }
+    std::size_t hash(const WebDAVSessionPoolKey &a) const
+    {
+        return std::hash<WebDAVSessionPoolKey>()(a);
+    }
+};
 
 /**
  * @c WebDAVSession holds structures related to a @c
@@ -132,6 +163,8 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
     std::unique_ptr<folly::SharedPromise<folly::Unit>> connectionPromise;
 
     std::string host;
+
+    WebDAVSessionPoolKey key;
 
     // Set to true when server returned 'Connection: close' header in response
     // to a request
@@ -207,8 +240,6 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
     /**@}*/
 };
 
-using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
-
 /**
  * The WebDAVHelper class provides access to WebDAV storage via librados
  * library.
@@ -236,13 +267,14 @@ public:
     folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, const int mask) override;
 
-    folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask, const int retryCount);
+    folly::Future<folly::Unit> access(const folly::fbstring &fileId,
+        const int mask, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
-    folly::Future<struct stat> getattr(
-        const folly::fbstring &fileId, const int retryCount);
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId,
+        const int retryCount, const Poco::URI &redirectURL = {});
 
     folly::Future<FileHandlePtr> open(
         const folly::fbstring &fileId, const int, const Params &) override;
@@ -251,37 +283,41 @@ public:
         const folly::fbstring &fileId, const size_t currentSize) override;
 
     folly::Future<folly::Unit> unlink(const folly::fbstring &fileId,
-        const size_t currentSize, const int retryCount);
+        const size_t currentSize, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
 
-    folly::Future<folly::Unit> rmdir(
-        const folly::fbstring &fileId, const int retryCount);
+    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId,
+        const int retryCount, const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
         const off_t size, const size_t currentSize) override;
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize, const int retryCount);
+        const off_t size, const size_t currentSize, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev,
-        const int retryCount);
+        const int retryCount, const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override;
 
-    folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode, const int retryCount);
+    folly::Future<folly::Unit> mkdir(const folly::fbstring &fileId,
+        const mode_t mode, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> rename(
         const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> rename(const folly::fbstring &from,
-        const folly::fbstring &to, const int retryCount);
+        const folly::fbstring &to, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> chmod(
         const folly::fbstring &fileId, const mode_t mode) override
@@ -300,13 +336,14 @@ public:
 
     folly::Future<folly::fbvector<folly::fbstring>> readdir(
         const folly::fbstring &fileId, off_t offset, size_t count,
-        const int retryCount);
+        const int retryCount, const Poco::URI &redirectURL = {});
 
     folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;
 
     folly::Future<folly::fbstring> getxattr(const folly::fbstring &fileId,
-        const folly::fbstring &name, const int retryCount);
+        const folly::fbstring &name, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
@@ -314,24 +351,26 @@ public:
 
     folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace, const int retryCount);
+        bool replace, const int retryCount, const Poco::URI &redirectURL = {});
 
     folly::Future<folly::Unit> removexattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;
 
     folly::Future<folly::Unit> removexattr(const folly::fbstring &fileId,
-        const folly::fbstring &name, const int retryCount);
+        const folly::fbstring &name, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &fileId, const int retryCount);
+        const folly::fbstring &fileId, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     /**
      * Establishes connection to the WebDAV storage cluster.
      */
-    folly::Future<WebDAVSession *> connect();
+    folly::Future<WebDAVSession *> connect(WebDAVSessionPoolKey key = {});
 
     std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
@@ -367,7 +406,9 @@ public:
      */
     void releaseSession(WebDAVSession *session)
     {
-        m_idleSessionPool.write(std::move(session));
+        decltype(m_idleSessionPool)::accessor ispAcc;
+        if (m_idleSessionPool.find(ispAcc, session->key))
+            ispAcc->second.write(std::move(session));
     };
 
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
@@ -381,6 +422,36 @@ public:
     bool isAccessTokenValid() const;
 
 private:
+    void initializeSessionPool(const WebDAVSessionPoolKey &key)
+    {
+        // Initialize HTTP session pool with connection to the
+        // main host:port as defined in the helper parameters
+        // Since some requests may create redirects, these will
+        // be added to the session pool with different keys
+        decltype(m_sessionPool)::accessor spAcc;
+        decltype(m_idleSessionPool)::accessor ispAcc;
+
+        auto inserted = m_sessionPool.insert(spAcc, key);
+
+        if (!inserted)
+            // Pool for this key already exists
+            return;
+
+        spAcc->second = folly::fbvector<WebDAVSessionPtr>();
+
+        m_idleSessionPool.insert(ispAcc, key);
+        ispAcc->second =
+            folly::MPMCQueue<WebDAVSession *, std::atomic, true>(100);
+
+        for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
+            auto webDAVSession = std::make_unique<WebDAVSession>();
+            webDAVSession->helper = this;
+            webDAVSession->key = key;
+            ispAcc->second.write(webDAVSession.get());
+            spAcc->second.emplace_back(std::move(webDAVSession));
+        }
+    }
+
     std::shared_ptr<WebDAVHelperParams> P() const
     {
         return std::dynamic_pointer_cast<WebDAVHelperParams>(params().get());
@@ -394,8 +465,13 @@ private:
 
     std::shared_ptr<folly::IOExecutor> m_executor;
 
-    folly::MPMCQueue<WebDAVSession *, std::atomic, true> m_idleSessionPool{100};
-    folly::fbvector<WebDAVSessionPtr> m_sessionPool;
+    tbb::concurrent_hash_map<WebDAVSessionPoolKey,
+        folly::MPMCQueue<WebDAVSession *, std::atomic, true>,
+        WebDAVSessionPoolKeyCompare>
+        m_idleSessionPool;
+    tbb::concurrent_hash_map<WebDAVSessionPoolKey,
+        folly::fbvector<WebDAVSessionPtr>, WebDAVSessionPoolKeyCompare>
+        m_sessionPool;
 
     pxml::NamespaceSupport m_nsMap;
 };
@@ -417,6 +493,13 @@ public:
             m_helper->releaseSession(std::move(m_session));
         }
     };
+
+    void setRedirectURL(const Poco::URI &redirectURL)
+    {
+        m_redirectURL = redirectURL;
+    }
+
+    Poco::URI redirectURL() const { return m_redirectURL; }
 
     folly::Future<proxygen::HTTPTransaction *> startTransaction();
 
@@ -446,12 +529,15 @@ public:
     /**@{*/
 
 protected:
+    void updateRequestURL(const folly::fbstring &resource);
+
     WebDAVHelper *m_helper;
     WebDAVSession *m_session;
     std::shared_ptr<WebDAVHelperParams> m_params;
     proxygen::HTTPTransaction *m_txn;
     proxygen::HTTPMessage m_request;
     folly::fbstring m_path;
+    Poco::URI m_redirectURL;
 
     uint16_t m_resultCode;
     std::unique_ptr<folly::IOBufQueue> m_resultBody;
@@ -685,14 +771,15 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size, const int retryCount);
+    folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const int retryCount,
+        const Poco::URI &redirectURL = {});
 
     folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf) override;
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf, const int retryCount);
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        const int retryCount, const Poco::URI &redirectURL = {});
 
     const Timeout &timeout() override;
 
