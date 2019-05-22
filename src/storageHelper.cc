@@ -72,10 +72,11 @@ std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
     if (name == POSIX_HELPER_NAME) {
         return PosixHelperParams::create(params);
     }
-
+#if WITH_WEBDAV
     if (name == WEBDAV_HELPER_NAME) {
         return WebDAVHelperParams::create(params);
     }
+#endif
 
     throw std::invalid_argument(
         "Unsupported storage helper type: " + name.toStdString());
