@@ -22,12 +22,18 @@ struct MockConnection {
     MOCK_METHOD2(
         send, void(std::string, one::communication::Connection::Callback));
     MOCK_METHOD0(connect, void());
+    MOCK_METHOD0(upgrade, void());
+    MOCK_METHOD0(connected, bool());
+    MOCK_METHOD0(connectionId, int());
 
     std::atomic<bool> created{false};
+    std::atomic<bool> m_connected{false};
+    std::atomic<int> m_connectionId{0};
     MockConnectionWrapper *wrapper = nullptr;
 
     std::string host;
     unsigned short port = 0;
+    asio::io_service *ioService;
     asio::ssl::context *context = nullptr;
     std::function<void(std::string)> onMessage;
     std::function<void(one::communication::Connection &)> onReady;
@@ -47,7 +53,20 @@ struct MockConnectionWrapper : public one::communication::Connection {
         m_mockConnection.send(std::move(data), std::move(callback));
     }
 
-    void connect() override { m_mockConnection.connect(); }
+    void connect() override
+    {
+        m_mockConnection.connect();
+        m_mockConnection.m_connected = true;
+    }
+
+    void upgrade() override { m_mockConnection.upgrade(); }
+
+    bool connected() const override { return m_mockConnection.m_connected; }
+
+    int connectionId() const override
+    {
+        return m_mockConnection.m_connectionId;
+    }
 
     MockConnection &m_mockConnection;
 };
@@ -56,14 +75,16 @@ one::communication::ConnectionPool::ConnectionFactory
 createMockConnectionFactory(MockConnection &mockConnection)
 {
     return [&](std::string host, const unsigned short port,
-        std::shared_ptr<asio::ssl::context> context,
-        std::function<void(std::string)> onMessage,
-        std::function<void(one::communication::Connection &)> onReady,
-        std::function<std::string()> getHandshake,
-        std::function<std::error_code(std::string)> onHandshakeResponse,
-        std::function<void(std::error_code)> onHandshakeDone) {
+               asio::io_service &ioService,
+               std::shared_ptr<asio::ssl::context> context,
+               std::function<void(std::string)> onMessage,
+               std::function<void(one::communication::Connection &)> onReady,
+               std::function<std::string()> getHandshake,
+               std::function<std::error_code(std::string)> onHandshakeResponse,
+               std::function<void(std::error_code)> onHandshakeDone) {
         mockConnection.host = std::move(host);
         mockConnection.port = port;
+        mockConnection.ioService = &ioService;
         mockConnection.context = context.get();
         mockConnection.onMessage = std::move(onMessage);
         mockConnection.onReady = std::move(onReady);
@@ -71,7 +92,7 @@ createMockConnectionFactory(MockConnection &mockConnection)
         mockConnection.onHandshakeResponse = std::move(onHandshakeResponse);
         mockConnection.onHandshakeDone = std::move(onHandshakeDone);
 
-        auto conn = std::make_unique<MockConnectionWrapper>(mockConnection);
+        auto conn = std::make_shared<MockConnectionWrapper>(mockConnection);
 
         mockConnection.wrapper = conn.get();
         mockConnection.created = true;

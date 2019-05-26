@@ -10,6 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_RETRIER_H
 
 #include "communication/exception.h"
+#include "helpers/logging.h"
 
 #include <chrono>
 #include <functional>
@@ -20,8 +21,6 @@
 namespace one {
 namespace communication {
 namespace layers {
-
-constexpr std::chrono::seconds DEFAULT_SEND_TIMEOUT{5};
 
 /**
  * Retrier is responsible for retrying message send operation handled by
@@ -55,13 +54,22 @@ template <class LowerLayer>
 void Retrier<LowerLayer>::send(
     std::string message, Callback callback, const int retries)
 {
-    auto wrappedCallback = [ =, callback = std::move(callback) ](
-        const std::error_code &ec) mutable
+    auto wrappedCallback =
+        [ =, callback = std::move(callback) ](const std::error_code &ec) mutable
     {
-        if (ec && retries > 0)
+        if (ec && retries > 0) {
+            LOG_DBG(2) << "Sending message - remaining retry count: "
+                       << retries;
             send(std::move(message), std::move(callback), retries - 1);
-        else
+        }
+        else {
+            if (!ec)
+                LOG_DBG(3) << "Sending message succeeded";
+            else
+                LOG_DBG(1) << "Sending message failed: " << ec.message();
+
             callback(ec);
+        }
     };
 
     LowerLayer::send(std::move(message), std::move(wrappedCallback), retries);

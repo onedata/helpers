@@ -12,8 +12,8 @@ namespace one {
 namespace communication {
 namespace cert {
 
-CertificateData::CertificateData(KeyFormat kf)
-    : m_keyFormat{kf}
+CertificateData::CertificateData(KeyFormat keyFormat)
+    : m_keyFormat{keyFormat}
 {
 }
 
@@ -21,7 +21,7 @@ std::shared_ptr<asio::ssl::context> CertificateData::initContext(
     std::shared_ptr<asio::ssl::context> ctx) const
 {
     initContext(*ctx);
-    return std::move(ctx);
+    return ctx;
 }
 
 asio::ssl::context_base::file_format CertificateData::keyFormat() const

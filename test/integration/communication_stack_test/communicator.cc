@@ -1,8 +1,9 @@
 #include "communication/communicator.h"
 #include "communication/declarations.h"
+#include "helpers/init.h"
+#include "messages/clientHandshakeRequest.h"
 #include "messages/clientMessage.h"
 #include "messages/serverMessage.h"
-#include "messages/handshakeRequest.h"
 
 #include "messages.pb.h"
 
@@ -40,7 +41,7 @@ public:
         m_handshake = getHandshake();
         return LowerLayer::setHandshake(std::move(getHandshake),
             [ this, onHandshakeResponse = std::move(onHandshakeResponse) ](
-                                            std::string response) {
+                std::string response) {
                 try {
                     m_handshakeResponsePromise.set_value(response);
                 }
@@ -107,10 +108,11 @@ private:
 
 class CommunicatorProxy {
 public:
-    CommunicatorProxy(const std::size_t connectionsNumber, std::string host,
-        const unsigned short port)
-        : m_communicator{
-              connectionsNumber, std::move(host), port, false, createConnection}
+    CommunicatorProxy(const std::size_t connectionsNumber,
+        std::size_t workersNumber, std::string host, const unsigned short port,
+        bool handshake)
+        : m_communicator{connectionsNumber, workersNumber, host, port, false,
+              true, handshake}
     {
         m_communicator.setScheduler(std::make_shared<Scheduler>(1));
     }
@@ -138,16 +140,18 @@ public:
 
     std::string communicateReceive()
     {
-        if (m_future.wait_for(10s) == std::future_status::ready)
-            return m_future.get().protocolMsg().SerializeAsString();
-        else
-            throw std::system_error(std::make_error_code(std::errc::timed_out));
+        return m_future
+            ->within(10s,
+                std::system_error{std::make_error_code(std::errc::timed_out)})
+            .get()
+            .protocolMsg()
+            .SerializeAsString();
     }
 
     std::string setHandshake(const std::string &description, bool fail)
     {
         m_communicator.setHandshake(
-            [=] { return messages::HandshakeRequest{description}; },
+            [=] { return messages::ClientHandshakeRequest{description}; },
             [=](auto) {
                 return fail ? std::make_error_code(std::errc::bad_message)
                             : std::error_code{};
@@ -163,15 +167,17 @@ public:
 
 private:
     CustomCommunicator m_communicator;
-    std::future<ExampleServerMessage> m_future;
+    folly::Optional<folly::Future<ExampleServerMessage>> m_future;
 };
 
 boost::shared_ptr<CommunicatorProxy> create(
-    const unsigned int connectionsNumber, std::string host,
-    const unsigned short port)
+    const unsigned int connectionsNumber, const unsigned int workersNumber,
+    std::string host, const unsigned short port, const bool handshake)
 {
+    helpers::init();
+
     return boost::make_shared<CommunicatorProxy>(
-        connectionsNumber, std::move(host), port);
+        connectionsNumber, workersNumber, std::move(host), port, handshake);
 }
 
 std::string prepareReply(

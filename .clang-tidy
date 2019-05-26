@@ -1,0 +1,30 @@
+Checks: >-
+  *,
+  -abseil*,
+  -android*,
+  -*braces-around-statements,
+  -cert-err58-cpp,
+  -clang-analyzer-alpha.*,
+  -clang-analyzer-optin.cplusplus.VirtualCall,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -fuchsia*,
+  -google-readability-todo,
+  -hicpp-no-array-decay,
+  -hicpp-signed-bitwise,
+  -hicpp-uppercase-literal-suffix,
+  -hicpp-vararg,-google-runtime-references,
+  -llvm-header-guard,
+  -modernize-avoid-bind,
+  -mpi*,
+  -objc*,
+  -*osx*,
+  -performance-unnecessary-value-param,
+  -readability-uppercase-literal-suffix,
+  -zircon*
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'helpers/include|helpers/src'
+CheckOptions:
+  - key:             readability-identifier-naming.ClassMemberPrefix
+    value:           'm_'

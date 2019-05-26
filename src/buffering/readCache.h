@@ -10,155 +10,342 @@
 #define HELPERS_BUFFERING_READ_CACHE_H
 
 #include "communication/communicator.h"
-#include "helpers/IStorageHelper.h"
+#include "helpers/logging.h"
+#include "helpers/storageHelper.h"
 #include "messages/proxyio/remoteData.h"
 #include "messages/proxyio/remoteRead.h"
+#include "monitoring/monitoring.h"
 #include "scheduler.h"
+
+#include <boost/icl/discrete_interval.hpp>
+#include <folly/CallOnce.h>
+#include <folly/FBString.h>
+#include <folly/fibers/TimedMutex.h>
+#include <folly/futures/Future.h>
+#include <folly/futures/SharedPromise.h>
+#include <folly/io/IOBufQueue.h>
 
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 
 namespace one {
 namespace helpers {
 namespace buffering {
 
 class ReadCache : public std::enable_shared_from_this<ReadCache> {
+    using FiberMutex = folly::fibers::TimedMutex;
+
+    struct ReadData {
+        ReadData(
+            const off_t offset_, const std::size_t size_, const bool isPrefetch)
+            : offset{offset_}
+            , size{size_}
+        {
+            if (!isPrefetch)
+                folly::call_once(measureLatencyFlag, [] {});
+        }
+
+        std::chrono::steady_clock::time_point t() const
+        {
+            return std::chrono::steady_clock::time_point{t_.load()};
+        }
+
+        off_t offset;
+        std::atomic<std::size_t> size;
+        std::atomic<std::chrono::steady_clock::duration> t_{
+            std::chrono::steady_clock::duration::max()};
+        folly::once_flag measureLatencyFlag;
+        folly::IOBufQueue buf;
+        folly::SharedPromise<folly::Unit> promise;
+    };
+
 public:
-    ReadCache(std::size_t minReadChunkSize, std::size_t maxReadChunkSize,
-        std::chrono::seconds readAheadFor, IStorageHelper &helper)
-        : m_minReadChunkSize{minReadChunkSize}
-        , m_maxReadChunkSize{maxReadChunkSize}
-        , m_readAheadFor{readAheadFor}
-        , m_helper{helper}
+    ReadCache(std::size_t readBufferMinSize, std::size_t readBufferMaxSize,
+        std::chrono::seconds readBufferPrefetchDuration,
+        double prefetchPowerBase, std::chrono::nanoseconds targetLatency,
+        FileHandle &handle)
+        : m_readBufferMinSize{readBufferMinSize}
+        , m_readBufferMaxSize{readBufferMaxSize}
+        , m_cacheDuration{readBufferPrefetchDuration * 2}
+        , m_prefetchPowerBase{prefetchPowerBase}
+        , m_targetLatency{static_cast<std::size_t>(targetLatency.count())}
+        , m_handle{handle}
     {
+        LOG_FCALL() << LOG_FARG(readBufferMinSize)
+                    << LOG_FARG(readBufferMaxSize)
+                    << LOG_FARG(readBufferPrefetchDuration.count());
     }
 
-    asio::mutable_buffer read(CTXPtr ctx, const boost::filesystem::path &p,
-        asio::mutable_buffer buf, const off_t offset)
+    folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const std::size_t continuousSize)
     {
-        if (m_clear ||
-            m_lastCacheRefresh + std::chrono::seconds{5} <
-                std::chrono::steady_clock::now()) {
-            m_lastRead.clear();
-            m_pendingRead = {};
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+        DCHECK(continuousSize >= size);
+
+        std::unique_lock<FiberMutex> lock{m_mutex};
+        if (m_clear) {
+            LOG_DBG(2) << "Clearing cache for file " << m_handle.fileId();
+            m_cache.clear();
             m_clear = false;
         }
 
-        if (m_lastReadOffset <= offset &&
-            offset < static_cast<off_t>(m_lastReadOffset + m_lastRead.size())) {
-            auto cacheOffset = offset - m_lastReadOffset;
-            auto copied =
-                asio::buffer_copy(buf, asio::buffer(m_lastRead) + cacheOffset);
+        clearStaleEntries();
 
-            return asio::buffer(buf, copied);
+        if (isCurrentRead(offset)) {
+            ONE_METRIC_COUNTER_ADD(
+                "comp.helpers.mod.readcache.cacheHitBytes", size);
+            ONE_METRIC_COUNTER_ADD(
+                "comp.helpers.mod.readcache.cacheHitCount", 1);
+            return readFromCache(offset, size);
         }
 
-        if (m_pendingRead.valid() && m_pendingReadOffset <= offset) {
-            m_lastReadOffset = m_pendingReadOffset;
-            m_lastRead = readFuture(m_pendingRead);
-            m_lastCacheRefresh = std::chrono::steady_clock::now();
+        ONE_METRIC_COUNTER_ADD(
+            "comp.helpers.mod.readcache.cacheMissBytes", size);
+        ONE_METRIC_COUNTER_ADD("comp.helpers.mod.readcache.cacheMissCount", 1);
 
-            m_pendingReadOffset = m_lastReadOffset + m_lastRead.size();
-            m_pendingRead = download(ctx, p, m_pendingReadOffset, blockSize());
+        std::tie(m_blockSize, m_prefetchCoeff) =
+            isSequential(offset) ? increaseBlockSize() : resetBlockSize();
 
-            if (offset <
-                static_cast<off_t>(m_lastReadOffset + m_lastRead.size())) {
-                auto cacheOffset = offset - m_lastReadOffset;
-                auto copied = asio::buffer_copy(
-                    buf, asio::buffer(m_lastRead) + cacheOffset);
+        while (!m_cache.empty() && !isCurrentRead(offset))
+            m_cache.pop_front();
 
-                return asio::buffer(buf, copied);
-            }
-        }
+        if (m_cache.empty())
+            fetch(offset, size);
 
-        auto size = asio::buffer_size(buf);
-        auto future = download(ctx, p, offset, size);
-        m_pendingReadOffset = offset + size;
-        m_pendingRead = download(ctx, p, m_pendingReadOffset, blockSize());
+        prefetchIfNeeded(offset, continuousSize);
 
-        m_lastReadOffset = offset;
-        m_lastRead = readFuture(future);
-        m_lastCacheRefresh = std::chrono::steady_clock::now();
-
-        auto copied = asio::buffer_copy(buf, asio::buffer(m_lastRead));
-
-        return asio::buffer(buf, copied);
+        return readFromCache(offset, size);
     }
 
-    void clear() { m_clear = true; }
+    std::size_t wouldPrefetch(const off_t offset, const std::size_t /*size*/)
+    {
+        std::size_t prefetchSize = 0;
+        if (!isCurrentRead(offset) && m_cache.size() < 2) {
+            std::tie(prefetchSize, std::ignore) =
+                isSequential(offset) ? increaseBlockSize() : resetBlockSize();
+        }
+        return prefetchSize;
+    }
+
+    void clear()
+    {
+        LOG_FCALL();
+
+        std::unique_lock<FiberMutex> lock{m_mutex};
+        m_clear = true;
+    }
 
 private:
-    std::future<std::string> download(CTXPtr ctx,
-        const boost::filesystem::path &p, const off_t offset,
-        const std::size_t block)
+    void clearStaleEntries()
     {
-        auto promise = std::make_shared<std::promise<std::string>>();
-        auto future = promise->get_future();
-        auto startPoint = std::chrono::steady_clock::now();
-        auto stringBuffer = std::make_shared<std::string>(block, '\0');
+        auto now = std::chrono::steady_clock::now();
+        while (!m_cache.empty() && m_cache.front()->t() < now - m_cacheDuration)
+            m_cache.pop_front();
+    }
 
-        auto callback = [ =, s = std::weak_ptr<ReadCache>(shared_from_this()) ](
-            asio::mutable_buffer buf, const std::error_code &ec) mutable
-        {
-            if (ec) {
-                promise->set_exception(
-                    std::make_exception_ptr(std::system_error{ec}));
-            }
-            else {
-                auto duration =
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now() - startPoint)
-                        .count();
+    bool isSequential(const off_t offset)
+    {
+        if (m_cache.empty())
+            return false; // no reference point
 
-                if (duration > 0) {
-                    auto bandwidth =
-                        asio::buffer_size(buf) * 1000000000 / duration;
+        if (m_cache.size() == 1)
+            return offset ==
+                static_cast<off_t>(
+                    m_cache.front()->offset + m_cache.front()->size);
 
-                    if (auto self = s.lock()) {
-                        std::lock_guard<std::mutex> guard{m_mutex};
-                        m_bps = (m_bps * 1 + bandwidth * 2) / 3;
-                    }
+        return offset >= m_cache.back()->offset &&
+            offset <
+            static_cast<off_t>(m_cache.back()->offset + m_cache.back()->size);
+    }
+
+    void prefetchIfNeeded(const off_t offset, const std::size_t continuousSize)
+    {
+        LOG_FCALL();
+
+        assert(!m_cache.empty());
+
+        const off_t nextOffset = m_cache.back()->offset + m_cache.back()->size;
+        const auto prefetchBlock =
+            boost::icl::discrete_interval<off_t>::right_open(
+                nextOffset, nextOffset + m_blockSize) &
+            boost::icl::discrete_interval<off_t>::right_open(
+                offset, offset + continuousSize);
+
+        if (m_cache.size() < 2 && boost::icl::size(prefetchBlock) > 0) {
+            LOG_DBG(2) << "Prefetching " << boost::icl::size(prefetchBlock)
+                       << " bytes for file " << m_handle.fileId()
+                       << " at offset " << nextOffset;
+
+            prefetch(nextOffset, boost::icl::size(prefetchBlock));
+        }
+    }
+
+    void prefetch(const off_t offset, const std::size_t size)
+    {
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
+        fetch(offset, size, true);
+    }
+
+    void fetch(const off_t offset, const std::size_t size)
+    {
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
+        fetch(offset, size, false);
+    }
+
+    void fetch(const off_t offset, const std::size_t size, bool isPrefetch)
+    {
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
+                    << LOG_FARG(isPrefetch);
+
+        m_cache.emplace_back(
+            std::make_shared<ReadData>(offset, size, isPrefetch));
+        m_handle.read(offset, size)
+            .then([readData = m_cache.back()](folly::IOBufQueue buf) {
+                readData->size = buf.chainLength();
+                readData->buf = std::move(buf);
+                readData->t_ =
+                    std::chrono::steady_clock::now().time_since_epoch();
+                readData->promise.setValue();
+            })
+            .onError([readData = m_cache.back()](folly::exception_wrapper ew) {
+                readData->promise.setException(std::move(ew));
+            });
+    }
+
+    folly::Future<folly::IOBufQueue> readFromCache(
+        const off_t offset, const std::size_t size)
+    {
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
+        assert(!m_cache.empty());
+
+#if !defined(NDEBUG)
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".blockSize",
+            m_blockSize);
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".latency",
+            m_latency);
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".targetlatency",
+            m_targetLatency);
+
+        ONE_METRIC_COUNTER_SET("comp.helpers.mod.readcache." +
+                m_handle.fileId().toStdString() + ".cachesize",
+            std::accumulate(m_cache.begin(), m_cache.end(), 0,
+                [](int acc, std::shared_ptr<ReadData> rd) {
+                    return acc + rd->size;
+                }));
+#endif
+
+        auto readData = m_cache.front();
+        const auto startPoint = std::chrono::steady_clock::now();
+        return readData->promise.getFuture().then([ =, s = weak_from_this() ] {
+            folly::call_once(readData->measureLatencyFlag, [&] {
+                if (auto self = s.lock()) {
+                    const auto latency =
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now() - startPoint)
+                            .count();
+
+                    LOG_DBG(2)
+                        << "Latest measured read latency for "
+                        << m_handle.fileId() << " is " << m_latency << " ns";
+
+                    m_latency = (m_latency + 2 * latency) / 3;
+
+                    LOG_DBG(2)
+                        << "Adjusted average read latency for "
+                        << m_handle.fileId() << " to " << m_latency << " ns";
                 }
+            });
 
-                stringBuffer->resize(asio::buffer_size(buf));
-                promise->set_value(std::move(*stringBuffer));
-            };
-        };
+            folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+            if (readData->buf.empty() ||
+                static_cast<off_t>(
+                    readData->offset + readData->buf.chainLength()) < offset) {
+                LOG_DBG(2) << "Latest block in read cache is empty or outside "
+                              "requested range for file "
+                           << m_handle.fileId();
+                return buf;
+            }
 
-        auto buf = asio::buffer(&(*stringBuffer)[0], stringBuffer->size());
-        m_helper.ash_read(std::move(ctx), p, buf, offset, std::move(callback));
+            buf.append(readData->buf.front()->clone());
+            if (offset > readData->offset) {
+                LOG_DBG(2) << "Trimming latest read cache block for file "
+                           << m_handle.fileId()
+                           << " to start at requested offset by: "
+                           << offset - readData->offset;
+                buf.trimStart(offset - readData->offset);
+            }
+            if (buf.chainLength() > size) {
+                LOG_DBG(2) << "Trimming latest read cache block for file "
+                           << m_handle.fileId()
+                           << " to end at requested size by: "
+                           << buf.chainLength() - size;
+                buf.trimEnd(buf.chainLength() - size);
+            }
 
-        return future;
+            return buf;
+        });
     }
 
-    std::size_t blockSize()
+    bool isCurrentRead(const off_t offset)
     {
-        return std::min(
-                   m_maxReadChunkSize, std::max(m_minReadChunkSize, m_bps)) *
-            m_readAheadFor.count();
+        return !m_cache.empty() && m_cache.front()->offset <= offset &&
+            offset <
+            static_cast<off_t>(m_cache.front()->offset + m_cache.front()->size);
     }
 
-    std::string readFuture(std::future<std::string> &future)
+    std::pair<std::size_t, double> resetBlockSize()
     {
-        // 500ms + 2ms for each byte (minimum of 500B/s);
-        std::chrono::milliseconds timeout{5000 + blockSize() * 2};
-        return communication::wait(future, timeout);
+        LOG_FCALL();
+        return {0, 1.0};
     }
 
-    const std::size_t m_minReadChunkSize;
-    const std::size_t m_maxReadChunkSize;
-    const std::chrono::seconds m_readAheadFor;
-    IStorageHelper &m_helper;
+    std::pair<std::size_t, double> increaseBlockSize()
+    {
+        LOG_FCALL();
 
-    std::mutex m_mutex;
-    std::size_t m_bps = 0;
+        auto blockSize = m_blockSize;
+        auto prefetchCoeff = m_prefetchCoeff;
+        if (m_blockSize < m_readBufferMaxSize &&
+            m_latency.load() > m_targetLatency) {
+            blockSize = std::min(m_readBufferMaxSize,
+                m_readBufferMinSize *
+                    static_cast<std::size_t>(m_prefetchCoeff));
+            prefetchCoeff *= m_prefetchPowerBase;
 
-    off_t m_lastReadOffset = 0;
-    std::string m_lastRead;
-    off_t m_pendingReadOffset = 0;
-    std::future<std::string> m_pendingRead;
-    std::atomic<bool> m_clear{false};
+            LOG_DBG(2) << "Adjusted prefetch block size for file "
+                       << m_handle.fileId() << " to: " << blockSize
+                       << " and prefetch coefficient to: " << prefetchCoeff;
+        }
+
+        return {blockSize, prefetchCoeff};
+    }
+
+    std::weak_ptr<ReadCache> weak_from_this() { return {shared_from_this()}; }
+
+    const std::size_t m_readBufferMinSize;
+    const std::size_t m_readBufferMaxSize;
+    const std::chrono::seconds m_cacheDuration;
+    const double m_prefetchPowerBase;
+    const std::size_t m_targetLatency;
+    FileHandle &m_handle;
+
+    double m_prefetchCoeff = 1.0;
+    std::size_t m_blockSize = 0;
+    std::atomic<std::size_t> m_latency{m_targetLatency * 2};
+
+    FiberMutex m_mutex;
+    std::deque<std::shared_ptr<ReadData>> m_cache;
+    bool m_clear{false};
     std::chrono::steady_clock::time_point m_lastCacheRefresh{};
 };
 

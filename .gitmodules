@@ -1,0 +1,9 @@
+[submodule "bamboos"]
+	path = bamboos
+	url = ../bamboos.git
+[submodule "appmock"]
+	path = appmock
+	url = ../appmock.git
+[submodule "clproto"]
+	path = clproto
+	url = ../clproto.git

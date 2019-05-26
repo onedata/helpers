@@ -35,7 +35,7 @@ inline std::unique_ptr<clproto::ServerMessage> streamMessage(
     if (endOfStm)
         serverMsg->mutable_end_of_stream();
 
-    return std::move(serverMsg);
+    return serverMsg;
 }
 
 struct LowerLayer {
@@ -71,8 +71,9 @@ TEST_F(SequencerTest, sequencerShouldPassNonStreamMessages)
 
     bool called = false;
 
-    auto handleOnMessageCallback =
-        [&](ServerMessagePtr) mutable { called = true; };
+    auto handleOnMessageCallback = [&](ServerMessagePtr) mutable {
+        called = true;
+    };
     sequencer.setOnMessageCallback(handleOnMessageCallback);
 
     sequenceOnMessageCallback(std::make_unique<clproto::ServerMessage>());
@@ -194,8 +195,9 @@ TEST_F(SequencerTest, sequencerShouldSendMessageRequestMessage)
 
     bool called = false;
 
-    auto handleOnMessageCallback =
-        [&](ServerMessagePtr) mutable { called = true; };
+    auto handleOnMessageCallback = [&](ServerMessagePtr) mutable {
+        called = true;
+    };
     sequencer.setOnMessageCallback(handleOnMessageCallback);
 
     sequenceOnMessageCallback(streamMessage(1, 10));
@@ -278,6 +280,6 @@ TEST_F(SequencerTest, sequencerShouldSendMultipleMessageAcknowledgementMessages)
     for (auto i : n)
         sequenceOnMessageCallback(streamMessage(1, i));
 
-    EXPECT_GE(1, msgAckCtr);
+    EXPECT_GE(msgAckCtr, 1);
     EXPECT_EQ(10 * STREAM_MSG_ACK_WINDOW - 1, lastSeqNum);
 }

@@ -9,9 +9,9 @@
 #ifndef HELPERS_TEST_MOCK_COMMUNICATOR_H
 #define HELPERS_TEST_MOCK_COMMUNICATOR_H
 
+#include "communication/communicator.h"
 #include "mockConnection.h"
 #include "scheduler.h"
-#include "communication/communicator.h"
 
 #include <gmock/gmock.h>
 
@@ -41,7 +41,7 @@ struct MockCommunicator {
     MockConnection connection;
     one::clproto::ClientMessage lastSentMessage;
     one::communication::Communicator communicator{
-        1, "host", 5555, true, createMockConnectionFactory(connection)};
+        1, 1, "host", 443, true, createMockConnectionFactory(connection)};
 
 private:
     void sendUnwrap(

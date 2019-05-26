@@ -20,15 +20,16 @@ namespace handshake {
  */
 enum class ErrorCode {
     ok,
-    token_expired,
-    token_not_found,
-    invalid_token,
+    macaroon_expired,
+    macaroon_not_found,
+    invalid_macaroon,
     invalid_method,
     root_resource_not_found,
     invalid_provider,
     bad_signature_for_macaroon,
     failed_to_decrypt_caveat,
     no_discharge_macaroon_for_caveat,
+    incompatible_version,
     internal_server_error
 };
 
@@ -46,7 +47,7 @@ public:
  * @param code an instance of @c ErrorCode
  * @return standard library error code instance
  */
-std::error_code makeErrorCode(ErrorCode code);
+std::error_code makeErrorCode(ErrorCode e);
 
 } // namespace handshake
 } // namespace errors

@@ -9,8 +9,8 @@
 #ifndef HELPERS_MESSAGES_STATUS_H
 #define HELPERS_MESSAGES_STATUS_H
 
-#include "messages/serverMessage.h"
 #include "messages/clientMessage.h"
+#include "messages/serverMessage.h"
 
 #include <boost/optional.hpp>
 
@@ -39,14 +39,14 @@ public:
      * Constructor.
      * @param code Status code.
      */
-    Status(std::error_code code);
+    Status(std::error_code ec);
 
     /**
      * Constructor.
      * @param code Status code.
      * @param description Status description.
      */
-    Status(std::error_code code, std::string description);
+    Status(std::error_code ec, std::string desc);
 
     /**
      * Constructor.

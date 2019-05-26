@@ -9,15 +9,15 @@
 #ifndef HELPERS_BUFFERING_BUFFER_AGENT_H
 #define HELPERS_BUFFERING_BUFFER_AGENT_H
 
+#include "communication/communicator.h"
+#include "helpers/logging.h"
+#include "helpers/storageHelper.h"
+#include "helpers/storageHelperCreator.h"
 #include "readCache.h"
+#include "scheduler.h"
 #include "writeBuffer.h"
 
-#include "communication/communicator.h"
-#include "helpers/IStorageHelper.h"
-#include "scheduler.h"
-
-#include <glog/logging.h>
-
+#include <chrono>
 #include <memory>
 #include <mutex>
 
@@ -25,350 +25,411 @@ namespace one {
 namespace helpers {
 namespace buffering {
 
-class BufferAgentCTX : public IStorageHelperCTX {
+/**
+ * This class maintains a counter for global read and write helper buffers
+ * allocations, to maintain a maximum overall buffers size.
+ */
+class BufferAgentsMemoryLimitGuard {
 public:
-    BufferAgentCTX(std::unordered_map<std::string, std::string> params)
-        : IStorageHelperCTX{std::move(params)}
-    {
-    }
-
-    void setUserCTX(std::unordered_map<std::string, std::string> args) override
-    {
-        helperCtx->setUserCTX(std::move(args));
-    }
-
-    std::unordered_map<std::string, std::string> getUserCTX() override
-    {
-        return helperCtx->getUserCTX();
-    }
-
-    CTXPtr helperCtx;
-    std::shared_ptr<ReadCache> readCache;
-    std::shared_ptr<WriteBuffer> writeBuffer;
-    std::mutex mutex;
-};
-
-struct BufferLimits {
-    std::size_t maxGlobalReadCacheSize = 1024 * 1024 * 1024;
-    std::size_t maxGlobalWriteBufferSize = 1024 * 1024 * 1024;
-
-    std::size_t minReadChunkSize = 1 * 1024 * 1024;
-    std::size_t maxReadChunkSize = 50 * 1024 * 1024;
-    std::chrono::seconds readAheadFor = std::chrono::seconds{1};
-
-    std::size_t minWriteChunkSize = 1 * 1024 * 1024;
-    std::size_t maxWriteChunkSize = 50 * 1024 * 1024;
-    std::chrono::seconds flushWriteAfter = std::chrono::seconds{1};
-};
-
-class BufferAgent : public IStorageHelper {
-public:
-    BufferAgent(BufferLimits bufferLimits,
-        std::unique_ptr<IStorageHelper> helper, Scheduler &scheduler)
+    /**
+     * Constructor
+     * @param bufferLimits Reference to application buffer limits
+     */
+    BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
         : m_bufferLimits{bufferLimits}
-        , m_helper{std::move(helper)}
-        , m_scheduler{scheduler}
+        , m_readBuffersReservedSize{0}
+        , m_writeBuffersReservedSize{0}
     {
     }
 
-    CTXPtr createCTX(
-        std::unordered_map<std::string, std::string> params) override
+    /**
+     * This function tries to mark readSize and writeSize bytes as reserved with
+     * respect to total buffer limits specified in the application buffer
+     * limits. No actual memory allocation is done here. If this function
+     * returns false, it means that the global buffer memory limit has been
+     * exhausted and buffered file handles cannot be created until some other
+     * are closed.
+     * @param readSize The size in bytes of maximum memory needed by the read
+     * buffer
+     * @param writeSize The size in bytes of maximum memory needed by the write
+     * buffer
+     */
+    bool reserveBuffers(size_t readSize, size_t writeSize)
     {
-        auto ctx = std::make_shared<BufferAgentCTX>(params);
-        ctx->helperCtx = m_helper->createCTX(std::move(params));
-        return ctx;
+        std::lock_guard<std::mutex> lock{m_mutex};
+
+        if (((m_bufferLimits.readBuffersTotalSize == 0) ||
+                (m_readBuffersReservedSize + readSize <=
+                    m_bufferLimits.readBuffersTotalSize)) &&
+            ((m_bufferLimits.writeBuffersTotalSize == 0) ||
+                (m_writeBuffersReservedSize + writeSize <=
+                    m_bufferLimits.writeBuffersTotalSize))) {
+            m_readBuffersReservedSize += readSize;
+            m_writeBuffersReservedSize += writeSize;
+            return true;
+        }
+
+        return false;
     }
 
-    int sh_open(
-        CTXPtr rawCtx, const boost::filesystem::path &p, int flags) override
+    /**
+     * This function tries to release the readSize and writeSize bytes from the
+     * memory limit guard.
+     * @param readSize The size in bytes of maximum memory used by the read
+     * buffer
+     * @param writeSize The size in bytes of maximum memory used by the write
+     * buffer
+     */
+    bool releaseBuffers(size_t readSize, size_t writeSize)
     {
-        auto ctx = getCTX(rawCtx);
-        std::lock_guard<std::mutex> guard{ctx->mutex};
+        std::lock_guard<std::mutex> lock{m_mutex};
 
-        const auto &bl = m_bufferLimits;
+        if ((m_readBuffersReservedSize - readSize >= 0) &&
+            (m_writeBuffersReservedSize - writeSize >= 0)) {
+            m_readBuffersReservedSize -= readSize;
+            m_writeBuffersReservedSize -= writeSize;
+            return true;
+        }
 
-        ctx->readCache = std::make_shared<ReadCache>(bl.minReadChunkSize,
-            bl.maxReadChunkSize, bl.readAheadFor, *m_helper);
-
-        ctx->writeBuffer = std::make_shared<WriteBuffer>(bl.minWriteChunkSize,
-            bl.maxWriteChunkSize, bl.flushWriteAfter, *m_helper, m_scheduler,
-            ctx->readCache);
-        ctx->writeBuffer->scheduleFlush();
-
-        return m_helper->sh_open(ctx->helperCtx, p, flags);
+        return false;
     }
 
-    asio::mutable_buffer sh_read(CTXPtr rawCtx,
-        const boost::filesystem::path &p, asio::mutable_buffer buf,
-        off_t offset) override
-    {
-        auto ctx = getCTX(rawCtx);
-        std::lock_guard<std::mutex> guard{ctx->mutex};
+private:
+    const BufferLimits m_bufferLimits;
 
-        if (!ctx->writeBuffer)
-            return m_helper->sh_read(ctx->helperCtx, p, buf, offset);
+    std::mutex m_mutex;
+    size_t m_readBuffersReservedSize;
+    size_t m_writeBuffersReservedSize;
+};
+
+class BufferAgent;
+
+class BufferedFileHandle : public FileHandle {
+public:
+    BufferedFileHandle(folly::fbstring fileId, FileHandlePtr wrappedHandle,
+        const BufferLimits &bl, Scheduler &scheduler,
+        std::shared_ptr<BufferAgent> bufferAgent,
+        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
+
+    ~BufferedFileHandle()
+    {
+        if (m_bufferMemoryLimitGuard) {
+            m_bufferMemoryLimitGuard->releaseBuffers(
+                m_bufferLimits.readBufferMaxSize,
+                m_bufferLimits.writeBufferMaxSize);
+        }
+    }
+
+    folly::Future<folly::IOBufQueue> read(
+        const off_t offset, const std::size_t size) override
+    {
+        return read(offset, size, std::numeric_limits<off_t>::max() - offset);
+    }
+
+    folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const std::size_t continuousSize) override
+    {
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
+                    << LOG_FARG(continuousSize);
+
+        DCHECK(continuousSize >= size);
 
         // Push all changes so we'll always read data that we just wrote. A
         // mechanism in `WriteBuffer` will trigger a clear of the readCache if
         // needed. This might be optimized in the future by modifying readcache
         // on write.
-        ctx->writeBuffer->fsync(ctx->helperCtx, p);
-
-        return ctx->readCache->read(ctx->helperCtx, p, buf, offset);
+        return m_writeBuffer->fsync().then(
+            [=] { return m_readCache->read(offset, size, continuousSize); });
     }
 
-    std::size_t sh_write(CTXPtr rawCtx, const boost::filesystem::path &p,
-        asio::const_buffer buf, off_t offset) override
+    folly::Future<std::size_t> write(
+        const off_t offset, folly::IOBufQueue buf) override
     {
-        auto ctx = getCTX(rawCtx);
-        std::lock_guard<std::mutex> guard{ctx->mutex};
-
-        if (!ctx->readCache)
-            return m_helper->sh_write(ctx->helperCtx, p, buf, offset);
-
-        return ctx->writeBuffer->write(ctx->helperCtx, p, buf, offset);
+        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+        return m_writeBuffer->write(offset, std::move(buf));
     }
 
-    void sh_flush(CTXPtr rawCtx, const boost::filesystem::path &p) override
+    folly::Future<folly::Unit> fsync(bool isDataSync) override
     {
-        auto ctx = getCTX(rawCtx);
-        std::lock_guard<std::mutex> guard{ctx->mutex};
+        LOG_FCALL() << LOG_FARG(isDataSync);
 
-        if (ctx->writeBuffer && ctx->readCache) {
-            ctx->writeBuffer->flush(ctx->helperCtx, p);
-            ctx->readCache->clear();
-        }
-
-        m_helper->sh_flush(ctx->helperCtx, p);
+        return m_writeBuffer->fsync().then([
+            readCache = m_readCache, wrappedHandle = m_wrappedHandle, isDataSync
+        ] {
+            readCache->clear();
+            return wrappedHandle->fsync(isDataSync);
+        });
     }
 
-    void sh_fsync(CTXPtr rawCtx, const boost::filesystem::path &p,
-        bool isDataSync) override
+    folly::Future<folly::Unit> flush() override
     {
-        auto ctx = getCTX(rawCtx);
-        std::lock_guard<std::mutex> guard{ctx->mutex};
-
-        if (ctx->writeBuffer && ctx->readCache) {
-            ctx->writeBuffer->fsync(ctx->helperCtx, p);
-            ctx->readCache->clear();
-        }
-
-        m_helper->sh_fsync(ctx->helperCtx, p, isDataSync);
+        return m_writeBuffer->fsync().then(
+            [ readCache = m_readCache, wrappedHandle = m_wrappedHandle ] {
+                readCache->clear();
+                return wrappedHandle->flush();
+            });
     }
 
-    void sh_release(CTXPtr rawCtx, const boost::filesystem::path &p) override
+    folly::Future<folly::Unit> release() override
     {
-        auto ctx = getCTX(rawCtx);
-        std::lock_guard<std::mutex> guard{ctx->mutex};
+        LOG_FCALL();
 
-        if (ctx->writeBuffer)
-            ctx->writeBuffer->fsync(ctx->helperCtx, p);
-
-        m_helper->sh_release(ctx->helperCtx, p);
+        return m_writeBuffer->fsync().then(
+            [wrappedHandle = m_wrappedHandle] { wrappedHandle->release(); });
     }
 
-    void ash_getattr(CTXPtr rawCtx, const boost::filesystem::path &p,
-        GeneralCallback<struct stat> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_getattr(ctx->helperCtx, p, std::move(callback));
-    }
-
-    void ash_access(CTXPtr rawCtx, const boost::filesystem::path &p, int mask,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_access(ctx->helperCtx, p, mask, std::move(callback));
-    }
-
-    void ash_readlink(CTXPtr rawCtx, const boost::filesystem::path &p,
-        GeneralCallback<std::string> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_readlink(ctx->helperCtx, p, std::move(callback));
-    }
-
-    void ash_readdir(CTXPtr rawCtx, const boost::filesystem::path &p,
-        off_t offset, size_t count,
-        GeneralCallback<const std::vector<std::string> &> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_readdir(
-            ctx->helperCtx, p, offset, count, std::move(callback));
-    }
-
-    void ash_mknod(CTXPtr rawCtx, const boost::filesystem::path &p, mode_t mode,
-        FlagsSet flags, dev_t rdev, VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_mknod(ctx->helperCtx, p, mode, std::move(flags), rdev,
-            std::move(callback));
-    }
-
-    void ash_mkdir(CTXPtr rawCtx, const boost::filesystem::path &p, mode_t mode,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_mkdir(ctx->helperCtx, p, mode, std::move(callback));
-    }
-
-    void ash_unlink(CTXPtr rawCtx, const boost::filesystem::path &p,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_unlink(ctx->helperCtx, p, std::move(callback));
-    }
-
-    void ash_rmdir(CTXPtr rawCtx, const boost::filesystem::path &p,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_rmdir(ctx->helperCtx, p, std::move(callback));
-    }
-
-    void ash_symlink(CTXPtr rawCtx, const boost::filesystem::path &from,
-        const boost::filesystem::path &to, VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_symlink(ctx->helperCtx, from, to, std::move(callback));
-    }
-
-    void ash_rename(CTXPtr rawCtx, const boost::filesystem::path &from,
-        const boost::filesystem::path &to, VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_rename(ctx->helperCtx, from, to, std::move(callback));
-    }
-
-    void ash_link(CTXPtr rawCtx, const boost::filesystem::path &from,
-        const boost::filesystem::path &to, VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_link(ctx->helperCtx, from, to, std::move(callback));
-    }
-
-    void ash_chmod(CTXPtr rawCtx, const boost::filesystem::path &p, mode_t mode,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_chmod(ctx->helperCtx, p, mode, std::move(callback));
-    }
-
-    void ash_chown(CTXPtr rawCtx, const boost::filesystem::path &p, uid_t uid,
-        gid_t gid, VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_chown(ctx->helperCtx, p, uid, gid, std::move(callback));
-    }
-
-    void ash_truncate(CTXPtr rawCtx, const boost::filesystem::path &p,
-        off_t size, VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_truncate(ctx->helperCtx, p, size, std::move(callback));
-    }
-
-    void ash_open(CTXPtr rawCtx, const boost::filesystem::path &p,
-        FlagsSet flags, GeneralCallback<int> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_open(
-            ctx->helperCtx, p, std::move(flags), std::move(callback));
-    }
-
-    void ash_open(CTXPtr rawCtx, const boost::filesystem::path &p, int flags,
-        GeneralCallback<int> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_open(ctx->helperCtx, p, flags, std::move(callback));
-    }
-
-    void ash_read(CTXPtr rawCtx, const boost::filesystem::path &p,
-        asio::mutable_buffer buf, off_t offset,
-        GeneralCallback<asio::mutable_buffer> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_read(ctx->helperCtx, p, buf, offset, std::move(callback));
-    }
-
-    void ash_write(CTXPtr rawCtx, const boost::filesystem::path &p,
-        asio::const_buffer buf, off_t offset,
-        GeneralCallback<std::size_t> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_write(
-            ctx->helperCtx, p, buf, offset, std::move(callback));
-    }
-
-    void ash_multiwrite(CTXPtr rawCtx, const boost::filesystem::path &p,
-        std::vector<std::pair<off_t, asio::const_buffer>> buffs,
-        GeneralCallback<std::size_t> callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_multiwrite(
-            ctx->helperCtx, p, std::move(buffs), std::move(callback));
-    }
-
-    void ash_release(CTXPtr rawCtx, const boost::filesystem::path &p,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_release(ctx->helperCtx, p, std::move(callback));
-    }
-
-    void ash_flush(CTXPtr rawCtx, const boost::filesystem::path &p,
-        VoidCallback callback) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_flush(ctx->helperCtx, p, std::move(callback));
-    }
-
-    void ash_fsync(CTXPtr rawCtx, const boost::filesystem::path &p,
-        bool isDataSync, VoidCallback callback)
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->ash_fsync(ctx->helperCtx, p, isDataSync, std::move(callback));
-    }
-
-    void sh_truncate(
-        CTXPtr rawCtx, const boost::filesystem::path &p, off_t size) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->sh_truncate(ctx->helperCtx, p, size);
-    }
-
-    void sh_unlink(CTXPtr rawCtx, const boost::filesystem::path &p) override
-    {
-        auto ctx = getCTX(rawCtx);
-        m_helper->sh_unlink(ctx->helperCtx, p);
-    }
+    const Timeout &timeout() override { return m_wrappedHandle->timeout(); }
 
     bool needsDataConsistencyCheck() override
     {
-        return m_helper->needsDataConsistencyCheck();
+        return m_wrappedHandle->needsDataConsistencyCheck();
+    }
+
+    std::size_t wouldPrefetch(
+        const off_t offset, const std::size_t size) override
+    {
+        return m_readCache->wouldPrefetch(offset, size);
+    }
+
+    folly::Future<folly::Unit> flushUnderlying() override
+    {
+        return m_wrappedHandle->flush();
+    }
+
+    FileHandlePtr wrappedHandle() { return m_wrappedHandle; }
+
+    virtual folly::Future<folly::Unit> refreshHelperParams(
+        std::shared_ptr<StorageHelperParams> params) override
+    {
+        return m_wrappedHandle->refreshHelperParams(std::move(params));
     }
 
 private:
-    std::shared_ptr<BufferAgentCTX> getCTX(const CTXPtr &rawCTX)
-    {
-        auto ctx = std::dynamic_pointer_cast<BufferAgentCTX>(rawCTX);
-        if (ctx == nullptr) {
-            // TODO: This doesn't really make sense; VFS-1956 is the only hope.
-            // Anyway, the current plan is to have an empty context so that
-            // there are no buffers (because of current context design buffers
-            // the buffers would be recreated every call anyway).
-            LOG(INFO) << "Helper changed. Creating new unbuffered BufferAgent "
-                         "context.";
+    FileHandlePtr m_wrappedHandle;
+    BufferLimits m_bufferLimits;
+    Scheduler &m_scheduler;
+    std::shared_ptr<ReadCache> m_readCache;
+    std::shared_ptr<WriteBuffer> m_writeBuffer;
+    std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
+};
 
-            return std::static_pointer_cast<BufferAgentCTX>(
-                createCTX(rawCTX->parameters()));
-        }
-        return ctx;
+class BufferAgent : public StorageHelper,
+                    public std::enable_shared_from_this<BufferAgent> {
+public:
+    BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
+        Scheduler &scheduler,
+        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
+        : m_bufferLimits{std::move(bufferLimits)}
+        , m_helper{std::move(helper)}
+        , m_scheduler{scheduler}
+        , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
+    {
+        LOG_FCALL() << LOG_FARG(bufferLimits.readBufferMinSize)
+                    << LOG_FARG(bufferLimits.readBufferMaxSize)
+                    << LOG_FARG(bufferLimits.readBufferPrefetchDuration.count())
+                    << LOG_FARG(bufferLimits.writeBufferMinSize)
+                    << LOG_FARG(bufferLimits.writeBufferMaxSize)
+                    << LOG_FARG(bufferLimits.writeBufferFlushDelay.count());
     }
 
+    folly::fbstring name() const override { return m_helper->name(); }
+
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+        const int flags, const Params &params) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(flags)
+                    << LOG_FARGM(params);
+
+        return m_helper->open(fileId, flags, params).then([
+            fileId, agent = shared_from_this(), bl = m_bufferLimits,
+            memoryLimitGuard = m_bufferMemoryLimitGuard,
+            &scheduler = m_scheduler
+        ](FileHandlePtr handle) {
+            if (memoryLimitGuard->reserveBuffers(
+                    bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
+                return static_cast<FileHandlePtr>(
+                    std::make_shared<BufferedFileHandle>(std::move(fileId),
+                        std::move(handle), bl, scheduler, std::move(agent),
+                        memoryLimitGuard));
+            }
+
+            LOG_DBG(1) << "Couldn't create buffered file handle for file "
+                       << fileId
+                       << " due to exhausted overall buffer limit by already "
+                          "opened files.";
+
+            return handle;
+        });
+    }
+
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId);
+
+        return m_helper->getattr(fileId);
+    }
+
+    folly::Future<folly::Unit> access(
+        const folly::fbstring &fileId, const int mask) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mask);
+
+        return m_helper->access(fileId, mask);
+    }
+
+    folly::Future<folly::fbstring> readlink(
+        const folly::fbstring &fileId) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId);
+
+        return m_helper->readlink(fileId);
+    }
+
+    folly::Future<folly::fbvector<folly::fbstring>> readdir(
+        const folly::fbstring &fileId, const off_t offset,
+        const std::size_t count) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
+
+        return m_helper->readdir(fileId, offset, count);
+    }
+
+    folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mode);
+
+        return m_helper->mknod(fileId, mode, flags, rdev);
+    }
+
+    folly::Future<folly::Unit> mkdir(
+        const folly::fbstring &fileId, const mode_t mode) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mode);
+
+        return m_helper->mkdir(fileId, mode);
+    }
+
+    folly::Future<folly::Unit> unlink(
+        const folly::fbstring &fileId, const size_t currentSize) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(currentSize);
+
+        return m_helper->unlink(fileId, currentSize);
+    }
+
+    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId);
+
+        return m_helper->rmdir(fileId);
+    }
+
+    folly::Future<folly::Unit> symlink(
+        const folly::fbstring &from, const folly::fbstring &to) override
+    {
+        LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
+
+        return m_helper->symlink(from, to);
+    }
+
+    folly::Future<folly::Unit> rename(
+        const folly::fbstring &from, const folly::fbstring &to) override
+    {
+        LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
+
+        return m_helper->rename(from, to);
+    }
+
+    folly::Future<folly::Unit> link(
+        const folly::fbstring &from, const folly::fbstring &to) override
+    {
+        LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
+
+        return m_helper->link(from, to);
+    }
+
+    folly::Future<folly::Unit> chmod(
+        const folly::fbstring &fileId, const mode_t mode) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mode);
+
+        return m_helper->chmod(fileId, mode);
+    }
+
+    folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
+        const uid_t uid, const gid_t gid) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
+
+        return m_helper->chown(fileId, uid, gid);
+    }
+
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize) override
+    {
+        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size)
+                    << LOG_FARG(currentSize);
+
+        return m_helper->truncate(fileId, size, currentSize);
+    }
+
+    folly::Future<folly::fbstring> getxattr(
+        const folly::fbstring &uuid, const folly::fbstring &name) override
+    {
+        LOG_FCALL() << LOG_FARG(uuid) << LOG_FARG(name);
+
+        return m_helper->getxattr(uuid, name);
+    }
+
+    folly::Future<folly::Unit> setxattr(const folly::fbstring &uuid,
+        const folly::fbstring &name, const folly::fbstring &value, bool create,
+        bool replace) override
+    {
+        LOG_FCALL() << LOG_FARG(uuid) << LOG_FARG(name) << LOG_FARG(value)
+                    << LOG_FARG(create) << LOG_FARG(replace);
+
+        return m_helper->setxattr(uuid, name, value, create, replace);
+    }
+
+    folly::Future<folly::Unit> removexattr(
+        const folly::fbstring &uuid, const folly::fbstring &name) override
+    {
+        LOG_FCALL() << LOG_FARG(uuid) << LOG_FARG(name);
+
+        return m_helper->removexattr(uuid, name);
+    }
+
+    folly::Future<folly::fbvector<folly::fbstring>> listxattr(
+        const folly::fbstring &uuid) override
+    {
+        LOG_FCALL() << LOG_FARG(uuid);
+
+        return m_helper->listxattr(uuid);
+    }
+
+    virtual folly::Future<std::shared_ptr<StorageHelperParams>>
+    params() const override
+    {
+        return m_helper->params();
+    }
+
+    virtual folly::Future<folly::Unit> refreshParams(
+        std::shared_ptr<StorageHelperParams> params) override
+    {
+        LOG_FCALL();
+        return m_helper->refreshParams(std::move(params));
+    }
+
+    StorageHelperPtr helper() { return m_helper; }
+
+    const Timeout &timeout() override { return m_helper->timeout(); }
+
+private:
     BufferLimits m_bufferLimits;
-    std::unique_ptr<IStorageHelper> m_helper;
+    StorageHelperPtr m_helper;
     Scheduler &m_scheduler;
+    std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
 };
 
 } // namespace proxyio

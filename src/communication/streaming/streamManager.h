@@ -9,13 +9,13 @@
 #ifndef HELPERS_COMMUNICATION_STREAMING_STREAM_MANAGER_H
 #define HELPERS_COMMUNICATION_STREAMING_STREAM_MANAGER_H
 
-#include "typedStream.h"
-#include "communication/subscriptionData.h"
 #include "communication/layers/translator.h"
+#include "communication/subscriptionData.h"
+#include "typedStream.h"
 
 #include <tbb/concurrent_hash_map.h>
-#include <tbb/concurrent_vector.h>
 #include <tbb/concurrent_queue.h>
+#include <tbb/concurrent_vector.h>
 
 #include <atomic>
 #include <cstdint>
@@ -106,6 +106,8 @@ auto StreamManager<Communicator>::create() -> std::shared_ptr<Stream>
     m_idMap.insert(acc, streamId);
     acc->second = *it;
 
+    LOG_DBG(2) << "Created stream with stream id " << streamId;
+
     return stream;
 }
 
@@ -113,6 +115,8 @@ template <class Communicator>
 void StreamManager<Communicator>::handleMessageRequest(
     const clproto::MessageRequest &msg)
 {
+    LOG_FCALL() << LOG_FARG(msg.stream_id());
+
     typename decltype(m_idMap)::const_accessor acc;
     if (m_idMap.find(acc, msg.stream_id()))
         if (auto stream = acc->second.lock())
@@ -123,6 +127,8 @@ template <class Communicator>
 void StreamManager<Communicator>::handleMessageAcknowledgement(
     const clproto::MessageAcknowledgement &msg)
 {
+    LOG_FCALL() << LOG_FARG(msg.stream_id());
+
     typename decltype(m_idMap)::const_accessor acc;
     if (m_idMap.find(acc, msg.stream_id()))
         if (auto stream = acc->second.lock())
@@ -133,13 +139,17 @@ template <class Communicator>
 void StreamManager<Communicator>::handleMessageStreamReset(
     const clproto::MessageStreamReset &msg)
 {
+    LOG_FCALL();
+
     if (msg.has_stream_id()) {
+        LOG_DBG(1) << "Resetting stream with stream id " << msg.stream_id();
         typename decltype(m_idMap)::const_accessor acc;
         if (m_idMap.find(acc, msg.stream_id()))
             if (auto stream = acc->second.lock())
                 stream->reset();
     }
     else {
+        LOG_DBG(1) << "No stream id in message - resetting all streams";
         for (const auto &stream : m_streams)
             if (auto s = stream.lock())
                 s->reset();

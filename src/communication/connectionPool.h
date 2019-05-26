@@ -6,12 +6,12 @@
  * 'LICENSE.txt'
  */
 
-#ifndef HELPERS_COMMUNICATION_CONNECTION_POOL_H
-#define HELPERS_COMMUNICATION_CONNECTION_POOL_H
+#pragma once
 
-#include "connection.h"
+#include "clprotoClientBootstrap.h"
+#include "clprotoPipelineFactory.h"
+#include "helpers/logging.h"
 
-#include <asio/ssl/context.hpp>
 #include <tbb/concurrent_queue.h>
 
 #include <atomic>
@@ -29,22 +29,15 @@ namespace communication {
 
 namespace cert {
 class CertificateData;
-}
+} // namespace cert
 
 /**
- * A @c ConnectionPool is responsible for managing instances of @c Connection.
- * It provides a facade for the connections, ensuring that outside entities
- * do not interact with connections directly.
+ * A @c ConnectionPool is responsible for managing connection pipeline
+ * to the server.
  */
 class ConnectionPool {
 public:
-    using Callback = Connection::Callback;
-    using ConnectionFactory = std::function<std::unique_ptr<Connection>(
-        std::string, const unsigned short, std::shared_ptr<asio::ssl::context>,
-        std::function<void(std::string)>, std::function<void(Connection &)>,
-        std::function<std::string()>,
-        std::function<std::error_code(std::string)>,
-        std::function<void(std::error_code)>)>;
+    using Callback = std::function<void(const std::error_code &)>;
 
     /**
      * A reference to @c *this typed as a @c ConnectionPool.
@@ -55,16 +48,23 @@ public:
      * Constructor.
      * @param connectionsNumber Number of connections that should be maintained
      * by this pool.
+     * @param workersNumber Number of worker threads that should be maintained
+     * by this pool.
      * @param host Hostname of the remote endpoint.
      * @param port Port number of the remote endpoint.
      * @param verifyServerCertificate Specifies whether to verify server's
      * SSL certificate.
-     * @param connectionFactory A function that returns a new connection object
-     * that is then maintained by the @c ConnectionPool.
+     * @param clprotoUpgrade Flag determining whether connections should request
+     * upgrade to clproto protocol after connection.
+     * @param clprotoHandshake Flag determining whether connections should
+     * perform clproto handshake after upgrading to clproto.
      */
-    ConnectionPool(const std::size_t connectionsNumber, std::string host,
-        const unsigned short port, const bool verifyServerCertificate,
-        ConnectionFactory connectionFactory);
+    ConnectionPool(std::size_t connectionsNumber, std::size_t workersNumber,
+        std::string host, uint16_t port, bool verifyServerCertificate,
+        bool clprotoUpgrade = true, bool clprotoHandshake = true);
+
+    ConnectionPool(const ConnectionPool &) = delete;
+    ConnectionPool &operator=(const ConnectionPool &) = delete;
 
     /**
      * Creates connections to the remote endpoint specified in the constructor.
@@ -85,22 +85,28 @@ public:
      * @note This method is separated from constructor so that the handshake
      * messages can be translated by other communication layers.
      */
-    void setHandshake(std::function<std::string()> getHandshake,
-        std::function<std::error_code(std::string)> onHandshakeResponse,
-        std::function<void(std::error_code)> onHandshakeDone);
+    void setHandshake(const std::function<std::string()> &getHandshake,
+        const std::function<std::error_code(std::string)> &onHandshakeResponse,
+        const std::function<void(std::error_code)> &onHandshakeDone);
 
     /**
      * Sets a function to handle received messages.
      * @param onMessage The function handling received messages.
      */
-    void setOnMessageCallback(std::function<void(std::string)> onMessage);
+    void setOnMessageCallback(
+        const std::function<void(std::string)> &onMessage);
 
     /**
      * Sets certificate data to be used to authorize the client.
      * @param certificateData The certificate data to set.
      */
     void setCertificateData(
-        std::shared_ptr<cert::CertificateData> certificateData);
+        const std::shared_ptr<cert::CertificateData> &certificateData);
+
+    /**
+     * Initialize the SSL context for communication sockets.
+     */
+    std::shared_ptr<folly::SSLContext> createSSLContext();
 
     /**
      * Sends a message through one of the managed connections.
@@ -110,7 +116,8 @@ public:
      * @param callback Callback function that is called on send success or
      * error.
      */
-    void send(std::string message, Callback callback, const int = int{});
+    void send(const std::string &message, const Callback &callback,
+        int /*unused*/ = int{});
 
     /**
      * Destructor.
@@ -121,41 +128,55 @@ public:
     /**
      * Stops the @c ConnectionPool operations.
      * All connections are dropped. This method exists to break the wait of any
-     * threads waiting in @c send. It is designed to be called at the end of the
-     * main application thread.
+     * threads waiting in @c send.
      */
     void stop();
 
-private:
-    void onConnectionReady(Connection &conn);
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
-    std::atomic<bool> m_connected{false};
+private:
+    /**
+     * Close connections and handler pipelines.
+     */
+    void close();
+
+    /**
+     * Setup trusted CA certificates by trying to find a CA file in on of common
+     * locations, otherwise ask OpenSSL to set up default paths.
+     * @param ctx OpenSSL context
+     * @return True when CA file was found and loaded successfuly, false
+     * otherwise
+     */
+    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+
     const std::size_t m_connectionsNumber;
-    std::string m_host;
-    const unsigned short m_port;
+    const std::string m_host;
+    const uint16_t m_port;
     const bool m_verifyServerCertificate;
+    const bool m_clprotoUpgrade;
+    const bool m_clprotoHandshake;
+
     std::shared_ptr<const cert::CertificateData> m_certificateData;
 
-    std::function<std::string()> m_getHandshake;
-    std::function<std::error_code(std::string)> m_onHandshakeResponse;
-    std::function<void(std::error_code)> m_onHandshakeDone;
-    ConnectionFactory m_connectionFactory;
+    // Application level flag determining whether the connection pool is
+    // connected or not. It does not mean that the connections are active as
+    // they may have failed. This flag is set to true after first successfull
+    // connection, and reset only after stop() is called.
+    std::atomic<bool> m_connected;
 
-    std::function<void(std::string)> m_onMessage = [](auto) {};
+    // Shared executor for the connection pool
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
 
-    asio::io_service m_ioService;
-    asio::executor_work<asio::io_service::executor_type> m_work{
-        asio::make_work(m_ioService)};
-    std::thread m_thread;
-    std::shared_ptr<asio::ssl::context> m_context{
-        std::make_shared<asio::ssl::context>(
-            asio::ssl::context::tlsv12_client)};
+    // Pipeline factory for creating wangle handler pipelines for each
+    // connection
+    std::shared_ptr<CLProtoPipelineFactory> m_pipelineFactory;
 
-    std::vector<std::unique_ptr<Connection>> m_connections;
-    tbb::concurrent_bounded_queue<Connection *> m_idleConnections;
+    // Fixed pool of connection instances
+    std::vector<std::shared_ptr<CLProtoClientBootstrap>> m_connections{};
+
+    // Queue of pointers to currently idle connections from the fixed pool
+    tbb::concurrent_bounded_queue<CLProtoClientBootstrap *> m_idleConnections{};
 };
 
 } // namespace communication
 } // namespace one
-
-#endif // HELPERS_COMMUNICATION_CONNECTION_POOL_H

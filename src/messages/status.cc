@@ -8,6 +8,7 @@
 
 #include "messages/status.h"
 
+#include "helpers/logging.h"
 #include "messages.pb.h"
 
 #include <boost/bimap.hpp>
@@ -15,7 +16,6 @@
 #include <boost/optional/optional_io.hpp>
 
 #include <cassert>
-#include <logging.h>
 #include <sstream>
 #include <system_error>
 #include <vector>
@@ -27,7 +27,7 @@ using Translation = boost::bimap<one::clproto::Status::Code,
 
 Translation createTranslation()
 {
-    using namespace one::clproto;
+    using namespace one::clproto; // NOLINT(google-build-using-namespace)
 
     const std::vector<Translation::value_type> pairs{
         {Status_Code_ok, static_cast<std::errc>(0)},
@@ -114,7 +114,7 @@ Translation createTranslation()
 }
 
 const Translation translation = createTranslation();
-}
+} // namespace
 
 namespace one {
 namespace messages {
@@ -149,8 +149,8 @@ Status::Status(clproto::Status &status)
     m_code = std::make_error_code(errc);
     if (status.has_description()) {
         m_description = std::move(*status.mutable_description());
-        LOG(INFO) << "Received status with description: "
-                  << m_code.message() << ": " << m_description.get();
+        LOG(INFO) << "Received status with description: " << m_code.message()
+                  << ": " << m_description.get();
     }
 }
 
@@ -188,7 +188,8 @@ std::unique_ptr<ProtocolClientMessage> Status::serializeAndDestroy()
     auto searchResult =
         translation.right.find(static_cast<std::errc>(m_code.value()));
 
-    assert(searchResult != translation.right.end());
+    assert(searchResult != translation.right.end()); // NOLINT
+
     statusMsg->set_code(searchResult->second);
 
     if (m_description)

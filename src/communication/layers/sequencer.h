@@ -10,6 +10,7 @@
 #define HELPERS_COMMUNICATION_LAYERS_SEQUENCER_H
 
 #include "communication/declarations.h"
+#include "helpers/logging.h"
 #include "scheduler.h"
 
 #include <tbb/concurrent_hash_map.h>
@@ -20,10 +21,23 @@
 #include <shared_mutex>
 #include <utility>
 #include <vector>
+/**
+ * std::<shared_timed_mutex> on OSX is available only since
+ * macOS Sierra (10.12), so use folly::SharedMutex on older OSX version.
+ */
+#if defined(__APPLE__) && (MAC_OS_X_VERSION_MAX_ALLOWED < 101200)
+#include <folly/SharedMutex.h>
+#endif
 
 namespace one {
 namespace communication {
 namespace layers {
+
+#if defined(__APPLE__) && (MAC_OS_X_VERSION_MAX_ALLOWED < 101200)
+using BuffersMutexType = folly::SharedMutex;
+#else
+using BuffersMutexType = std::shared_timed_mutex;
+#endif
 
 struct GreaterSeqNum {
     bool operator()(const ServerMessagePtr &a, const ServerMessagePtr &b) const
@@ -89,7 +103,7 @@ public:
                     m_buffer.emplace(std::move(it));
                     // Sequence number of pending message is greater than
                     // expected sequence number. Return sequence number that
-                    // proceeds sequence number of pending message.
+                    // preceeds sequence number of pending message.
                     return {seqNum - 1, false};
                 }
             }
@@ -159,7 +173,7 @@ public:
      * streams.
      * @see ConnectionPool::connect()
      */
-    auto connect();
+    void connect();
 
 private:
     void sendMessageStreamReset();
@@ -178,7 +192,7 @@ private:
 
     SchedulerPtr m_scheduler;
     std::function<void()> m_cancelPeriodicMessageRequest = [] {};
-    std::shared_timed_mutex m_buffersMutex;
+    BuffersMutexType m_buffersMutex;
     tbb::concurrent_hash_map<uint64_t, Buffer> m_buffers;
 };
 
@@ -198,7 +212,7 @@ auto Sequencer<LowerLayer, Scheduler>::setOnMessageCallback(
             if (!serverMsg->has_message_stream())
                 onMessageCallback(std::move(serverMsg));
             else {
-                std::shared_lock<std::shared_timed_mutex> lock{m_buffersMutex};
+                std::shared_lock<BuffersMutexType> lock{m_buffersMutex};
                 const auto streamId = serverMsg->message_stream().stream_id();
                 typename decltype(m_buffers)::accessor acc;
                 m_buffers.insert(acc, streamId);
@@ -231,11 +245,11 @@ void Sequencer<LowerLayer, Scheduler>::setScheduler(
 }
 
 template <class LowerLayer, class Scheduler>
-auto Sequencer<LowerLayer, Scheduler>::connect()
+void Sequencer<LowerLayer, Scheduler>::connect()
 {
+    LowerLayer::connect();
     sendMessageStreamReset();
     schedulePeriodicMessageRequest();
-    return LowerLayer::connect();
 }
 
 template <class LowerLayer, class Scheduler>
@@ -287,14 +301,14 @@ void Sequencer<LowerLayer, Scheduler>::schedulePeriodicMessageRequest()
     m_cancelPeriodicMessageRequest =
         m_scheduler->schedule(STREAM_MSG_REQ_WINDOW,
             std::bind(&Sequencer<LowerLayer, Scheduler>::periodicMessageRequest,
-                                  this));
+                this));
 }
 
 template <class LowerLayer, class Scheduler>
 std::vector<std::pair<uint64_t, uint64_t>>
 Sequencer<LowerLayer, Scheduler>::getStreamSequenceNumbers()
 {
-    std::lock_guard<std::shared_timed_mutex> guard{m_buffersMutex};
+    std::lock_guard<BuffersMutexType> guard{m_buffersMutex};
 
     std::vector<std::pair<uint64_t, uint64_t>> nums;
     nums.reserve(m_buffers.size());

@@ -20,12 +20,12 @@ import connection_pool
 
 @pytest.fixture
 def endpoint(appmock_client):
-    return appmock_client.tcp_endpoint(5555)
+    return appmock_client.tcp_endpoint(443)
 
 
 @pytest.fixture
 def cp(endpoint):
-    return connection_pool.ConnectionPoolProxy(3, endpoint.ip, endpoint.port)
+    return connection_pool.ConnectionPoolProxy(5, 2, endpoint.ip, endpoint.port)
 
 
 @pytest.mark.performance(

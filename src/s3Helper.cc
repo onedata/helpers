@@ -7,220 +7,28 @@
  */
 
 #include "s3Helper.h"
-#include "logging.h"
+#include "helpers/logging.h"
+#include "monitoring/monitoring.h"
 
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/Delete.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
-
 #include <boost/algorithm/string.hpp>
+#include <folly/Range.h>
 #include <glog/stl_logging.h>
 
-#include <cstring>
+#include <algorithm>
+#include <functional>
 
-namespace one {
-namespace helpers {
+namespace {
 
-S3Helper::S3Helper(std::unordered_map<std::string, std::string> args)
-    : m_args{std::move(args)}
-{
-}
-
-CTXPtr S3Helper::createCTX(std::unordered_map<std::string, std::string> params)
-{
-    return std::make_shared<S3HelperCTX>(std::move(params), m_args);
-}
-
-asio::mutable_buffer S3Helper::getObject(
-    CTXPtr rawCTX, std::string key, asio::mutable_buffer buf, off_t offset)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-    auto size = asio::buffer_size(buf);
-    auto data = asio::buffer_cast<char *>(buf);
-
-    Aws::S3::Model::GetObjectRequest request{};
-    request.SetBucket(ctx->getBucket());
-    request.SetKey(key);
-    request.SetRange(
-        rangeToString(offset, static_cast<off_t>(offset + size - 1)));
-    request.SetResponseStreamFactory([&]() {
-        auto stream = new std::stringstream{};
-        stream->rdbuf()->pubsetbuf(data, size);
-        return stream;
-    });
-
-    auto outcome = ctx->getClient()->GetObject(request);
-    auto code = getReturnCode(outcome);
-    if (code != SUCCESS_CODE) {
-        std::memset(data, 0, size);
-        throwOnError("GetObject", outcome);
-    }
-
-    return asio::buffer(
-        buf, static_cast<std::size_t>(outcome.GetResult().GetContentLength()));
-}
-
-off_t S3Helper::getObjectsSize(
-    CTXPtr rawCTX, const std::string &prefix, std::size_t objectSize)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-
-    Aws::S3::Model::ListObjectsRequest request{};
-    request.SetBucket(ctx->getBucket());
-    request.SetPrefix(adjustPrefix(std::move(prefix)));
-    request.SetDelimiter(OBJECT_DELIMITER);
-    request.SetMaxKeys(1);
-
-    auto outcome = ctx->getClient()->ListObjects(request);
-    throwOnError("ListObjects", outcome);
-
-    if (outcome.GetResult().GetContents().empty())
-        return 0;
-
-    auto key = outcome.GetResult().GetContents().back().GetKey();
-
-    return getObjectId(std::move(key)) * objectSize +
-        outcome.GetResult().GetContents().back().GetSize();
-}
-
-std::size_t S3Helper::putObject(
-    CTXPtr rawCTX, std::string key, asio::const_buffer buf)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-
-    Aws::S3::Model::PutObjectRequest request{};
-    auto size = asio::buffer_size(buf);
-    auto stream = std::make_shared<std::stringstream>();
-    stream->rdbuf()->pubsetbuf(
-        const_cast<char *>(asio::buffer_cast<const char *>(buf)), size);
-    request.SetBucket(ctx->getBucket());
-    request.SetKey(key);
-    request.SetContentLength(size);
-    request.SetBody(stream);
-
-    auto outcome = ctx->getClient()->PutObject(request);
-    throwOnError("PutObject", outcome);
-
-    return size;
-}
-
-void S3Helper::deleteObjects(CTXPtr rawCTX, std::vector<std::string> keys)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-
-    Aws::S3::Model::DeleteObjectsRequest request{};
-    request.SetBucket(ctx->getBucket());
-
-    while (!keys.empty()) {
-        Aws::S3::Model::Delete container;
-
-        for (auto s = std::min(keys.size(), MAX_DELETE_OBJECTS); s > 0; --s) {
-            container.AddObjects(Aws::S3::Model::ObjectIdentifier{}.WithKey(
-                std::move(keys.back())));
-            keys.pop_back();
-        }
-
-        request.SetDelete(std::move(container));
-        auto outcome = ctx->getClient()->DeleteObjects(request);
-        throwOnError("DeleteObjects", outcome);
-    }
-}
-
-std::vector<std::string> S3Helper::listObjects(
-    CTXPtr rawCTX, std::string prefix)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-
-    Aws::S3::Model::ListObjectsRequest request{};
-    request.SetBucket(ctx->getBucket());
-    request.SetPrefix(adjustPrefix(std::move(prefix)));
-    request.SetDelimiter(OBJECT_DELIMITER);
-
-    std::vector<std::string> keys;
-
-    while (true) {
-        auto outcome = ctx->getClient()->ListObjects(request);
-        throwOnError("ListObjects", outcome);
-
-        for (const auto &object : outcome.GetResult().GetContents())
-            keys.emplace_back(object.GetKey());
-
-        if (!outcome.GetResult().GetIsTruncated())
-            return keys;
-
-        request.SetMarker(outcome.GetResult().GetNextMarker());
-    }
-}
-
-std::shared_ptr<S3HelperCTX> S3Helper::getCTX(CTXPtr rawCTX) const
-{
-    auto ctx = std::dynamic_pointer_cast<S3HelperCTX>(rawCTX);
-    if (ctx == nullptr) {
-        LOG(INFO) << "Helper changed. Creating new context with arguments: "
-                  << m_args;
-        return std::make_shared<S3HelperCTX>(rawCTX->parameters(), m_args);
-    }
-    return ctx;
-}
-
-S3HelperCTX::S3HelperCTX(std::unordered_map<std::string, std::string> params,
-    std::unordered_map<std::string, std::string> args)
-    : IStorageHelperCTX{std::move(params)}
-    , m_args{std::move(args)}
-{
-    m_args.insert({S3_HELPER_ACCESS_KEY_ARG, ""});
-    m_args.insert({S3_HELPER_SECRET_KEY_ARG, ""});
-    init();
-}
-
-void S3HelperCTX::setUserCTX(std::unordered_map<std::string, std::string> args)
-{
-    m_args.swap(args);
-    m_args.insert(args.begin(), args.end());
-    init();
-}
-
-std::unordered_map<std::string, std::string> S3HelperCTX::getUserCTX()
-{
-    return {{S3_HELPER_ACCESS_KEY_ARG, m_args.at(S3_HELPER_ACCESS_KEY_ARG)},
-        {S3_HELPER_SECRET_KEY_ARG, m_args.at(S3_HELPER_SECRET_KEY_ARG)}};
-}
-
-const std::string &S3HelperCTX::getBucket() const
-{
-    return m_args.at(S3_HELPER_BUCKET_NAME_ARG);
-}
-
-const std::unique_ptr<Aws::S3::S3Client> &S3HelperCTX::getClient() const
-{
-    return m_client;
-}
-
-void S3HelperCTX::init()
-{
-    static S3HelperApiInit init;
-
-    Aws::Auth::AWSCredentials credentials{m_args.at(S3_HELPER_ACCESS_KEY_ARG),
-        m_args.at(S3_HELPER_SECRET_KEY_ARG)};
-    Aws::Client::ClientConfiguration configuration;
-
-    auto search = m_args.find(S3_HELPER_SCHEME_ARG);
-    if (search != m_args.end() && boost::iequals(search->second, "http"))
-        configuration.scheme = Aws::Http::Scheme::HTTP;
-
-    search = m_args.find(S3_HELPER_HOST_NAME_ARG);
-    if (search != m_args.end())
-        configuration.endpointOverride = search->second;
-
-    m_client = std::make_unique<Aws::S3::S3Client>(credentials, configuration);
-}
-
-std::map<Aws::S3::S3Errors, std::errc> S3Helper::s_errors = {
+std::map<Aws::S3::S3Errors, std::errc> g_errors = {
     {Aws::S3::S3Errors::INVALID_PARAMETER_VALUE, std::errc::invalid_argument},
     {Aws::S3::S3Errors::MISSING_ACTION, std::errc::not_supported},
     {Aws::S3::S3Errors::SERVICE_UNAVAILABLE, std::errc::host_unreachable},
@@ -233,5 +41,263 @@ std::map<Aws::S3::S3Errors, std::errc> S3Helper::s_errors = {
     {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
         std::errc::no_such_file_or_directory}};
 
+// Retry only in case one of these errors occured
+const std::set<Aws::S3::S3Errors> S3_RETRY_ERRORS = {
+    Aws::S3::S3Errors::INTERNAL_FAILURE,
+    Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
+    Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
+    Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
+    Aws::S3::S3Errors::REQUEST_EXPIRED, Aws::S3::S3Errors::SERVICE_UNAVAILABLE,
+    Aws::S3::S3Errors::SLOW_DOWN, Aws::S3::S3Errors::THROTTLING,
+    Aws::S3::S3Errors::NETWORK_CONNECTION};
+
+template <typename Outcome>
+std::error_code getReturnCode(const Outcome &outcome)
+{
+    LOG_FCALL();
+    if (outcome.IsSuccess())
+        return one::helpers::SUCCESS_CODE;
+
+    auto error = std::errc::io_error;
+    auto search = g_errors.find(outcome.GetError().GetErrorType());
+    if (search != g_errors.end())
+        error = search->second;
+
+    return {static_cast<int>(error), std::system_category()};
+}
+
+template <typename Outcome>
+void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
+{
+    auto code = getReturnCode(outcome);
+    if (!code)
+        return;
+
+    auto msg =
+        operation.toStdString() + "': " + outcome.GetError().GetMessage();
+
+    LOG_DBG(1) << "Operation " << operation << " failed with message " << msg;
+
+    if (operation == "PutObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3.errors.write");
+    }
+    else if (operation == "GetObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3.errors.read");
+    }
+
+    throw std::system_error{code, std::move(msg)};
+}
+
+template <typename T>
+bool S3RetryCondition(const T &outcome, const std::string &operation)
+{
+    auto result = outcome.IsSuccess() ||
+        !S3_RETRY_ERRORS.count(outcome.GetError().GetErrorType());
+
+    if (!result) {
+        LOG(WARNING) << "Retrying S3 helper operation '" << operation
+                     << "' due to error: "
+                     << outcome.GetError().GetMessage().c_str();
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3." + operation + ".retries");
+    }
+
+    return result;
+}
+
+} // namespace
+
+namespace one {
+namespace helpers {
+
+S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
+    folly::fbstring accessKey, folly::fbstring secretKey, const bool useHttps,
+    Timeout timeout)
+    : m_bucket{std::move(bucketName)}
+    , m_timeout{timeout}
+{
+    LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
+                << LOG_FARG(accessKey) << LOG_FARG(secretKey)
+                << LOG_FARG(useHttps) << LOG_FARG(timeout.count());
+
+    static S3HelperApiInit init;
+
+    Aws::Auth::AWSCredentials credentials{accessKey.c_str(), secretKey.c_str()};
+
+    Aws::Client::ClientConfiguration configuration;
+    configuration.region = getRegion(hostname).c_str();
+    configuration.endpointOverride = hostname.c_str();
+    if (!useHttps)
+        configuration.scheme = Aws::Http::Scheme::HTTP;
+
+    m_client = std::make_unique<Aws::S3::S3Client>(credentials, configuration,
+        Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+}
+
+folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
+{
+    LOG_FCALL() << LOG_FARG(hostname);
+
+    folly::fbvector<folly::fbstring> regions{"us-east-2", "us-east-1",
+        "us-west-1", "us-west-2", "ca-central-1", "ap-south-1",
+        "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
+        "eu-central-1", "eu-west-1", "eu-west-2", "sa-east-1"};
+
+    LOG_DBG(1) << "Attempting to determine S3 region based on hostname: "
+               << hostname;
+
+    for (const auto &region : regions) {
+        if (hostname.find(region) != folly::fbstring::npos) {
+            LOG_DBG(1) << "Using S3 region: " << region;
+            return region;
+        }
+    }
+
+    LOG_DBG(1) << "Using default S3 region us-east-1";
+
+    return "us-east-1";
+}
+
+folly::IOBufQueue S3Helper::getObject(
+    const folly::fbstring &key, const off_t offset, const std::size_t size)
+{
+    LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
+
+    folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+    char *data = static_cast<char *>(buf.preallocate(size, size).first);
+
+    Aws::S3::Model::GetObjectRequest request;
+    request.SetBucket(m_bucket.c_str());
+    request.SetKey(key.c_str());
+    request.SetRange(
+        rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
+    request.SetResponseStreamFactory([ data = data, size ] {
+        // NOLINTNEXTLINE
+        auto stream = new std::stringstream;
+#if !defined(__APPLE__)
+        /**
+         * pubsetbuf() implementation depends on libstdc++, and on some
+         * platforms including OSX it does not work and data must be copied
+         */
+        stream->rdbuf()->pubsetbuf(data, size);
+#else
+        (void)data;
+        (void)size;
+#endif
+        return stream;
+    });
+
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.read");
+
+    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
+               << " at offset " << offset;
+
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->GetObject(request);
+    },
+        std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
+            std::placeholders::_1, "GetObject"));
+
+    auto code = getReturnCode(outcome);
+
+    if (code != SUCCESS_CODE) {
+        LOG_DBG(1) << "Reading from object " << key << " failed with error "
+                   << outcome.GetError().GetMessage();
+        throwOnError("GetObject", outcome);
+    }
+
+#if defined(__APPLE__)
+    outcome.GetResult().GetBody().rdbuf()->sgetn(
+        data, outcome.GetResult().GetContentLength());
+#endif
+
+    auto readBytes = outcome.GetResult().GetContentLength();
+    buf.postallocate(static_cast<std::size_t>(readBytes));
+
+    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
+
+    ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
+
+    return buf;
+}
+
+std::size_t S3Helper::putObject(
+    const folly::fbstring &key, folly::IOBufQueue buf, const std::size_t offset)
+{
+    LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
+
+    assert(offset == 0); // NOLINT
+
+    auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
+    if (iobuf->isChained()) {
+        iobuf->unshare();
+        iobuf->coalesce();
+    }
+
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.write");
+
+    Aws::S3::Model::PutObjectRequest request;
+    auto size = iobuf->length();
+    request.SetBucket(m_bucket.c_str());
+    request.SetKey(key.c_str());
+    request.SetContentLength(size);
+    auto stream = std::make_shared<std::stringstream>();
+#if !defined(__APPLE__)
+    stream->rdbuf()->pubsetbuf(
+        reinterpret_cast<char *>(iobuf->writableData()), size);
+#else
+    stream->rdbuf()->sputn(const_cast<const char *>(
+                               reinterpret_cast<char *>(iobuf->writableData())),
+        size);
+#endif
+    request.SetBody(stream);
+
+    LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
+
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->PutObject(request);
+    },
+        std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>,
+            std::placeholders::_1, "PutObject"));
+
+    ONE_METRIC_TIMERCTX_STOP(timer, size);
+
+    throwOnError("PutObject", outcome);
+
+    LOG_DBG(2) << "Written " << size << " bytes to object " << key;
+
+    return size;
+}
+
+void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
+{
+    LOG_FCALL() << LOG_FARGV(keys);
+
+    Aws::S3::Model::DeleteObjectsRequest request;
+    request.SetBucket(m_bucket.c_str());
+
+    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
+
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
+        Aws::S3::Model::Delete container;
+
+        const std::size_t batchSize =
+            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
+
+        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize))
+            container.AddObjects(
+                Aws::S3::Model::ObjectIdentifier{}.WithKey(key.c_str()));
+
+        request.SetDelete(std::move(container));
+
+        auto outcome = retry([&, request = std::move(request) ]() {
+            return m_client->DeleteObjects(request);
+        },
+            std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectsOutcome>,
+                std::placeholders::_1, "DeleteObjects"));
+
+        throwOnError("DeleteObjects", outcome);
+    }
+}
 } // namespace helpers
 } // namespace one

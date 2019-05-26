@@ -7,12 +7,22 @@
  */
 
 #include "swiftHelper.h"
-#include "logging.h"
+#include "helpers/logging.h"
+#include "monitoring/monitoring.h"
 
+#include <folly/FBString.h>
+#include <folly/FBVector.h>
+#include <folly/Range.h>
 #include <glog/stl_logging.h>
+
+#if defined(__APPLE__)
+#undef BOOST_BIND_NO_PLACEHOLDERS
+#endif
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+
+#include <functional>
 
 namespace std {
 template <> struct hash<Poco::Net::HTTPResponse::HTTPStatus> {
@@ -21,7 +31,7 @@ template <> struct hash<Poco::Net::HTTPResponse::HTTPStatus> {
         return std::hash<int>()(static_cast<int>(p));
     }
 };
-}
+} // namespace std
 
 namespace one {
 namespace helpers {
@@ -41,8 +51,20 @@ std::unordered_map<Poco::Net::HTTPResponse::HTTPStatus, std::errc> errors = {
         std::errc::permission_denied},
 };
 
-template <typename Outcome> error_t getReturnCode(const Outcome &outcome)
+// Retry only in case one of these errors occured
+const std::set<Poco::Net::HTTPResponse::HTTPStatus> SWIFT_RETRY_ERRORS = {
+    Poco::Net::HTTPResponse::HTTPStatus::HTTP_REQUEST_TIMEOUT,
+    Poco::Net::HTTPResponse::HTTPStatus::HTTP_GONE,
+    Poco::Net::HTTPResponse::HTTPStatus::HTTP_INTERNAL_SERVER_ERROR,
+    Poco::Net::HTTPResponse::HTTPStatus::HTTP_BAD_GATEWAY,
+    Poco::Net::HTTPResponse::HTTPStatus::HTTP_SERVICE_UNAVAILABLE,
+    Poco::Net::HTTPResponse::HTTPStatus::HTTP_GATEWAY_TIMEOUT};
+
+template <typename Outcome>
+std::error_code getReturnCode(const Outcome &outcome)
 {
+    LOG_FCALL() << LOG_FARG(outcome->getResponse()->getStatus());
+
     auto statusCode = outcome->getResponse()->getStatus();
 
     auto error = std::errc::io_error;
@@ -50,215 +72,227 @@ template <typename Outcome> error_t getReturnCode(const Outcome &outcome)
     if (search != errors.end())
         error = search->second;
 
-    return std::error_code(static_cast<int>(error), std::system_category());
+    return {static_cast<int>(error), std::system_category()};
 }
 
 template <typename Outcome>
-void throwOnError(std::string operation, const Outcome &outcome)
+void throwOnError(folly::fbstring operation, const Outcome &outcome)
 {
+    LOG_FCALL() << LOG_FARG(operation)
+                << LOG_FARG(outcome->getResponse()->getStatus());
+
     if (outcome->getError().code == Swift::SwiftError::SWIFT_OK)
         return;
 
     auto code = getReturnCode(outcome);
-    auto reason = "'" + operation + "': " + outcome->getError().msg;
+    auto reason =
+        "'" + operation.toStdString() + "': " + outcome->getError().msg;
 
-    throw std::system_error{code, reason};
-}
+    LOG_DBG(1) << "Operation " << operation << " failed with message "
+               << outcome->getError().msg;
+
+    if (operation == "putObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.swift.errors.write");
+    }
+    else if (operation == "getObject") {
+        ONE_METRIC_COUNTER_INC("comp.helpers.mod.swift.errors.read");
+    }
+
+    throw std::system_error{code, std::move(reason)};
 }
 
-SwiftHelper::SwiftHelper(std::unordered_map<std::string, std::string> args)
-    : m_args{std::move(args)}
+template <typename Outcome>
+bool SWIFTRetryCondition(const Outcome &outcome, const std::string &operation)
 {
+    auto statusCode = outcome->getResponse()->getStatus();
+    auto ret = (statusCode == Swift::SwiftError::SWIFT_OK ||
+        !SWIFT_RETRY_ERRORS.count(statusCode));
+
+    if (!ret) {
+        LOG(WARNING) << "Retrying SWIFT helper operation '" << operation
+                     << "' due to error: " << outcome->getError().msg;
+        ONE_METRIC_COUNTER_INC(
+            "comp.helpers.mod.swift." + operation + ".retries");
+    }
+
+    return ret;
+}
+} // namespace
+
+SwiftHelper::SwiftHelper(folly::fbstring containerName,
+    const folly::fbstring &authUrl, const folly::fbstring &tenantName,
+    const folly::fbstring &userName, const folly::fbstring &password,
+    Timeout timeout)
+    : m_auth{authUrl, tenantName, userName, password}
+    , m_containerName{std::move(containerName)}
+    , m_timeout{timeout}
+{
+    LOG_FCALL() << LOG_FARG(m_containerName) << LOG_FARG(authUrl)
+                << LOG_FARG(tenantName) << LOG_FARG(userName)
+                << LOG_FARG(password);
 }
 
-CTXPtr SwiftHelper::createCTX(
-    std::unordered_map<std::string, std::string> params)
+folly::IOBufQueue SwiftHelper::getObject(
+    const folly::fbstring &key, const off_t offset, const std::size_t size)
 {
-    return std::make_shared<SwiftHelperCTX>(std::move(params), m_args);
-}
+    LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
-asio::mutable_buffer SwiftHelper::getObject(
-    CTXPtr rawCTX, std::string key, asio::mutable_buffer buf, off_t offset)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-    auto &account = ctx->authenticate();
-    auto size = asio::buffer_size(buf);
+    auto &account = m_auth.getAccount();
 
-    Swift::Container container(account.get(), ctx->getContainerName());
-    Swift::Object object(&container, key);
+    Swift::Container container(&account, m_containerName.toStdString());
+    Swift::Object object(&container, key.toStdString());
+
+    folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+
+    LOG_DBG(2) << "Attempting to read " << size << " bytes from object " << key
+               << " at offset " << offset;
+
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.swift.read");
 
     auto headers = std::vector<Swift::HTTPHeader>({Swift::HTTPHeader("Range",
         rangeToString(offset, static_cast<off_t>(offset + size - 1)))});
-    auto getResponse = std::unique_ptr<Swift::SwiftResult<std::istream *>>(
-        object.swiftGetObjectContent(nullptr, &headers));
+
+    using GetResponsePtr = std::unique_ptr<Swift::SwiftResult<std::istream *>>;
+
+    auto getResponse = retry(
+        [&]() {
+            return GetResponsePtr{
+                object.swiftGetObjectContent(nullptr, &headers)};
+        },
+        std::bind(SWIFTRetryCondition<GetResponsePtr>, std::placeholders::_1,
+            "GetObjectContent"));
+
     throwOnError("getObject", getResponse);
 
-    std::string objectData{
-        std::istreambuf_iterator<char>(*getResponse->getPayload()), {}};
+    char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
-    auto copied = asio::buffer_copy(buf, asio::buffer(objectData));
-    return asio::buffer(buf, copied);
-}
+    const auto newTail =
+        std::copy(std::istreambuf_iterator<char>{*getResponse->getPayload()},
+            std::istreambuf_iterator<char>{}, data);
 
-off_t SwiftHelper::getObjectsSize(
-    CTXPtr rawCTX, const std::string &prefix, std::size_t objectSize)
-{
-    auto ctx = getCTX(std::move(rawCTX));
-    auto &account = ctx->authenticate();
+    buf.postallocate(newTail - data);
 
-    Swift::Container container(account.get(), ctx->getContainerName());
-    auto params = std::vector<Swift::HTTPHeader>(
-        {Swift::HTTPHeader("prefix", adjustPrefix(prefix))});
+    ONE_METRIC_TIMERCTX_STOP(
+        timer, getResponse->getResponse()->getContentLength());
 
-    auto listResponse = std::unique_ptr<Swift::SwiftResult<std::istream *>>(
-        container.swiftListObjects(
-            Swift::HEADER_FORMAT_APPLICATION_JSON, &params, true));
-    throwOnError("getObjectsSize", listResponse);
+    LOG_DBG(2) << "Read " << size << " bytes from object " << key;
 
-    boost::property_tree::ptree pt;
-    boost::property_tree::read_json(*listResponse->getPayload(), pt);
-    if (pt.size() == 0) {
-        return 0;
-    }
-
-    auto key = pt.get<std::string>(".name");
-    auto size = pt.get<uint64_t>(".bytes");
-
-    return getObjectId(std::move(key)) * objectSize + size;
+    return buf;
 }
 
 std::size_t SwiftHelper::putObject(
-    CTXPtr rawCTX, std::string key, asio::const_buffer buf)
+    const folly::fbstring &key, folly::IOBufQueue buf, const std::size_t offset)
 {
-    auto ctx = getCTX(std::move(rawCTX));
-    auto &account = ctx->authenticate();
-    auto size = asio::buffer_size(buf);
-    auto data = asio::buffer_cast<const char *>(buf);
+    LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
 
-    Swift::Container container(account.get(), ctx->getContainerName());
-    Swift::Object object(&container, key);
+    assert(offset == 0);
 
-    auto createResponse = std::unique_ptr<Swift::SwiftResult<int *>>(
-        object.swiftCreateReplaceObject(data, size, true));
+    std::size_t writtenBytes = 0;
+    auto &account = m_auth.getAccount();
+
+    Swift::Container container(&account, m_containerName.toStdString());
+    Swift::Object object(&container, key.toStdString());
+
+    auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
+
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.swift.write");
+
+    if (iobuf->isChained()) {
+        iobuf->unshare();
+        iobuf->coalesce();
+    }
+
+    LOG_DBG(2) << "Attempting to write object " << key << " of size "
+               << iobuf->length();
+
+    using CreateResponsePtr = std::unique_ptr<Swift::SwiftResult<int *>>;
+
+    auto createResponse = retry(
+        [&]() {
+            return CreateResponsePtr{object.swiftCreateReplaceObject(
+                reinterpret_cast<const char *>(iobuf->data()), iobuf->length(),
+                true)};
+        },
+        std::bind(SWIFTRetryCondition<CreateResponsePtr>, std::placeholders::_1,
+            "CreateReplaceObject"));
+
     throwOnError("putObject", createResponse);
 
-    return asio::buffer_size(buf);
+    writtenBytes = iobuf->length();
+
+    ONE_METRIC_TIMERCTX_STOP(timer, writtenBytes);
+
+    LOG_DBG(2) << "Written " << writtenBytes << " bytes to object " << key;
+
+    return writtenBytes;
 }
 
-void SwiftHelper::deleteObjects(CTXPtr rawCTX, std::vector<std::string> keys)
+void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 {
-    auto ctx = getCTX(std::move(rawCTX));
-    auto &account = ctx->authenticate();
+    LOG_FCALL() << LOG_FARGV(keys);
 
-    Swift::Container container(account.get(), ctx->getContainerName());
-    for (uint i = 0; i < keys.size(); i += MAX_DELETE_OBJECTS) {
-        auto deleteResponse =
-            std::unique_ptr<Swift::SwiftResult<std::istream *>>(
-                container.swiftDeleteObjects(
-                    std::vector<std::string>(keys.begin() + i,
-                        keys.begin() + std::min<size_t>(i + MAX_DELETE_OBJECTS,
-                                           keys.size()))));
+    auto &account = m_auth.getAccount();
+
+    LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
+
+    Swift::Container container(&account, m_containerName.toStdString());
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
+        std::vector<std::string> keyBatch;
+
+        const std::size_t batchSize =
+            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
+
+        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize))
+            keyBatch.emplace_back(key.toStdString());
+
+        using DeleteResponsePtr =
+            std::unique_ptr<Swift::SwiftResult<std::istream *>>;
+
+        auto deleteResponse = retry(
+            [&]() {
+                return DeleteResponsePtr{
+                    container.swiftDeleteObjects(keyBatch)};
+            },
+            std::bind(SWIFTRetryCondition<DeleteResponsePtr>,
+                std::placeholders::_1, "DeleteObjects"));
 
         throwOnError("deleteObjects", deleteResponse);
     }
+
+    LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
-std::vector<std::string> SwiftHelper::listObjects(
-    CTXPtr rawCTX, std::string prefix)
+SwiftHelper::Authentication::Authentication(const folly::fbstring &authUrl,
+    const folly::fbstring &tenantName, const folly::fbstring &userName,
+    const folly::fbstring &password)
 {
-    auto ctx = getCTX(std::move(rawCTX));
-    auto &account = ctx->authenticate();
+    LOG_FCALL() << LOG_FARG(authUrl) << LOG_FARG(tenantName)
+                << LOG_FARG(userName) << LOG_FARG(password);
 
-    Swift::Container container(account.get(), ctx->getContainerName());
-    auto params = std::vector<Swift::HTTPHeader>(
-        {Swift::HTTPHeader("prefix", adjustPrefix(prefix)),
-            Swift::HTTPHeader("limit", std::to_string(MAX_LIST_OBJECTS))});
-
-    std::vector<std::string> objectsList{};
-    while (true) {
-        if (!objectsList.empty()) {
-            params.pop_back();
-            params.push_back(Swift::HTTPHeader("marker", objectsList.back()));
-        }
-
-        auto listResponse = std::unique_ptr<Swift::SwiftResult<std::istream *>>(
-            container.swiftListObjects(
-                Swift::HEADER_FORMAT_TEXT_XML, &params, true));
-        throwOnError("listObjects", listResponse);
-
-        auto lines = 0;
-        for (std::string name;
-             std::getline(*listResponse->getPayload(), name);) {
-            ++lines;
-            objectsList.push_back(name);
-        }
-
-        if (lines != MAX_LIST_OBJECTS)
-            break;
-    };
-
-    return objectsList;
+    m_authInfo.username = userName.toStdString();
+    m_authInfo.password = password.toStdString();
+    m_authInfo.authUrl = authUrl.toStdString();
+    m_authInfo.tenantName = tenantName.toStdString();
+    m_authInfo.method = Swift::AuthenticationMethod::KEYSTONE;
 }
 
-std::shared_ptr<SwiftHelperCTX> SwiftHelper::getCTX(CTXPtr rawCTX) const
+Swift::Account &SwiftHelper::Authentication::getAccount()
 {
-    auto ctx = std::dynamic_pointer_cast<SwiftHelperCTX>(rawCTX);
-    if (ctx == nullptr) {
-        LOG(INFO) << "Helper changed. Creating new context with arguments: "
-                  << m_args;
-        return std::make_shared<SwiftHelperCTX>(rawCTX->parameters(), m_args);
-    }
-    return ctx;
-}
+    LOG_FCALL();
 
-SwiftHelperCTX::SwiftHelperCTX(
-    std::unordered_map<std::string, std::string> params,
-    std::unordered_map<std::string, std::string> args)
-    : IStorageHelperCTX{std::move(params)}
-    , m_args{std::move(args)}
-{
-}
-
-void SwiftHelperCTX::setUserCTX(
-    std::unordered_map<std::string, std::string> args)
-{
-    m_args.swap(args);
-    m_args.insert(args.begin(), args.end());
-}
-
-std::unordered_map<std::string, std::string> SwiftHelperCTX::getUserCTX()
-{
-    return {{SWIFT_HELPER_USER_NAME_ARG, m_args.at(SWIFT_HELPER_USER_NAME_ARG)},
-        {SWIFT_HELPER_PASSWORD_ARG, m_args.at(SWIFT_HELPER_PASSWORD_ARG)}};
-}
-
-const std::unique_ptr<Swift::Account> &SwiftHelperCTX::authenticate()
-{
-    std::lock_guard<std::mutex> guard{m_mutex};
-
+    std::lock_guard<std::mutex> guard{m_authMutex};
     if (m_account)
-        return m_account;
-
-    Swift::AuthenticationInfo info;
-    info.username = m_args.at(SWIFT_HELPER_USER_NAME_ARG);
-    info.password = m_args.at(SWIFT_HELPER_PASSWORD_ARG);
-    info.authUrl = m_args.at(SWIFT_HELPER_AUTH_URL_ARG);
-    info.tenantName = m_args.at(SWIFT_HELPER_TENANT_NAME_ARG);
-    info.method = Swift::AuthenticationMethod::KEYSTONE;
+        return *m_account;
 
     auto authResponse = std::unique_ptr<Swift::SwiftResult<Swift::Account *>>(
-        Swift::Account::authenticate(info, true));
+        Swift::Account::authenticate(m_authInfo, true));
     throwOnError("authenticate", authResponse);
 
     m_account = std::unique_ptr<Swift::Account>(authResponse->getPayload());
     authResponse->setPayload(nullptr);
 
-    return m_account;
-}
-
-const std::string &SwiftHelperCTX::getContainerName() const
-{
-    return m_args.at(SWIFT_HELPER_CONTAINER_NAME_ARG);
+    return *m_account;
 }
 
 } // namespace helpers

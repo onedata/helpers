@@ -18,7 +18,6 @@
 #include "communication/layers/retrier.h"
 #include "communication/layers/sequencer.h"
 #include "communication/layers/translator.h"
-#include "communication/persistentConnection.h"
 #include "communication/streaming/streamManager.h"
 
 namespace one {

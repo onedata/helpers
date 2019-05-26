@@ -11,6 +11,7 @@
 
 #include "communication/declarations.h"
 #include "communication/subscriptionData.h"
+#include "helpers/logging.h"
 
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/concurrent_queue.h>
@@ -36,13 +37,17 @@ namespace one {
 namespace communication {
 namespace layers {
 
+constexpr auto kMagicCookie = 1234432178;
+
 /**
  * @c Inbox is responsible for handling incoming messages. It stores a
  * collection of unfulfilled promises and matches them to incoming messages
  * by a message id. Other objects can subscribe on messages, e.g. to create
  * a 'push message' communication channel.
  */
-template <class LowerLayer> class Inbox : public LowerLayer {
+template <class LowerLayer>
+class Inbox : public LowerLayer,
+              public std::enable_shared_from_this<Inbox<LowerLayer>> {
 public:
     using Callback = typename LowerLayer::Callback;
     using CommunicateCallback =
@@ -87,9 +92,20 @@ public:
 
     void setOnMessageCallback(std::function<void(ServerMessagePtr)>) = delete;
 
+    void stop()
+    {
+        m_stopped = true;
+        LowerLayer::stop();
+    }
+
 private:
-    tbb::concurrent_hash_map<std::string, std::shared_ptr<CommunicateCallback>>
-        m_callbacks;
+    struct CommunicateCallbackData {
+        std::shared_ptr<CommunicateCallback> callback;
+        std::chrono::time_point<std::chrono::system_clock> sendTime;
+        std::string messageName;
+    };
+
+    tbb::concurrent_hash_map<std::string, CommunicateCallbackData> m_callbacks;
 
     std::uint64_t m_seed = initializeMsgIdSeed();
     /// The counter will loop after sending ~65000 messages, providing us with
@@ -99,6 +115,14 @@ private:
     tbb::concurrent_vector<SubscriptionData> m_subscriptions;
     tbb::concurrent_queue<typename decltype(m_subscriptions)::iterator>
         m_unusedSubscriptions;
+
+    bool m_stopped = false;
+
+    // This is a temporary way of making sure that the communicator instance
+    // is still valid after deamonization from within a callback having
+    // only this pointer. This should be fixed with a proper lifetime management
+    // during communicator destruction
+    int m_magic = kMagicCookie;
 };
 
 template <class LowerLayer>
@@ -111,24 +135,70 @@ void Inbox<LowerLayer>::communicate(
     {
         typename decltype(m_callbacks)::accessor acc;
         m_callbacks.insert(acc, messageId);
-        acc->second =
-            std::make_shared<CommunicateCallback>(std::move(callback));
+
+        std::string messageName{"client_message"};
+
+        if (VLOG_IS_ON(3)) {
+            if (message->has_fuse_request()) {
+                auto fuseRequest = message->fuse_request();
+                if (fuseRequest.has_file_request()) {
+                    auto fileRequest = fuseRequest.file_request();
+                    auto fileRequestCase = fileRequest.file_request_case();
+                    messageName = "fuse_request.file_request." +
+                        fileRequest.GetDescriptor()
+                            ->FindOneofByName("file_request")
+                            ->field(fileRequestCase -
+                                one::clproto::FileRequest::FileRequestCase::
+                                    kGetFileAttr)
+                            ->name() +
+                        " [" + std::to_string(fileRequestCase) + "]";
+                }
+            }
+            else if (message->GetDescriptor()->FindOneofByName(
+                         "message_body")) {
+                auto messageBodyCase = message->message_body_case();
+                if (messageBodyCase) {
+                    messageName =
+                        message->GetDescriptor()
+                            ->FindOneofByName("message_body")
+                            ->field(messageBodyCase -
+                                one::clproto::ClientMessage::MessageBodyCase::
+                                    kClientHandshakeRequest)
+                            ->name() +
+                        " [" + std::to_string(message->message_body_case()) +
+                        "]";
+                }
+            }
+        }
+
+        acc->second = CommunicateCallbackData{
+            std::make_shared<CommunicateCallback>(std::move(callback)),
+            std::chrono::system_clock::now(), messageName};
     }
 
-    auto sendCallback =
+    auto sendErrorCallback =
         [ this, messageId = std::move(messageId) ](const std::error_code &ec)
     {
         if (ec) {
             typename decltype(m_callbacks)::accessor acc;
             if (m_callbacks.find(acc, messageId)) {
-                auto cb = std::move(*acc->second);
+                auto cb = std::move(*(acc->second.callback));
+                auto messageName = std::move(acc->second.messageName);
+                namespace sc = std::chrono;
+                auto rtt = sc::duration_cast<sc::milliseconds>(
+                    sc::system_clock::now() - acc->second.sendTime);
+
+                LOG(WARNING) << "Sending message " << messageName
+                             << "(id: " << messageId << ") failed after "
+                             << rtt.count() << "ms with error: " << ec;
+
                 m_callbacks.erase(acc);
                 cb(ec, {});
             }
         }
     };
 
-    LowerLayer::send(std::move(message), std::move(sendCallback), retries);
+    LowerLayer::send(std::move(message), std::move(sendErrorCallback), retries);
 }
 
 template <class LowerLayer>
@@ -149,15 +219,41 @@ std::function<void()> Inbox<LowerLayer>::subscribe(SubscriptionData data)
 template <class LowerLayer> auto Inbox<LowerLayer>::connect()
 {
     LowerLayer::setOnMessageCallback([this](ServerMessagePtr message) {
+        if (m_magic != kMagicCookie) {
+            LOG(INFO) << "Received message but communicator is already "
+                         "destroyed - ignoring...";
+            return;
+        }
+
+        if (m_stopped) {
+            LOG(INFO) << "Received message but communicator already stopped - "
+                         "ignoring...";
+            return;
+        }
+
+        const auto messageId = message->message_id();
+
         typename decltype(m_callbacks)::accessor acc;
-        const bool handled = m_callbacks.find(acc, message->message_id());
+        const bool handled = m_callbacks.find(acc, messageId);
 
         for (const auto &sub : m_subscriptions)
             if (sub.predicate(*message, handled))
                 sub.callback(*message);
 
         if (handled) {
-            auto callback = std::move(*acc->second);
+            auto callback = std::move(*(acc->second.callback));
+
+            if (VLOG_IS_ON(3)) {
+                auto messageName = std::move(acc->second.messageName);
+                using namespace std::chrono;
+                auto rtt = duration_cast<milliseconds>(
+                    system_clock::now() - acc->second.sendTime);
+
+                LOG_DBG(3) << "Response to message " << messageName
+                           << "(id: " << messageId << ") received in "
+                           << rtt.count() << " ms";
+            }
+
             m_callbacks.erase(acc);
             callback({}, std::move(message));
         }

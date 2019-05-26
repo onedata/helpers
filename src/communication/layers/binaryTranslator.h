@@ -9,8 +9,8 @@
 #ifndef HELPERS_COMMUNICATION_LAYERS_BINARY_TRANSLATOR_H
 #define HELPERS_COMMUNICATION_LAYERS_BINARY_TRANSLATOR_H
 
-#include "logging.h"
 #include "communication/declarations.h"
+#include "helpers/logging.h"
 
 #include <functional>
 #include <memory>
@@ -83,8 +83,12 @@ auto BinaryTranslator<LowerLayer>::setHandshake(
             /// @todo A potential place for optimization [static serverMsg]
             auto serverMsg = std::make_unique<clproto::ServerMessage>();
 
-            if (!serverMsg->ParseFromString(message))
+            if (!serverMsg->ParseFromString(message)) {
+                LOG(ERROR) << "Cannot parse protobuf message from binary "
+                              "stream. Message size in bytes is "
+                           << message.size();
                 return std::make_error_code(std::errc::protocol_error);
+            }
 
             return onHandshakeResponse(std::move(serverMsg));
         },
@@ -99,14 +103,23 @@ auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
     return LowerLayer::setOnMessageCallback([onMessageCallback =
                                                  std::move(onMessageCallback)](
         std::string message) {
+        LOG_DBG(2) << "Received low level message of size: " << message.size();
         auto serverMsg = std::make_unique<clproto::ServerMessage>();
         if (serverMsg->ParseFromString(message)) {
-            onMessageCallback(std::move(serverMsg));
+            LOG_DBG(3) << "Received clproto message: "
+                       << serverMsg->DebugString();
+
+            if (serverMsg->has_processing_status()) {
+                LOG_DBG(2) << "Received ProcessingStatus heartbeat message - "
+                              "ignoring...";
+            }
+            else {
+                onMessageCallback(std::move(serverMsg));
+            }
         }
         else {
-            DLOG(WARNING) << "Received an invalid message from the server: '"
-                          << message.substr(0, 40)
-                          << "' (message trimmed to 40 chars).";
+            LOG(ERROR) << "Received an invalid message from the server, not "
+                          "compliant with clproto ServerMessage.";
         }
     });
 }
@@ -115,6 +128,8 @@ template <class LowerLayer>
 auto BinaryTranslator<LowerLayer>::send(
     ClientMessagePtr message, Callback callback, const int retries)
 {
+    LOG_DBG(3) << "Sending clproto message: " << message->DebugString();
+
     /// @todo Possible optimization point here [static thread-local string]
     return LowerLayer::send(
         message->SerializeAsString(), std::move(callback), retries);

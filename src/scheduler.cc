@@ -7,14 +7,15 @@
  */
 
 #include "scheduler.h"
+#include "helpers/logging.h"
 
-#include "utils.hpp"
+#include <folly/ThreadName.h>
 
 #include <algorithm>
 
 namespace one {
 
-Scheduler::Scheduler(const std::size_t threadNumber)
+Scheduler::Scheduler(const int threadNumber)
     : m_threadNumber{threadNumber}
 {
     start();
@@ -24,24 +25,30 @@ Scheduler::~Scheduler() { stop(); }
 
 void Scheduler::prepareForDaemonize()
 {
+    LOG_FCALL();
+
     stop();
     m_ioService.notify_fork(asio::io_service::fork_prepare);
 }
 
 void Scheduler::restartAfterDaemonize()
 {
+    LOG_FCALL();
+
     m_ioService.notify_fork(asio::io_service::fork_child);
     start();
 }
 
 void Scheduler::start()
 {
+    LOG_FCALL();
+
     if (m_ioService.stopped())
         m_ioService.reset();
 
     std::generate_n(std::back_inserter(m_workers), m_threadNumber, [=] {
         std::thread t{[=] {
-            etls::utils::nameThread("Scheduler");
+            folly::setThreadName("Scheduler");
             m_ioService.run();
         }};
 
@@ -51,6 +58,8 @@ void Scheduler::start()
 
 void Scheduler::stop()
 {
+    LOG_FCALL();
+
     m_ioService.stop();
     for (auto &t : m_workers)
         t.join();
