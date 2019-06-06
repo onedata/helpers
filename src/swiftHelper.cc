@@ -15,10 +15,6 @@
 #include <folly/Range.h>
 #include <glog/stl_logging.h>
 
-#if defined(__APPLE__)
-#undef BOOST_BIND_NO_PLACEHOLDERS
-#endif
-
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
