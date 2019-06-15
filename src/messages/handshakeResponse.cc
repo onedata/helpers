@@ -37,8 +37,8 @@ std::error_code HandshakeResponse::status() const
 std::string HandshakeResponse::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'HandshakeResponse', status: '" << status().message()
-           << "'";
+    stream << "type: 'HandshakeResponse', status: '" << status().message();
+
     return stream.str();
 }
 
