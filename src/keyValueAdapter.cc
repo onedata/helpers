@@ -12,16 +12,22 @@
 
 namespace {
 
-uint64_t getBlockId(off_t offset, std::size_t blockSize)
+uint64_t getBlockId(off_t offset, size_t blockSize)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(blockSize);
+
+    if (blockSize == 0)
+        return 0;
 
     return offset / blockSize;
 }
 
-off_t getBlockOffset(off_t offset, std::size_t blockSize)
+off_t getBlockOffset(off_t offset, size_t blockSize)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(blockSize);
+
+    if (blockSize == 0)
+        return offset;
 
     return offset - getBlockId(offset, blockSize) * blockSize;
 }
@@ -84,8 +90,25 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-    return folly::via(
-        m_executor.get(), [ this, offset, size, self = shared_from_this() ] {
+    return folly::via(m_executor.get(),
+        [this, offset, size, locks = m_locks,
+            helper =
+                std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
+            self = shared_from_this()] {
+            // In case this is a storage with files stored in single objects,
+            // read from an object using it's fileId as name of the object
+            // on the storage
+            if (m_blockSize == 0) {
+                Locks::accessor acc;
+                locks->insert(acc, m_fileId);
+
+                auto res = folly::makeFuture<folly::IOBufQueue>(
+                    helper->getObject(m_fileId, offset, size));
+
+                locks->erase(acc);
+                return res;
+            }
+
             return readBlocks(offset, size);
         });
 }
@@ -99,10 +122,35 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         return folly::makeFuture<std::size_t>(0);
 
     return folly::via(m_executor.get(),
-        [ this, offset, buf = std::move(buf), self = shared_from_this() ] {
+        [this, offset, locks = m_locks,
+            helper =
+                std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
+            buf = std::move(buf), self = shared_from_this()]() mutable {
             const auto size = buf.chainLength();
-            if (size == 0)
+            if (size == 0 && offset > 0)
                 return folly::makeFuture<std::size_t>(0);
+
+            // In case this is a storage with files stored in single objects,
+            // try to modify the contents in place
+            if (m_blockSize == 0) {
+                Locks::accessor acc;
+                locks->insert(acc, m_fileId);
+
+                if (size == 0) {
+                    folly::makeFuture<std::size_t>(
+                        static_cast<std::size_t>(helper->modifyObject(
+                            m_fileId, std::move(buf), offset)));
+                }
+                else {
+                    folly::makeFuture<std::size_t>(
+                        static_cast<std::size_t>(helper->modifyObject(
+                            m_fileId, std::move(buf), offset)));
+                }
+
+                locks->erase(acc);
+                return folly::makeFuture<std::size_t>(
+                    static_cast<std::size_t>(size));
+            }
 
             auto blockId = getBlockId(offset, m_blockSize);
             auto blockOffset = getBlockOffset(offset, m_blockSize);
@@ -115,19 +163,20 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
                 const auto blockSize = std::min<std::size_t>(
                     m_blockSize - blockOffset, size - bufOffset);
 
-                auto writeFuture = via(m_executor.get(), [
-                    this, iobuf = buf.front()->clone(), blockId, blockOffset,
-                    bufOffset, blockSize, self = shared_from_this()
-                ]() mutable {
-                    folly::IOBufQueue bufq{
-                        folly::IOBufQueue::cacheChainLength()};
+                auto writeFuture = via(m_executor.get(),
+                    [this, iobuf = buf.front()->clone(), blockId, blockOffset,
+                        bufOffset, blockSize,
+                        self = shared_from_this()]() mutable {
+                        folly::IOBufQueue bufq{
+                            folly::IOBufQueue::cacheChainLength()};
 
-                    bufq.append(std::move(iobuf));
-                    bufq.trimStart(bufOffset);
-                    bufq.trimEnd(bufq.chainLength() - blockSize);
+                        bufq.append(std::move(iobuf));
+                        bufq.trimStart(bufOffset);
+                        bufq.trimEnd(bufq.chainLength() - blockSize);
 
-                    return writeBlock(std::move(bufq), blockId, blockOffset);
-                });
+                        return writeBlock(
+                            std::move(bufq), blockId, blockOffset);
+                    });
 
                 writeFutures.emplace_back(std::move(writeFuture));
 
@@ -173,19 +222,53 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
         return folly::makeFuture();
 
     return folly::via(m_executor.get(),
-        [ fileId, helper = m_helper, blockSize = m_blockSize, currentSize ] {
-            try {
-                folly::fbvector<folly::fbstring> keysToDelete;
-                for (size_t objectId = 0; objectId <= (currentSize / blockSize);
-                     objectId++) {
-                    keysToDelete.emplace_back(helper->getKey(fileId, objectId));
+        [fileId, helper = m_helper, blockSize = m_blockSize, currentSize] {
+            if (blockSize == 0) {
+                helper->getObjectInfo(fileId);
+                helper->deleteObjects({fileId});
+            }
+            else {
+                try {
+                    folly::fbvector<folly::fbstring> keysToDelete;
+                    for (size_t objectId = 0;
+                         objectId <= (currentSize / blockSize); objectId++) {
+                        keysToDelete.emplace_back(
+                            helper->getKey(fileId, objectId));
+                    }
+                    helper->deleteObjects(keysToDelete);
                 }
-                helper->deleteObjects(keysToDelete);
+                catch (const std::system_error &e) {
+                    logError("unlink", e);
+                    throw;
+                }
             }
-            catch (const std::system_error &e) {
-                logError("unlink", e);
-                throw;
-            }
+        });
+}
+
+folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
+    const mode_t mode, const FlagsSet &flags, const dev_t rdev)
+{
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
+
+    if (m_blockSize > 0)
+        return folly::makeFuture();
+
+    if (!S_ISREG(mode)) {
+        LOG(ERROR) << "Only regular files can be created on object storages";
+        return folly::makeFuture();
+    }
+
+    return folly::via(
+        m_executor.get(), [fileId, helper = m_helper, locks = m_locks] {
+            Locks::accessor acc;
+            locks->insert(acc, fileId);
+
+            helper->putObject(fileId,
+                folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
+
+            locks->erase(acc);
+
+            return folly::makeFuture();
         });
 }
 
@@ -197,62 +280,141 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
     if (static_cast<size_t>(size) == currentSize)
         return folly::makeFuture();
 
-    return folly::via(m_executor.get(), [
-        fileId, size, currentSize, helper = m_helper, locks = m_locks,
-        defBlockSize = m_blockSize
-    ] {
-        try {
-            auto currentLastBlockId = getBlockId(currentSize, defBlockSize);
-            auto newLastBlockId = getBlockId(size, defBlockSize);
-            auto newLastBlockOffset = getBlockOffset(size, defBlockSize);
+    return folly::via(m_executor.get(),
+        [fileId, size, currentSize, helper = m_helper, locks = m_locks,
+            defBlockSize = m_blockSize] {
+            try {
+                if (defBlockSize == 0) {
+                    Locks::accessor acc;
+                    locks->insert(acc, fileId);
+                    auto g = folly::makeGuard(
+                        [&locks, &acc]() mutable { locks->erase(acc); });
 
-            // Generate a list of objects to delete
-            folly::fbvector<folly::fbstring> keysToDelete;
-            for (size_t objectId = 0; objectId <= currentLastBlockId;
-                 objectId++) {
-                if ((objectId > newLastBlockId) ||
-                    ((objectId == newLastBlockId) &&
-                        (newLastBlockOffset == 0))) {
-                    keysToDelete.emplace_back(helper->getKey(fileId, objectId));
+                    auto attr = helper->getObjectInfo(fileId);
+
+                    if (currentSize != static_cast<std::size_t>(attr.st_size)) {
+                        LOG(WARNING)
+                            << "Current size in metadata of '" << fileId
+                            << "' is different than actual storage size ("
+                            << currentSize << "!=" << attr.st_size << ")";
+                    }
+
+                    if (size > attr.st_size) {
+                        auto buf = fillToSize(
+                            helper->getObject(fileId, 0, attr.st_size), size);
+                        helper->putObject(fileId, std::move(buf));
+                    }
+                    else if (size < attr.st_size) {
+                        if (size == 0) {
+                            helper->putObject(fileId,
+                                folly::IOBufQueue{
+                                    folly::IOBufQueue::cacheChainLength()});
+                        }
+                        else {
+                            auto buf = helper->getObject(fileId, 0, size);
+                            helper->putObject(fileId, std::move(buf));
+                        }
+                    }
+                }
+                else {
+                    auto currentLastBlockId =
+                        getBlockId(currentSize, defBlockSize);
+                    auto newLastBlockId = getBlockId(size, defBlockSize);
+                    auto newLastBlockOffset =
+                        getBlockOffset(size, defBlockSize);
+
+                    // Generate a list of objects to delete
+                    folly::fbvector<folly::fbstring> keysToDelete;
+                    for (size_t objectId = 0; objectId <= currentLastBlockId;
+                         objectId++) {
+                        if ((objectId > newLastBlockId) ||
+                            ((objectId == newLastBlockId) &&
+                                (newLastBlockOffset == 0))) {
+                            keysToDelete.emplace_back(
+                                helper->getKey(fileId, objectId));
+                        }
+                    }
+
+                    auto key = helper->getKey(fileId, newLastBlockId);
+                    auto remainderBlockSize =
+                        static_cast<std::size_t>(newLastBlockOffset);
+
+                    if (remainderBlockSize == 0 && newLastBlockId > 0) {
+                        key = helper->getKey(fileId, newLastBlockId - 1);
+                        remainderBlockSize = defBlockSize;
+                    }
+
+                    if (remainderBlockSize > 0 || newLastBlockId > 0) {
+                        Locks::accessor acc;
+                        locks->insert(acc, key);
+
+                        try {
+                            auto buf = fillToSize(
+                                readBlock(helper, key, 0, remainderBlockSize),
+                                remainderBlockSize);
+                            helper->putObject(key, std::move(buf));
+                            locks->erase(acc);
+                        }
+                        catch (...) {
+                            locks->erase(acc);
+                            LOG(ERROR) << "Truncate failed due to unknown "
+                                          "error during "
+                                          "'fillToSize'";
+                            throw;
+                        }
+                    }
+
+                    if (!keysToDelete.empty())
+                        helper->deleteObjects(keysToDelete);
                 }
             }
-
-            auto key = helper->getKey(fileId, newLastBlockId);
-            auto remainderBlockSize =
-                static_cast<std::size_t>(newLastBlockOffset);
-
-            if (remainderBlockSize == 0 && newLastBlockId > 0) {
-                key = helper->getKey(fileId, newLastBlockId - 1);
-                remainderBlockSize = defBlockSize;
+            catch (const std::system_error &e) {
+                logError("truncate", e);
+                throw;
             }
+        });
+}
 
-            if (remainderBlockSize > 0 || newLastBlockId > 0) {
-                Locks::accessor acc;
-                locks->insert(acc, key);
+folly::Future<struct stat> KeyValueAdapter::getattr(
+    const folly::fbstring &fileId)
+{
+    LOG_FCALL() << LOG_FARG(fileId);
 
-                try {
-                    auto buf = fillToSize(
-                        readBlock(helper, key, 0, remainderBlockSize),
-                        remainderBlockSize);
-                    helper->putObject(key, std::move(buf));
-                    locks->erase(acc);
-                }
-                catch (...) {
-                    locks->erase(acc);
-                    LOG(ERROR) << "Truncate failed due to unknown error during "
-                                  "'fillToSize'";
-                    throw;
-                }
-            }
+    LOG(ERROR) << "Called getattr for file " << fileId;
 
-            if (!keysToDelete.empty())
-                helper->deleteObjects(keysToDelete);
-        }
-        catch (const std::system_error &e) {
-            logError("truncate", e);
-            throw;
-        }
-    });
+    return folly::via(
+        m_executor.get(), [fileId, helper = m_helper, locks = m_locks] {
+            return helper->getObjectInfo(fileId);
+        });
+}
+
+folly::Future<folly::Unit> KeyValueAdapter::access(
+    const folly::fbstring &fileId, const int /*mask*/)
+{
+    LOG_FCALL() << LOG_FARG(fileId);
+
+    LOG(ERROR) << "Called access for file " << fileId;
+
+    return folly::via(
+        m_executor.get(), [fileId, helper = m_helper, locks = m_locks] {
+            auto res = helper->listObjects(fileId, 0, 1);
+
+            if (res.empty())
+                return makeFuturePosixException<folly::Unit>(ENOENT);
+
+            return folly::makeFuture();
+        });
+}
+
+folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::readdir(
+    const folly::fbstring &fileId, const off_t offset, const std::size_t count)
+{
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(count);
+
+    return folly::via(m_executor.get(),
+        [fileId, count, offset, helper = m_helper, locks = m_locks] {
+            return helper->listObjects(fileId, offset, count);
+        });
 }
 
 const Timeout &KeyValueAdapter::timeout()
@@ -284,12 +446,11 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
             std::min(static_cast<std::size_t>(m_blockSize - blockOffset),
                 static_cast<std::size_t>(size - bufOffset));
 
-        auto readFuture = via(m_executor.get(), [
-            this, blockId, blockOffset, blockSize, self = shared_from_this()
-        ] {
-            return fillToSize(
-                readBlock(blockId, blockOffset, blockSize), blockSize);
-        });
+        auto readFuture = via(m_executor.get(),
+            [this, blockId, blockOffset, blockSize, self = shared_from_this()] {
+                return fillToSize(
+                    readBlock(blockId, blockOffset, blockSize), blockSize);
+            });
 
         readFutures.emplace_back(std::move(readFuture));
         bufOffset += blockSize;

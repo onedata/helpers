@@ -7,6 +7,7 @@
  */
 
 #include "keyValueAdapter.h"
+#include "posixHelper.h"
 #include "s3Helper.h"
 
 #include <asio/buffer.hpp>
@@ -15,6 +16,8 @@
 #include <aws/s3/S3Client.h>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
+#include <boost/python/extract.hpp>
+#include <boost/python/raw_function.hpp>
 #include <folly/ThreadName.h>
 
 #include <algorithm>
@@ -23,6 +26,8 @@
 #include <vector>
 
 using namespace boost::python;
+
+using ReadDirResult = std::vector<std::string>;
 
 class ReleaseGIL {
 public:
@@ -65,6 +70,40 @@ public:
             t.join();
     }
 
+    void access(std::string fileId)
+    {
+        ReleaseGIL guard;
+        m_helper->access(fileId, {}).get();
+    }
+
+    struct stat getattr(std::string fileId)
+    {
+        ReleaseGIL guard;
+        return m_helper->getattr(fileId).get();
+    }
+
+    void mknod(std::string fileId, mode_t mode)
+    {
+        ReleaseGIL guard;
+        m_helper->mknod(fileId, mode | S_IFREG, {}, 0).get();
+    }
+
+    void mkdir(std::string fileId, mode_t mode)
+    {
+        ReleaseGIL guard;
+        m_helper->mkdir(fileId, mode).get();
+    }
+
+    ReadDirResult readdir(std::string fileId, int offset, int count)
+    {
+        ReleaseGIL guard;
+        std::vector<std::string> res;
+        for (auto &direntry : m_helper->readdir(fileId, offset, count).get()) {
+            res.emplace_back(direntry.toStdString());
+        }
+        return res;
+    }
+
     void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
@@ -96,10 +135,10 @@ public:
             .get();
     }
 
-    void truncate(std::string fileId, int offset, int size)
+    void truncate(std::string fileId, int size, int currentSize)
     {
         ReleaseGIL guard;
-        m_helper->truncate(fileId, offset, size).get();
+        m_helper->truncate(fileId, size, currentSize).get();
     }
 
 private:
@@ -124,6 +163,11 @@ BOOST_PYTHON_MODULE(s3_helper)
 {
     class_<S3HelperProxy, boost::noncopyable>("S3HelperProxy", no_init)
         .def("__init__", make_constructor(create))
+        .def("access", &S3HelperProxy::access)
+        .def("getattr", &S3HelperProxy::getattr)
+        .def("mknod", &S3HelperProxy::mknod)
+        .def("mkdir", &S3HelperProxy::mkdir)
+        .def("readdir", &S3HelperProxy::readdir)
         .def("unlink", &S3HelperProxy::unlink)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)

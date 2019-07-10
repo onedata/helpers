@@ -110,7 +110,15 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
         const std::size_t offset) override;
 
+    std::size_t modifyObject(const folly::fbstring &key, folly::IOBufQueue buf,
+        const std::size_t offset) override;
+
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
+
+    folly::fbvector<folly::fbstring> listObjects(const folly::fbstring &prefix,
+        const off_t offset, const size_t size) override;
+
+    struct stat getObjectInfo(const folly::fbstring &key) override;
 
     const Timeout &timeout() override { return m_timeout; }
 
@@ -120,6 +128,10 @@ private:
     folly::fbstring m_bucket;
     std::unique_ptr<Aws::S3::S3Client> m_client;
     Timeout m_timeout;
+
+    mode_t m_fileMode = 0644;
+    mode_t m_dirMode = 0775;
+    const std::size_t m_maxCanonicalObjectSize = 64ul * 1024 * 1024;
 };
 
 /*

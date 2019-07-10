@@ -96,6 +96,26 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf)
     {
         return putObject(key, std::move(buf), 0);
+    }
+
+    /**
+     * Modifies a range of bytes from offset to offset+buf.chainLength() with
+     * the contents of buf buffer. It does not perform range validation, i.e.
+     * the if the buffer extends beyond the size of existing object, the object
+     * will be enlarged.
+     *
+     * On storages which do not support range write, the original object will be
+     * downloaded, modified in-memory and uploaded back.
+     *
+     * @param key Sequence of characters identifying value on the storage.
+     * @param buf Buffer containing bytes of an object to be stored.
+     * @return Number of bytes that has been successfully saved on the storage.
+     */
+    virtual std::size_t modifyObject(const folly::fbstring &key,
+        folly::IOBufQueue buf, const std::size_t offset)
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
     };
 
     /**
@@ -103,6 +123,14 @@ public:
      */
     virtual void deleteObjects(
         const folly::fbvector<folly::fbstring> &keys) = 0;
+
+    virtual folly::fbvector<folly::fbstring> listObjects(
+        const folly::fbstring &key, const off_t offset, const size_t size)
+    {
+        return {};
+    }
+
+    virtual struct stat getObjectInfo(const folly::fbstring &key) { return {}; }
 
     virtual const std::vector<folly::fbstring> getOverridableParams() const
     {
