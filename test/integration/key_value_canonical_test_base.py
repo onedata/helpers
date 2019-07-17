@@ -165,15 +165,15 @@ def test_getattr_should_return_default_permissions(helper):
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
-    assert helper.getattr(dir_id+'/'+file_id).st_mode & 0o777 == default_file_mode
-    assert helper.getattr('/'+dir_id+'/'+file_id).st_mode & 0o777 == default_file_mode
+    assert oct(helper.getattr(dir_id+'/'+file_id).st_mode & 0o777) == oct(default_file_mode)
+    assert oct(helper.getattr('/'+dir_id+'/'+file_id).st_mode & 0o777) == oct(default_file_mode)
     assert oct(helper.getattr(dir_id).st_mode & 0o777) == oct(default_dir_mode)
     assert oct(helper.getattr(dir_id+'/').st_mode & 0o777) == oct(default_dir_mode)
     assert oct(helper.getattr('/'+dir_id).st_mode & 0o777) == oct(default_dir_mode)
     assert oct(helper.getattr('/'+dir_id+'/').st_mode & 0o777) == oct(default_dir_mode)
 
-    assert helper.getattr(dir_id+'/'+file_id2).st_mode & 0o777 == default_file_mode
-    assert helper.getattr('/'+dir_id+'/'+file_id2).st_mode & 0o777 == default_file_mode
+    assert oct(helper.getattr(dir_id+'/'+file_id2).st_mode & 0o777) == oct(default_file_mode)
+    assert oct(helper.getattr('/'+dir_id+'/'+file_id2).st_mode & 0o777) == oct(default_file_mode)
     assert oct(helper.getattr(dir_id).st_mode & 0o777) == oct(default_dir_mode)
     assert oct(helper.getattr(dir_id+'/').st_mode & 0o777) == oct(default_dir_mode)
     assert oct(helper.getattr('/'+dir_id).st_mode & 0o777) == oct(default_dir_mode)

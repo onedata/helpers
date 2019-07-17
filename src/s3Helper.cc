@@ -110,10 +110,14 @@ namespace one {
 namespace helpers {
 
 S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-    folly::fbstring accessKey, folly::fbstring secretKey, const bool useHttps,
-    Timeout timeout)
+    folly::fbstring accessKey, folly::fbstring secretKey,
+    const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
+    const mode_t dirMode, const bool useHttps, Timeout timeout)
     : m_bucket{std::move(bucketName)}
     , m_timeout{timeout}
+    , m_fileMode{fileMode}
+    , m_dirMode{dirMode}
+    , m_maxCanonicalObjectSize{maximumCanonicalObjectSize}
 {
     LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
@@ -163,7 +167,7 @@ folly::IOBufQueue S3Helper::getObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-    if (!size)
+    if (size == 0u)
         return buf;
 
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
@@ -430,7 +434,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     if (!outcome.GetResult().GetCommonPrefixes().empty()) {
         auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
 
-        LOG_DBG(3) << "Received " << commonPrefixList.size()
+        LOG_DBG(2) << "Received " << commonPrefixList.size()
                    << " directories for key " << normalizedKey << " -- "
                    << commonPrefixList.cbegin()->GetPrefix().c_str();
 
@@ -442,10 +446,10 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                 .count();
         attr.st_mtim.tv_nsec = 0;
 
-        LOG_DBG(3) << "Returning stat for directory " << normalizedKey;
+        LOG_DBG(2) << "Returning stat for directory " << normalizedKey;
     }
     else if (!outcome.GetResult().GetContents().empty()) {
-        LOG_DBG(3) << "Received " << outcome.GetResult().GetContents().size()
+        LOG_DBG(2) << "Received " << outcome.GetResult().GetContents().size()
                    << " objects for key " << normalizedKey;
 
         auto object = outcome.GetResult().GetContents().cbegin();
@@ -461,7 +465,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         attr.st_ctim = attr.st_mtim;
         attr.st_atim = attr.st_mtim;
 
-        LOG_DBG(3) << "Returning stat for file " << normalizedKey << " of size "
+        LOG_DBG(2) << "Returning stat for file " << normalizedKey << " of size "
                    << attr.st_size << " last modified at "
                    << attr.st_mtim.tv_sec;
     }

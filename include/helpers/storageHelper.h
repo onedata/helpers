@@ -131,6 +131,14 @@ inline folly::Future<T> makeFuturePosixException(const int posixCode)
 }
 
 /**
+ * Convert string octal representation of POSIX permissions, e.g. '0755'
+ * to mode_t value.
+ *
+ * @param p POSIX param string
+ */
+mode_t parsePosixPermissions(folly::fbstring p);
+
+/**
  * Open flags recognized by helpers.
  */
 enum class Flag {

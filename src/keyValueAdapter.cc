@@ -242,7 +242,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
-    const mode_t mode, const FlagsSet &flags, const dev_t rdev)
+    const mode_t mode, const FlagsSet & /*flags*/, const dev_t /*rdev*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 

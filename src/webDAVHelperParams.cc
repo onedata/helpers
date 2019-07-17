@@ -171,24 +171,6 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     m_dirMode = parsePosixPermissions(dirMode);
 }
 
-mode_t WebDAVHelperParams::parsePosixPermissions(folly::fbstring p)
-{
-    if ((p.length() != 3) && (p.length() != 4)) {
-        throw std::invalid_argument(
-            "Invalid permission string: " + p.toStdString());
-    }
-
-    if (p.length() == 3)
-        p = "0" + p;
-
-    mode_t result = 0;
-
-    for (auto i = 0u; i < 4; i++) {
-        result += (p[i] - '0') << (3 * (3 - i));
-    }
-    return result;
-}
-
 const Poco::URI &WebDAVHelperParams::endpoint() const { return m_endpoint; }
 
 bool WebDAVHelperParams::verifyServerCertificate() const
