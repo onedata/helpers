@@ -162,10 +162,8 @@ folly::IOBufQueue S3Helper::getObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
-    LOG(ERROR) << "Called getObject for file " << key << " at offset " << offset << " with size " << size;
-
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-    if(!size)
+    if (!size)
         return buf;
 
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
@@ -175,7 +173,7 @@ folly::IOBufQueue S3Helper::getObject(
     request.SetKey(key.c_str());
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
-    request.SetResponseStreamFactory([data = data, size] {
+    request.SetResponseStreamFactory([ data = data, size ] {
         // NOLINTNEXTLINE
         auto stream = new std::stringstream;
 #if !defined(__APPLE__)
@@ -193,20 +191,19 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.read");
 
-    LOG(ERROR) << "Attempting to get " << size << "bytes from object " << key
+    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
                << " at offset " << offset;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->GetObject(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->GetObject(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
             std::placeholders::_1, "GetObject"));
 
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG(ERROR) << "Reading from object " << key << " failed with error "
+        LOG_DBG(2) << "Reading from object " << key << " failed with error "
                    << outcome.GetError().GetMessage();
         throwOnError("GetObject", outcome);
     }
@@ -219,7 +216,7 @@ folly::IOBufQueue S3Helper::getObject(
     auto readBytes = outcome.GetResult().GetContentLength();
     buf.postallocate(static_cast<std::size_t>(readBytes));
 
-    LOG(ERROR) << "Read " << readBytes << " bytes from object " << key;
+    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
 
     ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
 
@@ -259,10 +256,9 @@ std::size_t S3Helper::putObject(
 
     LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->PutObject(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->PutObject(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>,
             std::placeholders::_1, "PutObject"));
 
@@ -270,7 +266,7 @@ std::size_t S3Helper::putObject(
 
     throwOnError("PutObject", outcome);
 
-    LOG(ERROR) << "Written " << size << " bytes to object " << key;
+    LOG_DBG(2) << "Written " << size << " bytes to object " << key;
 
     return size;
 }
@@ -280,9 +276,6 @@ std::size_t S3Helper::modifyObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength())
                 << LOG_FARG(offset);
-
-    LOG(ERROR) << "Called modifyObject for key '" << key << "' at offset "
-               << offset << " with size " << buf.chainLength();
 
     struct stat attr = {};
     bool exists{false};
@@ -366,8 +359,6 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     Aws::S3::Model::DeleteObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
 
-    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
-
     for (auto offset = 0ul; offset < keys.size();
          offset += MAX_DELETE_OBJECTS) {
         Aws::S3::Model::Delete container;
@@ -381,10 +372,9 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 
         request.SetDelete(std::move(container));
 
-        auto outcome = retry(
-            [&, request = std::move(request)]() {
-                return m_client->DeleteObjects(request);
-            },
+        auto outcome = retry([&, request = std::move(request) ]() {
+            return m_client->DeleteObjects(request);
+        },
             std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectsOutcome>,
                 std::placeholders::_1, "DeleteObjects"));
 
@@ -395,8 +385,6 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
     LOG_FCALL() << LOG_FARG(key);
-
-    LOG(ERROR) << "Called getObjectInfo for key '" << key << "'";
 
     folly::fbstring normalizedKey = key;
 
@@ -415,20 +403,19 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     request.SetMaxKeys(1);
     request.SetDelimiter("/");
 
-    LOG(ERROR) << "Attempting to get object info for " << normalizedKey
+    LOG_DBG(2) << "Attempting to get object info for " << normalizedKey
                << " in bucket " << m_bucket;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->ListObjects(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
             std::placeholders::_1, "ListObjects"));
 
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG(ERROR) << "Getting object " << normalizedKey
+        LOG_DBG(2) << "Getting object " << normalizedKey
                    << " info failed with error "
                    << outcome.GetError().GetMessage();
         throwOnError("ListObject", outcome);
@@ -443,7 +430,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     if (!outcome.GetResult().GetCommonPrefixes().empty()) {
         auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
 
-        LOG(ERROR) << "Received " << commonPrefixList.size()
+        LOG_DBG(3) << "Received " << commonPrefixList.size()
                    << " directories for key " << normalizedKey << " -- "
                    << commonPrefixList.cbegin()->GetPrefix().c_str();
 
@@ -455,10 +442,10 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                 .count();
         attr.st_mtim.tv_nsec = 0;
 
-        LOG(ERROR) << "Returning stat for directory " << normalizedKey;
+        LOG_DBG(3) << "Returning stat for directory " << normalizedKey;
     }
     else if (!outcome.GetResult().GetContents().empty()) {
-        LOG(ERROR) << "Received " << outcome.GetResult().GetContents().size()
+        LOG_DBG(3) << "Received " << outcome.GetResult().GetContents().size()
                    << " objects for key " << normalizedKey;
 
         auto object = outcome.GetResult().GetContents().cbegin();
@@ -474,12 +461,12 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         attr.st_ctim = attr.st_mtim;
         attr.st_atim = attr.st_mtim;
 
-        LOG(ERROR) << "Returning stat for file " << normalizedKey << " of size "
+        LOG_DBG(3) << "Returning stat for file " << normalizedKey << " of size "
                    << attr.st_size << " last modified at "
                    << attr.st_mtim.tv_sec;
     }
     else {
-        LOG(ERROR) << "No objects or common prefixes returned for key "
+        LOG_DBG(2) << "No objects or common prefixes returned for key "
                    << normalizedKey;
 
         throw std::system_error{
@@ -493,9 +480,6 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
     const folly::fbstring &prefix, const off_t offset, const size_t size)
 {
     LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(offset) << LOG_FARG(size);
-
-    LOG(ERROR) << "Called listObjects on '" << prefix << "' at offset "
-               << offset << " with max size " << size;
 
     folly::fbstring normalizedPrefix = prefix;
 
@@ -512,20 +496,19 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
     request.SetMaxKeys(static_cast<int>(offset + size));
     request.SetDelimiter("/");
 
-    LOG(ERROR) << "Attempting to list objects at " << normalizedPrefix
+    LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
                << " in bucket " << m_bucket << " at offset " << offset;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->ListObjects(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
             std::placeholders::_1, "ListObjects"));
 
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG(ERROR) << "Listing objects from prefix " << prefix
+        LOG_DBG(1) << "Listing objects from prefix " << prefix
                    << " failed with error " << outcome.GetError().GetMessage();
         throwOnError("ListObject", outcome);
     }
@@ -540,10 +523,14 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
                << outcome.GetResult().GetContents().size() << " object keys";
 
     if (totalEntryCount < static_cast<size_t>(offset)) {
-        LOG(ERROR) << "Received less results (" << totalEntryCount
+        LOG_DBG(2) << "Received less results (" << totalEntryCount
                    << ") than requested offset (" << offset << ")";
         return result;
     }
+
+    // S3 returns common prefixes (i.e. directories) in a seperate list
+    // than regular files. We have to combine them here into one entry
+    // list based on requested offset and number of entries.
 
     // Add common prefixes as directory entries
     auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
@@ -556,9 +543,6 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
         p = p.parent_path();
         result.emplace_back(p.filename().c_str());
     }
-
-    LOG(ERROR) << "Received " << result.size() << " directories at prefix "
-               << prefix;
 
     // Add regular objects as file entries
     auto objectList = outcome.GetResult().GetContents();
@@ -579,9 +563,6 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
         boost::filesystem::path p(it->GetKey().c_str());
         result.emplace_back(p.filename().c_str());
     }
-
-    LOG(ERROR) << "Received " << result.size() << " objects at prefix "
-               << prefix;
 
     return result;
 }
