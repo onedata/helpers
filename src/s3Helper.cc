@@ -110,10 +110,14 @@ namespace one {
 namespace helpers {
 
 S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-    folly::fbstring accessKey, folly::fbstring secretKey, const bool useHttps,
-    Timeout timeout)
+    folly::fbstring accessKey, folly::fbstring secretKey,
+    const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
+    const mode_t dirMode, const bool useHttps, Timeout timeout)
     : m_bucket{std::move(bucketName)}
     , m_timeout{timeout}
+    , m_fileMode{fileMode}
+    , m_dirMode{dirMode}
+    , m_maxCanonicalObjectSize{maximumCanonicalObjectSize}
 {
     LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
@@ -163,6 +167,9 @@ folly::IOBufQueue S3Helper::getObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+    if (size == 0u)
+        return buf;
+
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
     Aws::S3::Model::GetObjectRequest request;
@@ -200,7 +207,7 @@ folly::IOBufQueue S3Helper::getObject(
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG_DBG(1) << "Reading from object " << key << " failed with error "
+        LOG_DBG(2) << "Reading from object " << key << " failed with error "
                    << outcome.GetError().GetMessage();
         throwOnError("GetObject", outcome);
     }
@@ -268,14 +275,93 @@ std::size_t S3Helper::putObject(
     return size;
 }
 
+std::size_t S3Helper::modifyObject(
+    const folly::fbstring &key, folly::IOBufQueue buf, const std::size_t offset)
+{
+    LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength())
+                << LOG_FARG(offset);
+
+    struct stat attr = {};
+    bool exists{false};
+
+    try {
+        attr = getObjectInfo(key);
+        exists = true;
+    }
+    catch (std::system_error &error) {
+        LOG_DBG(2) << "File " << key
+                   << " doesn't exist on this storage - we'll create it";
+    }
+    catch (...) {
+        LOG(ERROR) << "Object info is not supported on this "
+                      "storage - ignoring write request";
+        return 0;
+    }
+
+    auto bufSize = buf.chainLength();
+
+    if (exists) {
+        if (static_cast<std::size_t>(attr.st_size) > m_maxCanonicalObjectSize) {
+            LOG_DBG(1) << "Attempt to write to file which is too large than "
+                       << m_maxCanonicalObjectSize << " - ignoring request";
+            return 0;
+        }
+
+        auto originalObject = getObject(key, 0, attr.st_size);
+        auto originalSize = originalObject.chainLength();
+        folly::IOBufQueue newObject{folly::IOBufQueue::cacheChainLength()};
+
+        // Objects on S3 storage always start at offset zero, so cases where
+        // modify offset is smaller then object offset are not possible
+        if (offset < originalSize) {
+            auto left = originalObject.split(offset);
+            // originalObject: [----------------------------------------]
+            // buf           :        [---------]
+            if (offset + buf.chainLength() < originalSize) {
+                originalObject.trimStart(buf.chainLength());
+                newObject.append(std::move(left));
+                newObject.append(std::move(buf));
+                newObject.append(std::move(originalObject));
+            }
+            // originalObject: [-------------------------]
+            // buf           :                       [------------------]
+            else {
+                newObject.append(std::move(left));
+                newObject.append(std::move(buf));
+            }
+        }
+        else {
+            // originalObject: [--------------]
+            // buf           :                       [------------------]
+            newObject = std::move(originalObject);
+            std::vector<char> padding(offset - originalSize, 0);
+            newObject.append(padding.data(), padding.size());
+            newObject.append(std::move(buf));
+        }
+
+        putObject(key, std::move(newObject), 0);
+        return bufSize;
+    }
+
+    if (offset == 0) {
+        putObject(key, std::move(buf), offset);
+        return bufSize;
+    }
+
+    std::vector<char> padding(offset, 0);
+    folly::IOBufQueue newObject{folly::IOBufQueue::cacheChainLength()};
+    newObject.append(padding.data(), padding.size());
+    newObject.append(std::move(buf));
+    putObject(key, std::move(newObject), 0);
+    return bufSize;
+}
+
 void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 {
     LOG_FCALL() << LOG_FARGV(keys);
 
     Aws::S3::Model::DeleteObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
-
-    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
 
     for (auto offset = 0ul; offset < keys.size();
          offset += MAX_DELETE_OBJECTS) {
@@ -299,5 +385,191 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         throwOnError("DeleteObjects", outcome);
     }
 }
+
+struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
+{
+    LOG_FCALL() << LOG_FARG(key);
+
+    folly::fbstring normalizedKey = key;
+
+    if (normalizedKey.front() == '/')
+        normalizedKey.erase(normalizedKey.begin());
+
+    if (normalizedKey.back() == '/')
+        normalizedKey.pop_back();
+
+    if (normalizedKey == "/")
+        normalizedKey = "";
+
+    Aws::S3::Model::ListObjectsRequest request;
+    request.SetBucket(m_bucket.c_str());
+    request.SetPrefix(normalizedKey.c_str());
+    request.SetMaxKeys(1);
+    request.SetDelimiter("/");
+
+    LOG_DBG(2) << "Attempting to get object info for " << normalizedKey
+               << " in bucket " << m_bucket;
+
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
+        std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
+            std::placeholders::_1, "ListObjects"));
+
+    auto code = getReturnCode(outcome);
+
+    if (code != SUCCESS_CODE) {
+        LOG_DBG(2) << "Getting object " << normalizedKey
+                   << " info failed with error "
+                   << outcome.GetError().GetMessage();
+        throwOnError("ListObject", outcome);
+    }
+
+    // If a result was received, it can mean that either a file exists at this
+    // key in which case the returned key is equal to requested key, or it is a
+    // prefix shared by more files, and we should treat it as a directory
+    struct stat attr = {};
+
+    // Add common prefixes as directory entries
+    if (!outcome.GetResult().GetCommonPrefixes().empty()) {
+        auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
+
+        LOG_DBG(2) << "Received " << commonPrefixList.size()
+                   << " directories for key " << normalizedKey << " -- "
+                   << commonPrefixList.cbegin()->GetPrefix().c_str();
+
+        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mtim.tv_sec =
+            std::chrono::time_point_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now())
+                .time_since_epoch()
+                .count();
+        attr.st_mtim.tv_nsec = 0;
+
+        LOG_DBG(2) << "Returning stat for directory " << normalizedKey;
+    }
+    else if (!outcome.GetResult().GetContents().empty()) {
+        LOG_DBG(2) << "Received " << outcome.GetResult().GetContents().size()
+                   << " objects for key " << normalizedKey;
+
+        auto object = outcome.GetResult().GetContents().cbegin();
+
+        attr.st_size = object->GetSize();
+        attr.st_mode = S_IFREG | m_fileMode;
+        attr.st_mtim.tv_sec =
+            std::chrono::time_point_cast<std::chrono::seconds>(
+                object->GetLastModified().UnderlyingTimestamp())
+                .time_since_epoch()
+                .count();
+        attr.st_mtim.tv_nsec = 0;
+        attr.st_ctim = attr.st_mtim;
+        attr.st_atim = attr.st_mtim;
+
+        LOG_DBG(2) << "Returning stat for file " << normalizedKey << " of size "
+                   << attr.st_size << " last modified at "
+                   << attr.st_mtim.tv_sec;
+    }
+    else {
+        LOG_DBG(2) << "No objects or common prefixes returned for key "
+                   << normalizedKey;
+
+        throw std::system_error{
+            {ENOENT, std::system_category()}, "Object not found"};
+    }
+
+    return attr;
+}
+
+folly::fbvector<folly::fbstring> S3Helper::listObjects(
+    const folly::fbstring &prefix, const off_t offset, const size_t size)
+{
+    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(offset) << LOG_FARG(size);
+
+    folly::fbstring normalizedPrefix = prefix;
+
+    if (!normalizedPrefix.empty() && normalizedPrefix.back() != '/')
+        normalizedPrefix += '/';
+
+    if (normalizedPrefix == "/")
+        normalizedPrefix = "";
+
+    Aws::S3::Model::ListObjectsRequest request;
+    request.SetBucket(m_bucket.c_str());
+
+    request.SetPrefix(normalizedPrefix.c_str());
+    request.SetMaxKeys(static_cast<int>(offset + size));
+    request.SetDelimiter("/");
+
+    LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
+               << " in bucket " << m_bucket << " at offset " << offset;
+
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
+        std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
+            std::placeholders::_1, "ListObjects"));
+
+    auto code = getReturnCode(outcome);
+
+    if (code != SUCCESS_CODE) {
+        LOG_DBG(1) << "Listing objects from prefix " << prefix
+                   << " failed with error " << outcome.GetError().GetMessage();
+        throwOnError("ListObject", outcome);
+    }
+
+    folly::fbvector<folly::fbstring> result;
+
+    auto totalEntryCount = outcome.GetResult().GetCommonPrefixes().size() +
+        outcome.GetResult().GetContents().size();
+
+    LOG(ERROR) << "Received " << outcome.GetResult().GetCommonPrefixes().size()
+               << " common prefix keys and "
+               << outcome.GetResult().GetContents().size() << " object keys";
+
+    if (totalEntryCount < static_cast<size_t>(offset)) {
+        LOG_DBG(2) << "Received less results (" << totalEntryCount
+                   << ") than requested offset (" << offset << ")";
+        return result;
+    }
+
+    // S3 returns common prefixes (i.e. directories) in a seperate list
+    // than regular files. We have to combine them here into one entry
+    // list based on requested offset and number of entries.
+
+    // Add common prefixes as directory entries
+    auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
+
+    auto cpit = commonPrefixList.cbegin();
+    std::advance(cpit, std::min<std::size_t>(offset, commonPrefixList.size()));
+
+    for (; cpit != commonPrefixList.cend(); cpit++) {
+        boost::filesystem::path p(cpit->GetPrefix().c_str());
+        p = p.parent_path();
+        result.emplace_back(p.filename().c_str());
+    }
+
+    // Add regular objects as file entries
+    auto objectList = outcome.GetResult().GetContents();
+
+    auto it = objectList.cbegin();
+    auto commonPrefixOffset = 0;
+    if (static_cast<std::size_t>(offset) >= commonPrefixList.size()) {
+        commonPrefixOffset = offset - commonPrefixList.size();
+    }
+    else {
+        commonPrefixOffset = 0;
+    }
+
+    std::advance(
+        it, std::min<std::size_t>(commonPrefixOffset, objectList.size()));
+
+    for (; it != objectList.cend(); it++) {
+        boost::filesystem::path p(it->GetKey().c_str());
+        result.emplace_back(p.filename().c_str());
+    }
+
+    return result;
+}
+
 } // namespace helpers
 } // namespace one

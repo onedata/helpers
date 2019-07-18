@@ -68,6 +68,8 @@ public:
     }
 
     /**
+     * Get storage object contents in specified range.
+     *
      * @param key Sequence of characters identifying value on the storage.
      * @param buf Buffer used to store returned value.
      * @param offset Distance from the beginning of the value to the first byte
@@ -78,6 +80,8 @@ public:
         const off_t offset, const std::size_t size) = 0;
 
     /**
+     * Put object contents in specified range.
+     *
      * @param key Sequence of characters identifying value on the storage.
      * @param buf Buffer containing bytes of an object to be stored.
      * @param offset Write the object contents starting at offset. Only
@@ -89,6 +93,8 @@ public:
         folly::IOBufQueue buf, const std::size_t offset) = 0;
 
     /**
+     * Put object contents starting at offset 0.
+     *
      * @param key Sequence of characters identifying value on the storage.
      * @param buf Buffer containing bytes of an object to be stored.
      * @return Number of bytes that has been successfully saved on the storage.
@@ -96,13 +102,65 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf)
     {
         return putObject(key, std::move(buf), 0);
+    }
+
+    /**
+     * Modify a range of bytes from offset to offset+buf.chainLength() with
+     * the contents of buf buffer. It does not perform range validation, i.e.
+     * the if the buffer extends beyond the size of existing object, the object
+     * will be enlarged.
+     *
+     * On storages which do not support range write, the original object will be
+     * downloaded, modified in-memory and uploaded back.
+     *
+     * @param key Sequence of characters identifying value on the storage.
+     * @param buf Buffer containing bytes of an object to be stored.
+     * @return Number of bytes that has been successfully saved on the storage.
+     */
+    virtual std::size_t modifyObject(const folly::fbstring &key,
+        folly::IOBufQueue buf, const std::size_t offset)
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
     };
 
     /**
+     * Delete storage objects by id.
+     *
      * @param keys Vector of keys of objects to be deleted.
      */
     virtual void deleteObjects(
         const folly::fbvector<folly::fbstring> &keys) = 0;
+
+    /**
+     * Get the list of objects under a specific directory or prefix.
+     * Not all object storages support the concept of a directory, while
+     * some may provide a similar functionality in some other form.
+     *
+     * @param key The path, from which the objects should be listed.
+     * @param offset The start offset from which the object under key path
+     *               should be returned.
+     * @param size The maximum number of entries which should be returned.
+     */
+    virtual folly::fbvector<folly::fbstring> listObjects(
+        const folly::fbstring &key, const off_t offset, const size_t size)
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
+    }
+
+    /**
+     * Get the information about an object in a POSIX `stat` structure.
+     * Fields which are not supported by the underlying storage, can
+     * have default value of `0`.
+     *
+     * @param key The object path.
+     */
+    virtual struct stat getObjectInfo(const folly::fbstring &key)
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
+    }
 
     virtual const std::vector<folly::fbstring> getOverridableParams() const
     {
@@ -111,6 +169,10 @@ public:
 
     virtual const Timeout &timeout() = 0;
 
+    /**
+     * Check if the underlying storage has random write access, i.e.
+     * enables writing to a storage at a specific offset.
+     */
     bool hasRandomAccess() const { return m_randomAccess; }
 
 protected:

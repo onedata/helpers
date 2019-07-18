@@ -55,12 +55,28 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters) override
     {
+        // Default value for maximum object size on S3 storages
+        // with canonical paths which will support modification of
+        // objects in place.
+        // Writes to larger objects will be ignored.
+        const std::size_t kDefaultMaximumCanonicalObjectSize =
+            64ul * 1024 * 1024;
+
+        const auto kDefaultFileMode = "0644";
+        const auto kDefaultDirMode = "0775";
+
         const auto &scheme = getParam(parameters, "scheme", "https");
         const auto &hostname = getParam(parameters, "hostname");
         const auto &bucketName = getParam(parameters, "bucketName");
         const auto &accessKey = getParam(parameters, "accessKey");
         const auto &secretKey = getParam(parameters, "secretKey");
         const auto version = getParam<int>(parameters, "signatureVersion", 4);
+        const auto maximumCanonicalObjectSize = getParam<size_t>(parameters,
+            "maximumCanonicalObjectSize", kDefaultMaximumCanonicalObjectSize);
+        const auto fileMode =
+            getParam(parameters, "fileMode", kDefaultFileMode);
+        const auto dirMode = getParam(parameters, "dirMode", kDefaultDirMode);
+
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -74,7 +90,9 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<S3Helper>(hostname, bucketName, accessKey,
-                secretKey, scheme == "https", std::move(timeout)),
+                secretKey, maximumCanonicalObjectSize,
+                parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
+                scheme == "https", std::move(timeout)),
             std::make_shared<AsioExecutor>(m_service), blockSize);
     }
 
@@ -100,7 +118,9 @@ public:
      */
     S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
         folly::fbstring accessKey, folly::fbstring secretKey,
-        const bool useHttps = true, Timeout timeout = ASYNC_OPS_TIMEOUT);
+        const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
+        const mode_t dirMode, const bool useHttps = true,
+        Timeout timeout = ASYNC_OPS_TIMEOUT);
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
 
@@ -110,7 +130,15 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
         const std::size_t offset) override;
 
+    std::size_t modifyObject(const folly::fbstring &key, folly::IOBufQueue buf,
+        const std::size_t offset) override;
+
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
+
+    folly::fbvector<folly::fbstring> listObjects(const folly::fbstring &prefix,
+        const off_t offset, const size_t size) override;
+
+    struct stat getObjectInfo(const folly::fbstring &key) override;
 
     const Timeout &timeout() override { return m_timeout; }
 
@@ -120,6 +148,10 @@ private:
     folly::fbstring m_bucket;
     std::unique_ptr<Aws::S3::S3Client> m_client;
     Timeout m_timeout;
+
+    const mode_t m_fileMode;
+    const mode_t m_dirMode;
+    const std::size_t m_maxCanonicalObjectSize;
 };
 
 /*

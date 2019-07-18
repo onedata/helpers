@@ -67,8 +67,6 @@ public:
     mode_t dirMode() const;
 
 private:
-    mode_t parsePosixPermissions(folly::fbstring p);
-
     Poco::URI m_endpoint;
     bool m_verifyServerCertificate;
     WebDAVCredentialsType m_credentialsType;

@@ -118,11 +118,14 @@ public:
     virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
         const off_t size, const size_t currentSize) override;
 
+    virtual folly::Future<struct stat> getattr(
+        const folly::fbstring &fileId) override;
+
+    virtual folly::Future<folly::Unit> access(
+        const folly::fbstring &fileId, const int mask) override;
+
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override
-    {
-        return folly::makeFuture();
-    }
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
 
     virtual folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override
@@ -135,6 +138,10 @@ public:
     {
         return folly::makeFuture();
     }
+
+    virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
+        const folly::fbstring &fileId, const off_t offset,
+        const std::size_t count) override;
 
     const Timeout &timeout() override;
 

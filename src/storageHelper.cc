@@ -66,6 +66,24 @@ folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     return std::forward<folly::fbstring>(def);
 }
 
+mode_t parsePosixPermissions(folly::fbstring p)
+{
+    if ((p.length() != 3) && (p.length() != 4)) {
+        throw std::invalid_argument(
+            "Invalid permission string: " + p.toStdString());
+    }
+
+    if (p.length() == 3)
+        p = "0" + p;
+
+    mode_t result = 0;
+
+    for (auto i = 0u; i < 4; i++) {
+        result += (p[i] - '0') << (3 * (3 - i));
+    }
+    return result;
+}
+
 std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
     const folly::fbstring &name, const Params &params)
 {

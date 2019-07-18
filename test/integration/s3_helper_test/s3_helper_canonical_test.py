@@ -1,7 +1,7 @@
-"""This module tests S3 helper."""
+"""This module tests S3 helper with canonical paths."""
 
-__author__ = "Krzysztof Trzepla"
-__copyright__ = """(C) 2016 ACK CYFRONET AGH,
+__author__ = "Bartek Kryza"
+__copyright__ = """(C) 2019 ACK CYFRONET AGH,
 This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
@@ -15,10 +15,17 @@ sys.path.insert(0, os.path.dirname(script_dir))
 from test_common import *
 from environment import common, docker, s3
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat
-from key_value_test_base import *
+from key_value_canonical_test_base import *
 from s3_helper import S3HelperProxy
 from io_perf_test_base import *
-from posix_test_types import *
+from posix_test_base import \
+    test_read_should_read_written_data, \
+    test_read_should_error_file_not_found, \
+    test_mkdir_should_create_directory, \
+    test_readdir_should_list_files_in_directory, \
+    test_unlink_should_pass_errors, \
+    test_unlink_should_delete_file, \
+    test_truncate_should_not_create_file
 
 
 @pytest.fixture(scope='module')
@@ -57,4 +64,4 @@ def server(request):
 def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket,
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         BLOCK_SIZE)
+                         0)
