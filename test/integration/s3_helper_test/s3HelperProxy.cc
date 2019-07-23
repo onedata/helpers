@@ -95,11 +95,12 @@ public:
         m_helper->mkdir(fileId, mode).get();
     }
 
-    ReadDirResult readdir(std::string fileId, int offset, int count)
+    ReadDirResult listobjects(std::string fileId, std::string marker, int count)
     {
         ReleaseGIL guard;
         std::vector<std::string> res;
-        for (auto &direntry : m_helper->readdir(fileId, offset, count).get()) {
+        for (auto &direntry :
+            m_helper->listobjects(fileId, marker, 0, count).get()) {
             res.emplace_back(direntry.toStdString());
         }
         return res;
@@ -168,7 +169,7 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("getattr", &S3HelperProxy::getattr)
         .def("mknod", &S3HelperProxy::mknod)
         .def("mkdir", &S3HelperProxy::mkdir)
-        .def("readdir", &S3HelperProxy::readdir)
+        .def("listobjects", &S3HelperProxy::listobjects)
         .def("unlink", &S3HelperProxy::unlink)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)

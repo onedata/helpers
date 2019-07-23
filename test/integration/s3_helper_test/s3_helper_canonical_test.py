@@ -22,7 +22,6 @@ from posix_test_base import \
     test_read_should_read_written_data, \
     test_read_should_error_file_not_found, \
     test_mkdir_should_create_directory, \
-    test_readdir_should_list_files_in_directory, \
     test_unlink_should_pass_errors, \
     test_unlink_should_delete_file, \
     test_truncate_should_not_create_file

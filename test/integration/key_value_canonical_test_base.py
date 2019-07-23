@@ -14,8 +14,8 @@ THREAD_NUMBER = 8
 BLOCK_SIZE = 1024
 
 
-def to_python_list(readdir_result):
-    r = [e for e in readdir_result]
+def to_python_list(listobjects_result):
+    r = [e for e in listobjects_result]
     r.sort()
     return r
 
@@ -180,79 +180,80 @@ def test_getattr_should_return_default_permissions(helper):
     assert oct(helper.getattr('/'+dir_id+'/').st_mode & 0o777) == oct(default_dir_mode)
 
 
-def test_readdir_should_handle_subdirectories(helper):
+def test_listobjects_should_handle_subdirectories(helper):
     dir1 = 'dir1'
     dir2 = 'dir2'
     dir3 = 'dir3'
 
-    files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
+    files = ['file{}.txt'.format(i,) for i in range(1, 6)]
+
+    result = []
+
+    # Listing empty prefix should return empty result
+    dirs = to_python_list(helper.listobjects('dir1', '', 100))
+    assert dirs == []
 
     for file in files:
         helper.write('/'+dir1+'/'+dir2+'/'+file, random_str(), 0)
+        result.append(dir1+'/'+dir2+'/'+file)
         helper.write('/'+dir1+'/'+dir3+'/'+file, random_str(), 0)
+        result.append(dir1+'/'+dir3+'/'+file)
         helper.write('/'+dir1+'/'+file, random_str(), 0)
+        result.append(dir1+'/'+file)
 
-    dirs = to_python_list(helper.readdir('', 0, 100))
-    assert dir1 in dirs
+    # List only objects starting with 'dir1/dir2' prefix
+    dirs = to_python_list(helper.listobjects('dir1/dir2', '', 100))
+    assert dirs == ['dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
 
-    dirs = to_python_list(helper.readdir(dir1, 0, 100))
-    dir1_contents = [dir2, dir3]
-    dir1_contents.extend(files)
-    assert dirs == dir1_contents
+    # Check that the same results are returned for paths with and without
+    # forward slash
+    assert to_python_list(helper.listobjects('/dir1/dir2', '', 100)) \
+            == to_python_list(helper.listobjects('dir1/dir2', '', 100))
 
-    dirs = to_python_list(helper.readdir(dir1+'/'+dir2+'/', 0, 100))
-    assert dirs == files
+    # Make sure that all results are returned for single query
+    dirs = to_python_list(helper.listobjects('dir1', '', 100))
+    assert set(dirs) == set(result)
 
+    # Make sure that all results are returned in chunks
+    dirs = []
+    marker = ""
+    chunk_size = 3
+    while True:
+        chunk = to_python_list(helper.listobjects('dir1', marker, chunk_size))
 
-def test_readdir_should_handle_offset_properly(helper):
-    test_dir = 'offset_test'
+        if len(chunk) < chunk_size:
+            break
 
-    files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
+        marker = chunk[-1]
 
-    for file in files:
-        helper.write(test_dir+'/'+file, random_str(), 0)
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 100))
-    assert dirs == files
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 1))
-    assert dirs == files[0:1]
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 2))
-    assert dirs == files[0:2]
-
-    dirs = to_python_list(helper.readdir(test_dir, 3, 100))
-    assert dirs == files[3:5]
-
-    dirs = to_python_list(helper.readdir(test_dir, 100, 100))
-    assert dirs == []
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 0))
-    assert dirs == []
+        dirs.extend(chunk)
 
 
-def test_readdir_should_handle_multiple_subdirs_with_offset(helper):
+def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
     test_dir = random_str()
+    contents = []
 
-    dirs = ['dir{}'.format(i,) for i in range(100)]
-    files = ['file{}.txt'.format(i,) for i in range(100)]
+    dirs = [test_dir+'/'+'dir{}'.format(i,) for i in range(100)]
+    files = [test_dir+'/'+'file{}.txt'.format(i,) for i in range(100)]
 
     step = 7
 
     for d in dirs:
-        helper.write(test_dir+'/'+d+'/file.txt', random_str(), 0)
+        helper.write(d+'/file.txt', random_str(), 0)
+        contents.append(d+'/file.txt')
 
     for f in files:
-        helper.write(test_dir+'/'+f, random_str(), 0)
-
-    contents = dirs
-    contents.extend(files)
+        helper.write(f, random_str(), 0)
+        contents.append(f)
 
     res = []
-    it = 0
-    while it < len(contents):
-        res.extend(to_python_list(helper.readdir(test_dir, it, step)))
-        it += step
+    i = 0
+    while i < len(contents):
+        marker = ''
+        if res:
+            marker = res[-1]
+        res.extend(to_python_list(helper.listobjects(test_dir, marker, step)))
+        i += step
 
     assert len(contents) == len(res)
     assert set(contents) == set(res)

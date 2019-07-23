@@ -387,7 +387,7 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
 
     return folly::via(
         m_executor.get(), [ fileId, helper = m_helper, locks = m_locks ] {
-            auto res = helper->listObjects(fileId, 0, 1);
+            auto res = helper->listObjects(fileId, "", 0, 1);
 
             if (res.empty())
                 return makeFuturePosixException<folly::Unit>(ENOENT);
@@ -396,14 +396,16 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
         });
 }
 
-folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::readdir(
-    const folly::fbstring &fileId, const off_t offset, const std::size_t count)
+folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::listobjects(
+    const folly::fbstring &prefix, const folly::fbstring &marker,
+    const off_t offset, const size_t count)
 {
-    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(count);
+    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(offset)
+                << LOG_FARG(count);
 
     return folly::via(m_executor.get(),
-        [ fileId, count, offset, helper = m_helper, locks = m_locks ] {
-            return helper->listObjects(fileId, offset, count);
+        [ prefix, marker, offset, count, helper = m_helper, locks = m_locks ] {
+            return helper->listObjects(prefix, marker, offset, count);
         });
 }
 

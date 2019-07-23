@@ -138,12 +138,16 @@ public:
      * some may provide a similar functionality in some other form.
      *
      * @param key The path, from which the objects should be listed.
+     * @param marker Specifies the offset marker (e.g. a token or last returned
+     *               entry) for storages which do not support numeric offset
+     *               for paging.
      * @param offset The start offset from which the object under key path
      *               should be returned.
      * @param size The maximum number of entries which should be returned.
      */
     virtual folly::fbvector<folly::fbstring> listObjects(
-        const folly::fbstring &key, const off_t offset, const size_t size)
+        const folly::fbstring &key, const folly::fbstring &marker,
+        const off_t offset, const size_t size)
     {
         throw std::system_error{
             std::make_error_code(std::errc::function_not_supported)};

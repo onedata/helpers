@@ -481,27 +481,28 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 }
 
 folly::fbvector<folly::fbstring> S3Helper::listObjects(
-    const folly::fbstring &prefix, const off_t offset, const size_t size)
+    const folly::fbstring &prefix, const folly::fbstring &marker,
+    const off_t /*offset*/, const size_t size)
 {
-    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(offset) << LOG_FARG(size);
+    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(size);
 
     folly::fbstring normalizedPrefix = prefix;
 
     if (!normalizedPrefix.empty() && normalizedPrefix.back() != '/')
         normalizedPrefix += '/';
 
-    if (normalizedPrefix == "/")
-        normalizedPrefix = "";
+    if (normalizedPrefix.front() == '/')
+        normalizedPrefix.erase(0, 1);
 
     Aws::S3::Model::ListObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
-    request.SetMaxKeys(static_cast<int>(offset + size));
-    request.SetDelimiter("/");
+    request.SetMaxKeys(size);
+    request.SetMarker(marker.c_str());
 
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
-               << " in bucket " << m_bucket << " at offset " << offset;
+               << " in bucket " << m_bucket << " after " << marker;
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->ListObjects(request);
@@ -519,53 +520,12 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     folly::fbvector<folly::fbstring> result;
 
-    auto totalEntryCount = outcome.GetResult().GetCommonPrefixes().size() +
-        outcome.GetResult().GetContents().size();
-
-    LOG(ERROR) << "Received " << outcome.GetResult().GetCommonPrefixes().size()
-               << " common prefix keys and "
-               << outcome.GetResult().GetContents().size() << " object keys";
-
-    if (totalEntryCount < static_cast<size_t>(offset)) {
-        LOG_DBG(2) << "Received less results (" << totalEntryCount
-                   << ") than requested offset (" << offset << ")";
-        return result;
-    }
-
-    // S3 returns common prefixes (i.e. directories) in a seperate list
-    // than regular files. We have to combine them here into one entry
-    // list based on requested offset and number of entries.
-
-    // Add common prefixes as directory entries
-    auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
-
-    auto cpit = commonPrefixList.cbegin();
-    std::advance(cpit, std::min<std::size_t>(offset, commonPrefixList.size()));
-
-    for (; cpit != commonPrefixList.cend(); cpit++) {
-        boost::filesystem::path p(cpit->GetPrefix().c_str());
-        p = p.parent_path();
-        result.emplace_back(p.filename().c_str());
-    }
+    LOG_DBG(2) << "Received " << outcome.GetResult().GetContents().size()
+               << " object keys";
 
     // Add regular objects as file entries
-    auto objectList = outcome.GetResult().GetContents();
-
-    auto it = objectList.cbegin();
-    auto commonPrefixOffset = 0;
-    if (static_cast<std::size_t>(offset) >= commonPrefixList.size()) {
-        commonPrefixOffset = offset - commonPrefixList.size();
-    }
-    else {
-        commonPrefixOffset = 0;
-    }
-
-    std::advance(
-        it, std::min<std::size_t>(commonPrefixOffset, objectList.size()));
-
-    for (; it != objectList.cend(); it++) {
-        boost::filesystem::path p(it->GetKey().c_str());
-        result.emplace_back(p.filename().c_str());
+    for (auto &object : outcome.GetResult().GetContents()) {
+        result.emplace_back(object.GetKey().c_str());
     }
 
     return result;

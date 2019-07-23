@@ -139,9 +139,9 @@ public:
         return folly::makeFuture();
     }
 
-    virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
-        const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count) override;
+    virtual folly::Future<folly::fbvector<folly::fbstring>> listobjects(
+        const folly::fbstring &prefix, const folly::fbstring &marker,
+        const off_t offset, const size_t count) override;
 
     const Timeout &timeout() override;
 
