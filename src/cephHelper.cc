@@ -120,10 +120,13 @@ folly::Future<std::size_t> CephFileHandle::write(
         auto size = buf.chainLength();
         librados::bufferlist data;
 
-        for (auto &byteRange : *buf.front())
-            data.append(ceph::buffer::create_static(byteRange.size(),
-                reinterpret_cast<char *>(                             // NOLINT
-                    const_cast<unsigned char *>(byteRange.data())))); // NOLINT
+        if (size > 0u) {
+            for (auto &byteRange : *buf.front())
+                data.append(ceph::buffer::create_static(byteRange.size(),
+                    reinterpret_cast<char *>(        // NOLINT
+                        const_cast<unsigned char *>( // NOLINT
+                            byteRange.data()))));    // NOLINT
+        }
 
         LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
                    << offset << " to file " << m_fileId;
