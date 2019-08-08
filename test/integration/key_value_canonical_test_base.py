@@ -24,9 +24,16 @@ def test_mknod_should_create_empty_file(helper, file_id, server):
     data = ''
 
     helper.mknod(file_id, 0654)
-    assert helper.write(file_id, data, 0) == 0
+    helper.access(file_id)
     assert helper.getattr(file_id).st_size == 0
 
+def test_mknod_should_throw_eexist_error(helper, file_id, server):
+    helper.mknod(file_id, 0654)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.mknod(file_id, 0654)
+
+    assert 'File exists' in str(excinfo.value)
 
 def test_write_should_write_multiple_blocks(helper, file_id, server):
     block_num = 20

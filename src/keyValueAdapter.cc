@@ -256,17 +256,29 @@ folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
         return folly::makeFuture();
     }
 
-    return folly::via(
-        m_executor.get(), [ fileId, helper = m_helper, locks = m_locks ] {
-            Locks::accessor acc;
-            locks->insert(acc, fileId);
-            auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
+    return folly::via(m_executor.get(), [
+        fileId, helper = m_helper, locks = m_locks, defBlockSize = m_blockSize
+    ] {
+        // This try-catch is necessary in order to return EEXIST error
+        // in case the object `fileId` already exists on the storage
+        try {
+            helper->getObjectInfo(fileId);
+        }
+        catch (const std::system_error &e) {
+            if (e.code().value() == ENOENT) {
+                Locks::accessor acc;
+                locks->insert(acc, fileId);
+                auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
 
-            helper->putObject(fileId,
-                folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
+                helper->putObject(fileId,
+                    folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
 
-            return folly::makeFuture();
-        });
+                return folly::makeFuture();
+            }
+            throw e;
+        }
+        throw one::helpers::makePosixException(EEXIST);
+    });
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::truncate(
@@ -385,15 +397,8 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(
-        m_executor.get(), [ fileId, helper = m_helper, locks = m_locks ] {
-            auto res = helper->listObjects(fileId, "", 0, 1);
-
-            if (res.empty())
-                return makeFuturePosixException<folly::Unit>(ENOENT);
-
-            return folly::makeFuture();
-        });
+    return getattr(fileId).then(
+        [](auto && /*unused*/) { return folly::makeFuture(); });
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::listobjects(
