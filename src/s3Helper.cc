@@ -405,7 +405,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     if (normalizedKey.front() == '/')
         normalizedKey.erase(normalizedKey.begin());
 
-    if (normalizedKey.size() > 0ul && normalizedKey.back() == '/')
+    if (!normalizedKey.empty() && normalizedKey.back() == '/')
         normalizedKey.pop_back();
 
     if (normalizedKey == "/")
