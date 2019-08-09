@@ -116,9 +116,7 @@ def perf_truncate_base(helper, op_num, size):
         file_id = random_str()
 
         helper.write(file_id, 'X'*size, 0)
-        assert helper.read(file_id, 0, size) == 'X'*size
         helper.truncate(file_id, 1, size)
-        assert helper.read(file_id, 0, size) == 'X'+'\0'*(size-1)
 
 def perf_write_read_truncate_unlink_base(helper, op_num, size):
     for i in range(op_num):

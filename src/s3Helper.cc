@@ -534,7 +534,11 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     // Add regular objects as file entries
     for (auto &object : outcome.GetResult().GetContents()) {
-        result.emplace_back(object.GetKey().c_str());
+        if ((prefix.empty() || prefix == "/") && !object.GetKey().empty() &&
+            (object.GetKey().front() != '/'))
+            result.emplace_back(folly::fbstring("/") + object.GetKey().c_str());
+        else
+            result.emplace_back(object.GetKey().c_str());
     }
 
     return result;

@@ -214,6 +214,15 @@ def test_listobjects_should_handle_subdirectories(helper):
         helper.write('/'+dir1+'/'+file, random_str(), 0)
         result.append(dir1+'/'+file)
 
+    # List objects from root should include leading '/'
+    dirs = to_python_list(helper.listobjects('', '', 100))
+    for d in dirs:
+        assert d[0] == '/'
+
+    dirs = to_python_list(helper.listobjects('/', '', 100))
+    for d in dirs:
+        assert d[0] == '/'
+
     # List only objects starting with 'dir1/dir2' prefix
     dirs = to_python_list(helper.listobjects('dir1/dir2', '', 100))
     assert dirs == ['dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]

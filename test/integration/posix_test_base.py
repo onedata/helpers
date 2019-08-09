@@ -26,6 +26,13 @@ def test_read_should_read_written_data(helper, file_id):
     assert helper.write(file_id, data, offset) == len(data)
     assert helper.read(file_id, offset, len(data)) == data
 
+@pytest.mark.readwrite_operations_tests
+def test_read_should_return_empty_with_offset_beyond_range(helper, file_id):
+    data = random_str()
+    offset = random_int()
+
+    assert helper.write(file_id, data, 0) == len(data)
+    assert helper.read(file_id, len(data)+100, 10) == ''
 
 @pytest.mark.readwrite_operations_tests
 def test_read_should_error_file_not_found(helper, file_id):
