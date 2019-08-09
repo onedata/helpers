@@ -370,9 +370,14 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         const std::size_t batchSize =
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize))
-            container.AddObjects(
-                Aws::S3::Model::ObjectIdentifier{}.WithKey(key.c_str()));
+        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
+            folly::fbstring normalizedKey = key;
+            if (normalizedKey.front() == '/')
+                normalizedKey.erase(normalizedKey.begin());
+
+            container.AddObjects(Aws::S3::Model::ObjectIdentifier{}.WithKey(
+                normalizedKey.c_str()));
+        }
 
         request.SetDelete(std::move(container));
 
@@ -395,7 +400,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     if (normalizedKey.front() == '/')
         normalizedKey.erase(normalizedKey.begin());
 
-    if (normalizedKey.back() == '/')
+    if (normalizedKey.size() > 0ul && normalizedKey.back() == '/')
         normalizedKey.pop_back();
 
     if (normalizedKey == "/")
@@ -476,6 +481,10 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         throw std::system_error{
             {ENOENT, std::system_category()}, "Object not found"};
     }
+
+    // Make sure that the response for root returns permissions for a directory
+    if (key.empty() || key == "/")
+        attr.st_mode = S_IFDIR | m_dirMode;
 
     return attr;
 }

@@ -47,10 +47,13 @@ def test_write_should_write_multiple_blocks(helper, file_id, server):
 def test_unlink_should_delete_data(helper, file_id, server):
     data = random_str()
     offset = random_int()
+    file_id2 = random_str()
 
     assert helper.write(file_id, data, offset) == len(data)
     helper.unlink(file_id, offset+len(data))
 
+    assert helper.write(file_id2, data, offset) == len(data)
+    helper.unlink('/'+file_id2, offset+len(data))
 
 def test_truncate_should_truncate_to_size(helper, file_id, server):
     blocks_num = 10
@@ -171,6 +174,9 @@ def test_getattr_should_return_default_permissions(helper):
         helper.write('/'+dir_id+'/'+file_id2, data, 0)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
+
+    assert oct(helper.getattr('').st_mode & 0o777) == oct(default_dir_mode)
+    assert oct(helper.getattr('/').st_mode & 0o777) == oct(default_dir_mode)
 
     assert oct(helper.getattr(dir_id+'/'+file_id).st_mode & 0o777) == oct(default_file_mode)
     assert oct(helper.getattr('/'+dir_id+'/'+file_id).st_mode & 0o777) == oct(default_file_mode)
