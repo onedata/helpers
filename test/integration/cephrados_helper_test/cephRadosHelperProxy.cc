@@ -95,10 +95,10 @@ public:
             .get();
     }
 
-    void truncate(std::string fileId, int offset, int size)
+    void truncate(std::string fileId, int size, int currentSize)
     {
         ReleaseGIL guard;
-        m_helper->truncate(fileId, offset, size).get();
+        m_helper->truncate(fileId, size, currentSize).get();
     }
 
 private:

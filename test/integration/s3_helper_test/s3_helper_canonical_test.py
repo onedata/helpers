@@ -17,7 +17,10 @@ from environment import common, docker, s3
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat
 from key_value_canonical_test_base import *
 from s3_helper import S3HelperProxy
-from io_perf_test_base import *
+from io_perf_test_base import \
+    test_write, \
+    test_write_read, \
+    test_read_write_truncate_unlink
 from posix_test_base import \
     test_read_should_read_written_data, \
     test_read_should_error_file_not_found, \
@@ -64,3 +67,17 @@ def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket,
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          0)
+
+def truncate_test(helper, op_num, size):
+    """
+    On canonical S3, read should return only the existing bytes without padding
+    with zeros to the requested size.
+    """
+    for _ in range(op_num):
+        file_id = random_str()
+
+        helper.write(file_id, 'X'*size, 0)
+        assert helper.read(file_id, 0, size) == 'X'*size
+        helper.truncate(file_id, 1, size)
+        assert helper.read(file_id, 0, size) == 'X'
+

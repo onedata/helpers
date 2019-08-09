@@ -257,7 +257,7 @@ folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
     }
 
     return folly::via(m_executor.get(), [
-        fileId, helper = m_helper, locks = m_locks, defBlockSize = m_blockSize
+        fileId, helper = m_helper, locks = m_locks
     ] {
         // This try-catch is necessary in order to return EEXIST error
         // in case the object `fileId` already exists on the storage
@@ -360,10 +360,11 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                         auto buf = fillToSize(
                             readBlock(helper, key, 0, remainderBlockSize),
                             remainderBlockSize);
+                        helper->deleteObjects({key});
                         helper->putObject(key, std::move(buf));
                     }
                     catch (...) {
-                        LOG(ERROR) << "Truncate failed due to unknown "
+                        LOG_DBG(1) << "Truncate failed due to unknown "
                                       "error during "
                                       "'fillToSize'";
                         throw;
