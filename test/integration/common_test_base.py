@@ -164,15 +164,6 @@ def test_read_should_read_data_with_holes(helper, file_id):
     assert helper.read(file_id, 0, block_num * block_size) == ''.join(data)
 
 
-@pytest.mark.skip(reason="Not supported for object storages")
-def test_read_should_not_read_after_end_of_file(helper, file_id):
-    data = random_str()
-    offset = random_int()
-
-    assert helper.write(file_id, data, offset) == len(data)
-    assert helper.read(file_id, offset + len(data), random_int()) == ''
-
-
 def test_read_should_read_empty_segment(helper, file_id):
     data = random_str()
     offset = random_int()

@@ -27,7 +27,8 @@ from posix_test_base import \
     test_mkdir_should_create_directory, \
     test_unlink_should_pass_errors, \
     test_unlink_should_delete_file, \
-    test_truncate_should_not_create_file
+    test_truncate_should_not_create_file, \
+    test_read_should_not_read_after_end_of_file
 
 
 @pytest.fixture(scope='module')

@@ -207,7 +207,12 @@ folly::IOBufQueue S3Helper::getObject(
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG_DBG(2) << "Reading from object " << key << " failed with error "
+        // In case the read is from outside of the valid range, return empty buf
+        if (outcome.GetError().GetExceptionName() == "InvalidRange") {
+            return buf;
+        }
+
+        LOG_DBG(1) << "Reading from object " << key << " failed with error "
                    << outcome.GetError().GetMessage();
         throwOnError("GetObject", outcome);
     }

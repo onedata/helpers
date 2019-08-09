@@ -269,3 +269,14 @@ def test_read_write_large_file_should_maintain_consistency(helper, file_id):
 
     read_digest = md5.new(read_data)
     assert read_digest.digest() == original_digest.digest()
+
+
+def test_read_should_not_read_after_end_of_file(helper, file_id):
+    data = random_str()
+    offset = random_int()
+
+    assert helper.write(file_id, data, offset) == len(data)
+    assert helper.read(file_id, offset + len(data) + 1, 100) == ''
+
+
+
