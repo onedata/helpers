@@ -214,7 +214,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    if (currentSize == 0)
+    if (m_blockSize > 0 && currentSize == 0)
         return folly::makeFuture();
 
     return folly::via(m_executor.get(),
@@ -362,11 +362,12 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                         auto buf = fillToSize(
                             readBlock(helper, key, 0, remainderBlockSize),
                             remainderBlockSize);
+                        LOG(ERROR) << "Deleting object " << key << " after truncate to size " << size << " from currentSize " << currentSize;
                         helper->deleteObjects({key});
                         helper->putObject(key, std::move(buf));
                     }
                     catch (...) {
-                        LOG_DBG(1) << "Truncate failed due to unknown "
+                        LOG(ERROR) << "Truncate failed due to unknown "
                                       "error during "
                                       "'fillToSize'";
                         throw;

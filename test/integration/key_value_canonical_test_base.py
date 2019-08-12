@@ -59,6 +59,20 @@ def test_unlink_should_delete_data(helper, file_id, server):
     assert helper.write(file_id2, data, offset) == len(data)
     helper.unlink('/'+file_id2, offset+len(data))
 
+
+def test_unlink_should_delete_empty_file(helper, file_id, server):
+    data = random_str()
+    offset = random_int()
+    file_id2 = random_str()
+
+    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.unlink(file_id, 0)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.getattr(file_id)
+
+    assert 'Object not found' in str(excinfo.value)
+
 def test_truncate_should_truncate_to_size(helper, file_id, server):
     blocks_num = 10
     size = blocks_num * BLOCK_SIZE
