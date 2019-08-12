@@ -508,15 +508,19 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
     if (normalizedPrefix.front() == '/')
         normalizedPrefix.erase(0, 1);
 
+    folly::fbstring normalizedMarker = marker;
+    if (!normalizedMarker.empty() && normalizedMarker.front() == '/')
+        normalizedMarker.erase(0, 1);
+
     Aws::S3::Model::ListObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
     request.SetMaxKeys(size);
-    request.SetMarker(marker.c_str());
+    request.SetMarker(normalizedMarker.c_str());
 
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
-               << " in bucket " << m_bucket << " after " << marker;
+               << " in bucket " << m_bucket << " after " << normalizedMarker;
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->ListObjects(request);
@@ -539,8 +543,10 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     // Add regular objects as file entries
     for (auto &object : outcome.GetResult().GetContents()) {
-        if ((prefix.empty() || prefix == "/") && !object.GetKey().empty() &&
-            (object.GetKey().front() != '/'))
+        if (object.GetKey().empty())
+            continue;
+
+        if (object.GetKey().front() != '/')
             result.emplace_back(folly::fbstring("/") + object.GetKey().c_str());
         else
             result.emplace_back(object.GetKey().c_str());

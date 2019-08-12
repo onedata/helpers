@@ -212,14 +212,17 @@ def test_listobjects_should_handle_subdirectories(helper):
 
     for file in files:
         helper.write('/'+dir1+'/'+dir2+'/'+file, random_str(), 0)
-        result.append(dir1+'/'+dir2+'/'+file)
+        result.append('/'+dir1+'/'+dir2+'/'+file)
         helper.write('/'+dir1+'/'+dir3+'/'+file, random_str(), 0)
-        result.append(dir1+'/'+dir3+'/'+file)
+        result.append('/'+dir1+'/'+dir3+'/'+file)
         helper.write('/'+dir1+'/'+file, random_str(), 0)
-        result.append(dir1+'/'+file)
+        result.append('/'+dir1+'/'+file)
 
     # List objects from root should include leading '/'
     dirs = to_python_list(helper.listobjects('', '', 100))
+
+    assert len(dirs) > 0
+
     for d in dirs:
         assert d[0] == '/'
 
@@ -229,7 +232,7 @@ def test_listobjects_should_handle_subdirectories(helper):
 
     # List only objects starting with 'dir1/dir2' prefix
     dirs = to_python_list(helper.listobjects('dir1/dir2', '', 100))
-    assert dirs == ['dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
+    assert dirs == ['/dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
 
     # Check that the same results are returned for paths with and without
     # forward slash
@@ -259,8 +262,8 @@ def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
     test_dir = random_str()
     contents = []
 
-    dirs = [test_dir+'/'+'dir{}'.format(i,) for i in range(100)]
-    files = [test_dir+'/'+'file{}.txt'.format(i,) for i in range(100)]
+    dirs = ['/'+test_dir+'/'+'dir{}'.format(i,) for i in range(100)]
+    files = ['/'+test_dir+'/'+'file{}.txt'.format(i,) for i in range(100)]
 
     step = 7
 
