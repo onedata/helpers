@@ -18,6 +18,7 @@
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
+#include <boost/python/suite/indexing/vector_indexing_suite.hpp>
 #include <folly/ThreadName.h>
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 #include <vector>
 
 using namespace boost::python;
+using namespace one::helpers;
 
 using ReadDirResult = std::vector<std::string>;
 
@@ -83,10 +85,11 @@ public:
         return m_helper->getattr(fileId).get();
     }
 
-    void mknod(std::string fileId, mode_t mode)
+    void mknod(std::string fileId, mode_t mode, std::vector<Flag> flags)
     {
         ReleaseGIL guard;
-        m_helper->mknod(fileId, mode | S_IFREG, {}, 0).get();
+        m_helper->mknod(fileId, mode, FlagsSet(flags.begin(), flags.end()), 0)
+            .get();
     }
 
     void mkdir(std::string fileId, mode_t mode)

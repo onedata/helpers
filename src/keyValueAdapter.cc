@@ -242,18 +242,18 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
-    const mode_t mode, const FlagsSet & /*flags*/, const dev_t /*rdev*/)
+    const mode_t mode, const FlagsSet &flags, const dev_t /*rdev*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
     if (m_blockSize > 0) {
-        LOG(ERROR) << "Ignoring mknod for storages with non-zero blocksize";
         return folly::makeFuture();
     }
 
-    if (!S_ISREG(mode)) {
+    if (!S_ISREG(flagsToMask(flags))) {
         LOG(ERROR)
-            << "Ignoring mknod request for " << fileId << " with mode " << mode
+            << "Ignoring mknod request for " << fileId << " with flags "
+            << flagsToMask(flags)
             << " - only regular files can be created on object storages.";
         return folly::makeFuture();
     }
@@ -268,7 +268,6 @@ folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
         }
         catch (const std::system_error &e) {
             if (e.code().value() == ENOENT) {
-                LOG(ERROR) << "File " << fileId << " doesn't exist - creating";
                 Locks::accessor acc;
                 locks->insert(acc, fileId);
                 auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
@@ -276,14 +275,10 @@ folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
                 helper->putObject(fileId,
                     folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
 
-                LOG(ERROR) << "Created file " << fileId << " using mknod";
-
                 return folly::makeFuture();
             }
-            LOG(ERROR) << "Error getting object info for " << fileId << " - " << e.code().value();
             throw e;
         }
-        LOG(ERROR) << "File " << fileId << " already exists - throwing EEXIST";
         throw one::helpers::makePosixException(EEXIST);
     });
 }
