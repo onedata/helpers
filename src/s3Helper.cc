@@ -398,6 +398,23 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
     LOG_FCALL() << LOG_FARG(key);
 
+    struct stat attr = {};
+
+    // For the root directory always return the defaults
+    if (key.empty() || key == "/") {
+        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mtim.tv_sec =
+            std::chrono::time_point_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now())
+                .time_since_epoch()
+                .count();
+        attr.st_mtim.tv_nsec = 0;
+        attr.st_ctim = attr.st_mtim;
+        attr.st_atim = attr.st_mtim;
+
+        return attr;
+    }
+
     folly::fbstring normalizedKey = key;
 
     if (normalizedKey.front() == '/')
@@ -436,7 +453,6 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     // If a result was received, it can mean that either a file exists at this
     // key in which case the returned key is equal to requested key, or it is a
     // prefix shared by more files, and we should treat it as a directory
-    struct stat attr = {};
 
     // Add common prefixes as directory entries
     if (!outcome.GetResult().GetCommonPrefixes().empty()) {
@@ -453,6 +469,8 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                 .time_since_epoch()
                 .count();
         attr.st_mtim.tv_nsec = 0;
+        attr.st_ctim = attr.st_mtim;
+        attr.st_atim = attr.st_mtim;
 
         LOG_DBG(2) << "Returning stat for directory " << normalizedKey;
     }
@@ -484,10 +502,6 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         throw std::system_error{
             {ENOENT, std::system_category()}, "Object not found"};
     }
-
-    // Make sure that the response for root returns permissions for a directory
-    if (key.empty() || key == "/")
-        attr.st_mode = S_IFDIR | m_dirMode;
 
     return attr;
 }
