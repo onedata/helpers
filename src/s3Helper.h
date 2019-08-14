@@ -152,7 +152,6 @@ private:
 
     const mode_t m_fileMode;
     const mode_t m_dirMode;
-    const std::size_t m_maxCanonicalObjectSize;
 };
 
 /*

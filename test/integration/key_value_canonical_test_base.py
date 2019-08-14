@@ -128,6 +128,16 @@ def test_read_should_read_multi_block_data_with_holes(helper, file_id):
     assert helper.read(file_id, 0, len(data)) == data
 
 
+def test_read_should_read_large_file_from_offset(helper, file_id):
+    data = 'A'*1000 + 'B'*1000 + 'C'*1000
+
+    assert helper.write(file_id, data, 0) == len(data)
+
+    assert helper.read(file_id, 0, 1000) == 'A'*1000
+    assert helper.read(file_id, 1000, 1000) == 'B'*1000
+    assert helper.read(file_id, 2000, 1000) == 'C'*1000
+
+
 def test_write_should_modify_inner_object_on_canonical_storage(helper):
     # originalObject: [----------------------------------------]
     # buf           :       [----------]

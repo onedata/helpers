@@ -133,6 +133,13 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         // In case this is a storage with files stored in single objects,
         // try to modify the contents in place
         if (m_blockSize == 0) {
+            if (!helper->hasRandomAccess() &&
+                (size + offset > helper->getMaxCanonicalObjectSize())) {
+                LOG(ERROR) << "Cannot write to object storage beyond "
+                           << helper->getMaxCanonicalObjectSize();
+                throw one::helpers::makePosixException(ERANGE);
+            }
+
             Locks::accessor acc;
             locks->insert(acc, m_fileId);
             auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
@@ -362,7 +369,6 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                         auto buf = fillToSize(
                             readBlock(helper, key, 0, remainderBlockSize),
                             remainderBlockSize);
-                        LOG(ERROR) << "Deleting object " << key << " after truncate to size " << size << " from currentSize " << currentSize;
                         helper->deleteObjects({key});
                         helper->putObject(key, std::move(buf));
                     }

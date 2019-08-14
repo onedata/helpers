@@ -82,3 +82,12 @@ def truncate_test(helper, op_num, size):
         helper.truncate(file_id, 1, size)
         assert helper.read(file_id, 0, size) == 'X'
 
+
+def test_read_should_throw_for_write_beyond_supported_range(helper, file_id):
+    max_range = 2 * 1024 * 1024
+    data = random_str()
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.write(file_id, data, max_range+1)
+
+    assert 'Numerical result out of range' in str(excinfo.value)

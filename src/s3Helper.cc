@@ -113,11 +113,11 @@ S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     folly::fbstring accessKey, folly::fbstring secretKey,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
     const mode_t dirMode, const bool useHttps, Timeout timeout)
-    : m_bucket{std::move(bucketName)}
+    : KeyValueHelper{false, maximumCanonicalObjectSize}
+    , m_bucket{std::move(bucketName)}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
     , m_dirMode{dirMode}
-    , m_maxCanonicalObjectSize{maximumCanonicalObjectSize}
 {
     LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
@@ -177,7 +177,7 @@ folly::IOBufQueue S3Helper::getObject(
     request.SetKey(key.c_str());
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
-    request.SetResponseStreamFactory([data = data, size] {
+    request.SetResponseStreamFactory([ data = data, size ] {
         // NOLINTNEXTLINE
         auto stream = new std::stringstream;
 #if !defined(__APPLE__)
@@ -195,13 +195,9 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.read");
 
-    LOG(ERROR) << "Attempting to get " << size << "bytes from object " << key
-               << " at offset " << offset;
-
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->GetObject(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->GetObject(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
             std::placeholders::_1, "GetObject"));
 
@@ -211,15 +207,17 @@ folly::IOBufQueue S3Helper::getObject(
         // In case the read is from outside of the valid range, return empty buf
         if (outcome.GetError().GetExceptionName() == "InvalidRange") {
             auto readBytes = outcome.GetResult().GetContentLength();
-            LOG(ERROR) << "Received InvalidRange error when reading object "
+            LOG_DBG(1) << "Received InvalidRange error when reading object "
                        << key << " in range (" << offset << ", "
-                       << offset + size << "). Returning buffer of size: " << readBytes;
+                       << offset + size
+                       << "). Returning buffer of size: " << readBytes;
             buf.postallocate(static_cast<std::size_t>(readBytes));
             return buf;
         }
 
         LOG_DBG(1) << "Reading from object " << key << " failed with error "
                    << outcome.GetError().GetMessage();
+
         throwOnError("GetObject", outcome);
     }
 
@@ -231,7 +229,7 @@ folly::IOBufQueue S3Helper::getObject(
     auto readBytes = outcome.GetResult().GetContentLength();
     buf.postallocate(static_cast<std::size_t>(readBytes));
 
-    LOG(ERROR) << "Read " << readBytes << " bytes from object " << key;
+    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
 
     ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
 
@@ -271,10 +269,9 @@ std::size_t S3Helper::putObject(
 
     LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->PutObject(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->PutObject(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>,
             std::placeholders::_1, "PutObject"));
 
@@ -313,12 +310,6 @@ std::size_t S3Helper::modifyObject(
     auto bufSize = buf.chainLength();
 
     if (exists) {
-        if (static_cast<std::size_t>(attr.st_size) > m_maxCanonicalObjectSize) {
-            LOG_DBG(1) << "Attempt to write to file which is too large than "
-                       << m_maxCanonicalObjectSize << " - ignoring request";
-            return 0;
-        }
-
         auto originalObject = getObject(key, 0, attr.st_size);
         auto originalSize = originalObject.chainLength();
         folly::IOBufQueue newObject{folly::IOBufQueue::cacheChainLength()};
@@ -393,10 +384,9 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 
         request.SetDelete(std::move(container));
 
-        auto outcome = retry(
-            [&, request = std::move(request)]() {
-                return m_client->DeleteObjects(request);
-            },
+        auto outcome = retry([&, request = std::move(request) ]() {
+            return m_client->DeleteObjects(request);
+        },
             std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectsOutcome>,
                 std::placeholders::_1, "DeleteObjects"));
 
@@ -428,10 +418,9 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     LOG_DBG(2) << "Attempting to get object info for " << normalizedKey
                << " in bucket " << m_bucket;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->ListObjects(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
             std::placeholders::_1, "ListObjects"));
 
@@ -531,10 +520,9 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
                << " in bucket " << m_bucket << " after " << normalizedMarker;
 
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->ListObjects(request);
-        },
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->ListObjects(request);
+    },
         std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
             std::placeholders::_1, "ListObjects"));
 

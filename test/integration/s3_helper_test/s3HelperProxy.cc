@@ -42,6 +42,8 @@ private:
     std::unique_ptr<PyThreadState, decltype(&PyEval_RestoreThread)> threadState;
 };
 
+constexpr std::size_t kMaxCanonicakObjectSize = 2 * 1024 * 1024;
+
 class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
@@ -52,7 +54,7 @@ public:
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
-                  std::move(secretKey), 64 * 1024 * 1024, 0644, 0775,
+                  std::move(secretKey), 2 * 1024 * 1024, 0644, 0775,
                   scheme == "https"),
               std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {

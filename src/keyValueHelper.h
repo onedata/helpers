@@ -30,8 +30,11 @@ constexpr auto MAX_OBJECT_ID_DIGITS = 6;
  */
 class KeyValueHelper {
 public:
-    KeyValueHelper(const bool randomAccess = false)
+    KeyValueHelper(const bool randomAccess = false,
+        const std::size_t maxCanonicalObjectSize =
+            std::numeric_limits<std::size_t>::max())
         : m_randomAccess{randomAccess}
+        , m_maxCanonicalObjectSize{maxCanonicalObjectSize}
     {
     }
 
@@ -179,6 +182,15 @@ public:
      */
     bool hasRandomAccess() const { return m_randomAccess; }
 
+    /**
+     * Return the maximum object size, which can be written or modified on this
+     * storage. This is a user defined setting.
+     */
+    std::size_t getMaxCanonicalObjectSize() const
+    {
+        return m_maxCanonicalObjectSize;
+    }
+
 protected:
     std::string adjustPrefix(const folly::fbstring &prefix) const
     {
@@ -198,7 +210,16 @@ protected:
     }
 
 private:
+    // Determines whether the storage helpers supports writing to objects
+    // at any offset, or if the objects have to be uploaded to storage
+    // in one call
     const bool m_randomAccess;
+
+    // For object storage with canonical paths, where block size is set to 0,
+    // i.e. entire files are stored in single objects, it is necessary to
+    // define the maximum object size which can be written or modified on the
+    // storage, as some storage do not allow writing from a specific offset.
+    const std::size_t m_maxCanonicalObjectSize;
 };
 
 } // namespace helpers
