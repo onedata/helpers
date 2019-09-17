@@ -85,7 +85,7 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(
-        m_executor.get(), [this, offset, size, self = shared_from_this()] {
+        m_executor.get(), [ this, offset, size, self = shared_from_this() ] {
             return readBlocks(offset, size);
         });
 }
@@ -99,7 +99,7 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         return folly::makeFuture<std::size_t>(0);
 
     return folly::via(m_executor.get(),
-        [this, offset, buf = std::move(buf), self = shared_from_this()] {
+        [ this, offset, buf = std::move(buf), self = shared_from_this() ] {
             const auto size = buf.chainLength();
             if (size == 0)
                 return folly::makeFuture<std::size_t>(0);
@@ -115,20 +115,19 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
                 const auto blockSize = std::min<std::size_t>(
                     m_blockSize - blockOffset, size - bufOffset);
 
-                auto writeFuture = via(m_executor.get(),
-                    [this, iobuf = buf.front()->clone(), blockId, blockOffset,
-                        bufOffset, blockSize,
-                        self = shared_from_this()]() mutable {
-                        folly::IOBufQueue bufq{
-                            folly::IOBufQueue::cacheChainLength()};
+                auto writeFuture = via(m_executor.get(), [
+                    this, iobuf = buf.front()->clone(), blockId, blockOffset,
+                    bufOffset, blockSize, self = shared_from_this()
+                ]() mutable {
+                    folly::IOBufQueue bufq{
+                        folly::IOBufQueue::cacheChainLength()};
 
-                        bufq.append(std::move(iobuf));
-                        bufq.trimStart(bufOffset);
-                        bufq.trimEnd(bufq.chainLength() - blockSize);
+                    bufq.append(std::move(iobuf));
+                    bufq.trimStart(bufOffset);
+                    bufq.trimEnd(bufq.chainLength() - blockSize);
 
-                        return writeBlock(
-                            std::move(bufq), blockId, blockOffset);
-                    });
+                    return writeBlock(std::move(bufq), blockId, blockOffset);
+                });
 
                 writeFutures.emplace_back(std::move(writeFuture));
 
@@ -186,7 +185,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
     // in asynchronous requests
     if (m_helper->supportsBatchDelete()) {
         return folly::via(m_executor.get(),
-            [keysToDelete = std::move(keysToDelete), helper = m_helper] {
+            [ keysToDelete = std::move(keysToDelete), helper = m_helper ] {
                 helper->deleteObjects(keysToDelete);
             });
     }
@@ -201,7 +200,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
                      keysToDelete.size());
              i++) {
             futs.emplace_back(folly::via(m_executor.get(),
-                [keyToDelete = keysToDelete.at(i), helper = m_helper] {
+                [ keyToDelete = keysToDelete.at(i), helper = m_helper ] {
                     helper->deleteObject(keyToDelete);
                 }));
         }
@@ -242,9 +241,12 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
         remainderBlockSize = m_blockSize;
     }
 
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(),
-        [fileId, remainderBlockSize, newLastBlockId, key, helper = m_helper,
-            locks = m_locks] {
+        [
+            fileId, remainderBlockSize, newLastBlockId, key, helper = m_helper,
+            locks = m_locks
+        ] {
             if (remainderBlockSize > 0 || newLastBlockId > 0) {
                 Locks::accessor acc;
                 locks->insert(acc, key);
@@ -264,8 +266,10 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                 }
             }
         })
-        .then([keysToDelete = std::move(keysToDelete), helper = m_helper,
-                  executor = m_executor]() {
+        .then([
+            keysToDelete = std::move(keysToDelete), helper = m_helper,
+            executor = m_executor
+        ]() {
             if (!keysToDelete.empty()) {
                 if (helper->supportsBatchDelete()) {
                     helper->deleteObjects(keysToDelete);
@@ -275,19 +279,15 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                     do {
                         folly::fbvector<folly::Future<folly::Unit>> futs;
                         futs.reserve(MAX_ASYNC_DELETE_OBJECTS);
-
                         for (auto i = batchIndex;
                              i < std::min(batchIndex + MAX_ASYNC_DELETE_OBJECTS,
                                      keysToDelete.size());
                              i++) {
-
-                            futs.emplace_back(
-                                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-                                folly::via(executor.get(),
-                                    [keyToDelete = keysToDelete.at(i), helper] {
-                                        helper->deleteObject(keyToDelete);
-                                        return folly::makeFuture();
-                                    }));
+                            futs.push_back(folly::via(executor.get(),
+                                [ keyToDelete = keysToDelete.at(i), helper ] {
+                                    helper->deleteObject(keyToDelete);
+                                    return folly::makeFuture();
+                                }));
                         }
 
                         folly::collectAll(futs.begin(), futs.end()).get();
@@ -330,11 +330,12 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
             std::min(static_cast<std::size_t>(m_blockSize - blockOffset),
                 static_cast<std::size_t>(size - bufOffset));
 
-        auto readFuture = via(m_executor.get(),
-            [this, blockId, blockOffset, blockSize, self = shared_from_this()] {
-                return fillToSize(
-                    readBlock(blockId, blockOffset, blockSize), blockSize);
-            });
+        auto readFuture = via(m_executor.get(), [
+            this, blockId, blockOffset, blockSize, self = shared_from_this()
+        ] {
+            return fillToSize(
+                readBlock(blockId, blockOffset, blockSize), blockSize);
+        });
 
         readFutures.emplace_back(std::move(readFuture));
         bufOffset += blockSize;
