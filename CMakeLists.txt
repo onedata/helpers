@@ -6,6 +6,7 @@ option(WITH_S3 "Include S3 direct IO support" ON)
 option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
 option(WITH_WEBDAV "Include WebDAV direct IO support" ON)
+option(WITH_TESTS "Build tests" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
 
 # CMake config
@@ -267,6 +268,7 @@ else(CLANG_TIDY)
     message(STATUS "run-clang-tidy script not found - target clang-tidy not available")
 endif(CLANG_TIDY)
 
-
-enable_testing()
-add_subdirectory(test)
+if(WITH_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif(WITH_TESTS)
