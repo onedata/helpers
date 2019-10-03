@@ -7,6 +7,7 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 import os
 import sys
 
+import boto3
 import pytest
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -38,13 +39,14 @@ def server(request):
             self.access_key = access_key
             self.secret_key = secret_key
             self.bucket = bucket
-            self.conn = S3Connection(self.access_key, self.secret_key,
-                                     host=ip, port=int(port), is_secure=False,
-                                     calling_format=OrdinaryCallingFormat())
+            self.s3 = boto3.resource('s3', endpoint_url=scheme+"://"+hostname,
+                                aws_access_key_id = self.access_key,
+                                aws_secret_access_key = self.secret_key)
 
         def list(self, file_id):
-            bucket = self.conn.get_bucket(self.bucket, validate=False)
-            return list(bucket.list(prefix=file_id + '/', delimiter='/'))
+            test_bucket = self.s3.Bucket(self.bucket)
+            return [o.key for o in
+                    test_bucket.objects.filter(Prefix=file_id + '/', Delimiter='/')]
 
     bucket = 'data'
     result = s3.up('onedata/s3proxy', [bucket], 'storage',
