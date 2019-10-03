@@ -268,36 +268,27 @@ std::size_t S3Helper::putObject(
     return size;
 }
 
-void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
+void S3Helper::deleteObject(const folly::fbstring &key)
 {
-    LOG_FCALL() << LOG_FARGV(keys);
+    LOG_FCALL() << LOG_FARG(key);
 
-    Aws::S3::Model::DeleteObjectsRequest request;
+    Aws::S3::Model::DeleteObjectRequest request;
     request.SetBucket(m_bucket.c_str());
+    request.SetKey(key.toStdString());
 
-    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
+    auto outcome = retry([&, request = std::move(request) ]() {
+        return m_client->DeleteObject(request);
+    },
+        std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectOutcome>,
+            std::placeholders::_1, "DeleteObject"));
 
-    for (auto offset = 0ul; offset < keys.size();
-         offset += MAX_DELETE_OBJECTS) {
-        Aws::S3::Model::Delete container;
+    throwOnError("DeleteObject", outcome);
+}
 
-        const std::size_t batchSize =
-            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
-
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize))
-            container.AddObjects(
-                Aws::S3::Model::ObjectIdentifier{}.WithKey(key.c_str()));
-
-        request.SetDelete(std::move(container));
-
-        auto outcome = retry([&, request = std::move(request) ]() {
-            return m_client->DeleteObjects(request);
-        },
-            std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectsOutcome>,
-                std::placeholders::_1, "DeleteObjects"));
-
-        throwOnError("DeleteObjects", outcome);
-    }
+void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> & /*keys*/)
+{
+    throw std::system_error{
+        std::make_error_code(std::errc::operation_not_supported)};
 }
 } // namespace helpers
 } // namespace one

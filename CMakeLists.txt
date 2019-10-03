@@ -256,6 +256,7 @@ if(CLANG_TIDY)
     set(CLANG_TIDY_SOURCE_FILTER "src/*.cc")
     file(GLOB_RECURSE CLANG_TIDY_SOURCES
          "${CMAKE_CURRENT_SOURCE_DIR}/${CLANG_TIDY_SOURCE_FILTER}")
+    list(FILTER CLANG_TIDY_SOURCES EXCLUDE REGEX ".*keyValueAdapter.cc")
     add_custom_target(clang-tidy COMMAND ${CLANG_TIDY}
         -export-fixes clang-tidy-suggested-fixes.yaml
         -j ${CLANG_TIDY_PARALLEL_JOBS}

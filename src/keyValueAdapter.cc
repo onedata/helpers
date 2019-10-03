@@ -172,21 +172,45 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
     if (currentSize == 0)
         return folly::makeFuture();
 
-    return folly::via(m_executor.get(),
-        [ fileId, helper = m_helper, blockSize = m_blockSize, currentSize ] {
-            try {
-                folly::fbvector<folly::fbstring> keysToDelete;
-                for (size_t objectId = 0; objectId <= (currentSize / blockSize);
-                     objectId++) {
-                    keysToDelete.emplace_back(helper->getKey(fileId, objectId));
-                }
+    // Calculate the list of objects into which the file has been
+    // split on the storage
+    folly::fbvector<folly::fbstring> keysToDelete;
+    for (size_t objectId = 0; objectId <= (currentSize / m_blockSize);
+         objectId++) {
+        keysToDelete.emplace_back(m_helper->getKey(fileId, objectId));
+    }
+
+    // In case the storage supports batch delete (in a single request)
+    // use it, otherwise schedule deletions of each object individually
+    // in asynchronous requests
+    if (m_helper->supportsBatchDelete()) {
+        return folly::via(m_executor.get(),
+            [ keysToDelete = std::move(keysToDelete), helper = m_helper ] {
                 helper->deleteObjects(keysToDelete);
-            }
-            catch (const std::system_error &e) {
-                logError("unlink", e);
-                throw;
-            }
-        });
+            });
+    }
+
+    auto batchIndex = 0ul;
+    do {
+        folly::fbvector<folly::Future<folly::Unit>> futs;
+        futs.reserve(MAX_ASYNC_DELETE_OBJECTS);
+
+        for (auto i = batchIndex;
+             i < std::min(batchIndex + MAX_ASYNC_DELETE_OBJECTS,
+                     keysToDelete.size());
+             i++) {
+            futs.emplace_back(folly::via(m_executor.get(),
+                [ keyToDelete = keysToDelete.at(i), helper = m_helper ] {
+                    helper->deleteObject(keyToDelete);
+                }));
+        }
+
+        folly::collectAll(futs.begin(), futs.end()).get();
+
+        batchIndex += MAX_ASYNC_DELETE_OBJECTS;
+    } while (batchIndex < MAX_ASYNC_DELETE_OBJECTS);
+
+    return folly::makeFuture();
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::truncate(
@@ -197,62 +221,84 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
     if (static_cast<size_t>(size) == currentSize)
         return folly::makeFuture();
 
-    return folly::via(m_executor.get(), [
-        fileId, size, currentSize, helper = m_helper, locks = m_locks,
-        defBlockSize = m_blockSize
-    ] {
-        try {
-            auto currentLastBlockId = getBlockId(currentSize, defBlockSize);
-            auto newLastBlockId = getBlockId(size, defBlockSize);
-            auto newLastBlockOffset = getBlockOffset(size, defBlockSize);
+    auto currentLastBlockId = getBlockId(currentSize, m_blockSize);
+    auto newLastBlockId = getBlockId(size, m_blockSize);
+    auto newLastBlockOffset = getBlockOffset(size, m_blockSize);
 
-            // Generate a list of objects to delete
-            folly::fbvector<folly::fbstring> keysToDelete;
-            for (size_t objectId = 0; objectId <= currentLastBlockId;
-                 objectId++) {
-                if ((objectId > newLastBlockId) ||
-                    ((objectId == newLastBlockId) &&
-                        (newLastBlockOffset == 0))) {
-                    keysToDelete.emplace_back(helper->getKey(fileId, objectId));
-                }
-            }
+    // Generate a list of objects to delete
+    folly::fbvector<folly::fbstring> keysToDelete;
+    for (size_t objectId = 0; objectId <= currentLastBlockId; objectId++) {
+        if ((objectId > newLastBlockId) ||
+            ((objectId == newLastBlockId) && (newLastBlockOffset == 0))) {
+            keysToDelete.emplace_back(m_helper->getKey(fileId, objectId));
+        }
+    }
 
-            auto key = helper->getKey(fileId, newLastBlockId);
-            auto remainderBlockSize =
-                static_cast<std::size_t>(newLastBlockOffset);
+    auto key = m_helper->getKey(fileId, newLastBlockId);
+    auto remainderBlockSize = static_cast<std::size_t>(newLastBlockOffset);
+    if (remainderBlockSize == 0 && newLastBlockId > 0) {
+        key = m_helper->getKey(fileId, newLastBlockId - 1);
+        remainderBlockSize = m_blockSize;
+    }
 
-            if (remainderBlockSize == 0 && newLastBlockId > 0) {
-                key = helper->getKey(fileId, newLastBlockId - 1);
-                remainderBlockSize = defBlockSize;
-            }
-
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
+    return folly::via(m_executor.get(),
+        [
+            fileId, remainderBlockSize, newLastBlockId, key, helper = m_helper,
+            locks = m_locks
+        ] {
             if (remainderBlockSize > 0 || newLastBlockId > 0) {
                 Locks::accessor acc;
                 locks->insert(acc, key);
+                auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
 
                 try {
                     auto buf = fillToSize(
                         readBlock(helper, key, 0, remainderBlockSize),
                         remainderBlockSize);
                     helper->putObject(key, std::move(buf));
-                    locks->erase(acc);
                 }
                 catch (...) {
-                    locks->erase(acc);
-                    LOG(ERROR) << "Truncate failed due to unknown error during "
+                    LOG(ERROR) << "Truncate failed due to unknown "
+                                  "error during "
                                   "'fillToSize'";
                     throw;
                 }
             }
+        })
+        .then([
+            keysToDelete = std::move(keysToDelete), helper = m_helper,
+            executor = m_executor
+        ]() {
+            if (!keysToDelete.empty()) {
+                if (helper->supportsBatchDelete()) {
+                    helper->deleteObjects(keysToDelete);
+                }
+                else {
+                    auto batchIndex = 0ul;
+                    do {
+                        folly::fbvector<folly::Future<folly::Unit>> futs;
+                        futs.reserve(MAX_ASYNC_DELETE_OBJECTS);
+                        for (auto i = batchIndex;
+                             i < std::min(batchIndex + MAX_ASYNC_DELETE_OBJECTS,
+                                     keysToDelete.size());
+                             i++) {
+                            futs.push_back(folly::via(executor.get(),
+                                [ keyToDelete = keysToDelete.at(i), helper ] {
+                                    helper->deleteObject(keyToDelete);
+                                    return folly::makeFuture();
+                                }));
+                        }
 
-            if (!keysToDelete.empty())
-                helper->deleteObjects(keysToDelete);
-        }
-        catch (const std::system_error &e) {
-            logError("truncate", e);
-            throw;
-        }
-    });
+                        folly::collectAll(futs.begin(), futs.end()).get();
+
+                        batchIndex += MAX_ASYNC_DELETE_OBJECTS;
+                    } while (batchIndex < MAX_ASYNC_DELETE_OBJECTS);
+                }
+            }
+
+            return folly::makeFuture();
+        });
 }
 
 const Timeout &KeyValueAdapter::timeout()
