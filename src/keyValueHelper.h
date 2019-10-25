@@ -20,6 +20,7 @@ namespace helpers {
 constexpr auto RANGE_DELIMITER = "-";
 constexpr auto OBJECT_DELIMITER = "/";
 constexpr std::size_t MAX_DELETE_OBJECTS = 1000;
+constexpr std::size_t MAX_ASYNC_DELETE_OBJECTS = 500;
 constexpr auto MAX_LIST_OBJECTS = 1000;
 constexpr auto MAX_OBJECT_ID = 999999;
 constexpr auto MAX_OBJECT_ID_DIGITS = 6;
@@ -38,6 +39,8 @@ public:
     virtual ~KeyValueHelper() = default;
 
     virtual folly::fbstring name() const = 0;
+
+    virtual bool supportsBatchDelete() const = 0;
 
     /**
      * @param prefix Arbitrary sequence of characters that provides value
@@ -125,7 +128,17 @@ public:
     };
 
     /**
-     * Delete storage objects by id.
+     * Delete storage object by id.
+     *
+     * @param key Object key to be deleted
+     */
+    virtual void deleteObject(const folly::fbstring &key) = 0;
+
+    /**
+     * Delete multiple storage objects by id.
+     *
+     * Only applicable to storages which support batch delete, must
+     * be determined using @ref KeyValueHelper::supportsBatchDelete
      *
      * @param keys Vector of keys of objects to be deleted.
      */

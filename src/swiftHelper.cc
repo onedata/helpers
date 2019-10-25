@@ -223,6 +223,11 @@ std::size_t SwiftHelper::putObject(
     return writtenBytes;
 }
 
+void SwiftHelper::deleteObject(const folly::fbstring &key)
+{
+    deleteObjects({key});
+}
+
 void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 {
     LOG_FCALL() << LOG_FARGV(keys);
