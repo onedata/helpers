@@ -6,6 +6,7 @@ option(WITH_S3 "Include S3 direct IO support" ON)
 option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
 option(WITH_WEBDAV "Include WebDAV direct IO support" ON)
+option(WITH_TESTS "Build tests" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
 
 # CMake config
@@ -88,6 +89,7 @@ find_library(DL_LIBRARY dl)
 
 # Rados library
 if(WITH_CEPH)
+    find_library(CEPHCOMMON_LIBRARY "ceph-common" NAMES "ceph-common" "libceph-common.so.0" PATH_SUFFIXES "ceph")
     find_library(RADOS_LIBRARY rados)
     find_library(RADOSSTRIPER_LIBRARY radosstriper)
     add_definitions(-DWITH_CEPH=1)
@@ -210,7 +212,7 @@ set_target_properties(helpersStatic PROPERTIES OUTPUT_NAME helpers)
 # Add helper libraries when building with each helper
 #
 if(WITH_CEPH)
-    list(APPEND HELPERS_LIBRARIES ${RADOS_LIBRARY} ${RADOSSTRIPER_LIBRARY})
+    list(APPEND HELPERS_LIBRARIES ${RADOSSTRIPER_LIBRARY} ${RADOS_LIBRARY} ${CEPHCOMMON_LIBRARY})
 endif(WITH_CEPH)
 
 if(WITH_S3)
@@ -266,6 +268,7 @@ else(CLANG_TIDY)
     message(STATUS "run-clang-tidy script not found - target clang-tidy not available")
 endif(CLANG_TIDY)
 
-
-enable_testing()
-add_subdirectory(test)
+if(WITH_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif(WITH_TESTS)
