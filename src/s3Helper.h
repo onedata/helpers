@@ -124,6 +124,8 @@ public:
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
 
+    bool supportsBatchDelete() const override { return false; }
+
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
 
@@ -132,6 +134,8 @@ public:
 
     std::size_t modifyObject(const folly::fbstring &key, folly::IOBufQueue buf,
         const std::size_t offset) override;
+
+    void deleteObject(const folly::fbstring &key) override;
 
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 

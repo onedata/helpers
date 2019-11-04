@@ -95,7 +95,6 @@ folly::IOBufQueue CephRadosHelper::getObject(
     char *raw = static_cast<char *>(buf.preallocate(size, size).first);
 
     librados::bufferlist data;
-    data.append(ceph::buffer::create_static(size, raw));
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.cephrados.read");
 
@@ -121,6 +120,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
         throwOnError("GetObject", ret);
     }
 
+    std::memcpy(raw, data.c_str(), static_cast<std::size_t>(ret));
     buf.postallocate(static_cast<std::size_t>(ret));
 
     LOG_DBG(2) << "Read " << ret << " bytes from object " << key;
@@ -166,36 +166,33 @@ std::size_t CephRadosHelper::putObject(
     return size;
 }
 
-void CephRadosHelper::deleteObjects(
-    const folly::fbvector<folly::fbstring> &keys)
+void CephRadosHelper::deleteObject(const folly::fbstring &key)
 {
-    LOG_FCALL() << LOG_FARGV(keys);
+    LOG_FCALL() << LOG_FARG(key);
 
     connect();
 
-    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
+    LOG_DBG(2) << "Attempting to delete object " << key;
 
-    for (auto offset = 0ul; offset < keys.size();
-         offset += MAX_DELETE_OBJECTS) {
-        const std::size_t batchSize =
-            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
+    auto ret = retry([&]() { return m_ctx->ioCTX.remove(key.toStdString()); },
+        std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
-            auto ret =
-                retry([&]() { return m_ctx->ioCTX.remove(key.toStdString()); },
-                    std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
-
-            // Ignore non-existent object errors
-            if (ret == -ENOENT) {
-                LOG_DBG(2) << "Failed removing object " << key
-                           << " - object does not exist.";
-                ret = 0;
-            }
-
-            if (ret < 0)
-                throwOnError("RemoveObject", ret);
-        }
+    // Ignore non-existent object errors
+    if (ret == -ENOENT) {
+        LOG_DBG(2) << "Failed removing object " << key
+                   << " - object does not exist.";
+        ret = 0;
     }
+
+    if (ret < 0)
+        throwOnError("RemoveObject", ret);
+}
+
+void CephRadosHelper::deleteObjects(
+    const folly::fbvector<folly::fbstring> & /*keys*/)
+{
+    throw std::system_error{
+        std::make_error_code(std::errc::operation_not_supported)};
 }
 
 void CephRadosHelper::connect()
