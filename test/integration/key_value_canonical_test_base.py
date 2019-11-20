@@ -7,6 +7,9 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 from test_common import *
 from common_test_base import *
+from posix_test_types import *
+
+import stat
 
 import pytest
 
@@ -14,8 +17,8 @@ THREAD_NUMBER = 8
 BLOCK_SIZE = 1024
 
 
-def to_python_list(readdir_result):
-    r = [e for e in readdir_result]
+def to_python_list(listobjects_result):
+    r = [e for e in listobjects_result]
     r.sort()
     return r
 
@@ -23,10 +26,18 @@ def to_python_list(readdir_result):
 def test_mknod_should_create_empty_file(helper, file_id, server):
     data = ''
 
-    helper.mknod(file_id, 0654)
-    assert helper.write(file_id, data, 0) == 0
+    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.access(file_id)
     assert helper.getattr(file_id).st_size == 0
 
+def test_mknod_should_throw_eexist_error(helper, file_id, server):
+    flags = maskToFlags(stat.S_IFREG)
+    helper.mknod(file_id, 0664, flags)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.mknod(file_id, 0664, flags)
+
+    assert 'File exists' in str(excinfo.value)
 
 def test_write_should_write_multiple_blocks(helper, file_id, server):
     block_num = 20
@@ -40,16 +51,33 @@ def test_write_should_write_multiple_blocks(helper, file_id, server):
 def test_unlink_should_delete_data(helper, file_id, server):
     data = random_str()
     offset = random_int()
+    file_id2 = random_str()
 
     assert helper.write(file_id, data, offset) == len(data)
     helper.unlink(file_id, offset+len(data))
 
+    assert helper.write(file_id2, data, offset) == len(data)
+    helper.unlink('/'+file_id2, offset+len(data))
+
+
+def test_unlink_should_delete_empty_file(helper, file_id, server):
+    data = random_str()
+    offset = random_int()
+    file_id2 = random_str()
+
+    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.unlink(file_id, 0)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.getattr(file_id)
+
+    assert 'Object not found' in str(excinfo.value)
 
 def test_truncate_should_truncate_to_size(helper, file_id, server):
     blocks_num = 10
     size = blocks_num * BLOCK_SIZE
 
-    helper.mknod(file_id, 0654)
+    helper.mknod(file_id, 0654, maskToFlags(stat.S_IFREG))
     helper.truncate(file_id, size, 0)
     assert len(helper.read(file_id, 0, size + 1)) == len('\0' * size)
     assert helper.read(file_id, 0, size + 1) == '\0' * size
@@ -98,6 +126,16 @@ def test_read_should_read_multi_block_data_with_holes(helper, file_id):
 
     data = data + empty_block[len(data):] + (block_num - 1) * empty_block + data
     assert helper.read(file_id, 0, len(data)) == data
+
+
+def test_read_should_read_large_file_from_offset(helper, file_id):
+    data = 'A'*1000 + 'B'*1000 + 'C'*1000
+
+    assert helper.write(file_id, data, 0) == len(data)
+
+    assert helper.read(file_id, 0, 1000) == 'A'*1000
+    assert helper.read(file_id, 1000, 1000) == 'B'*1000
+    assert helper.read(file_id, 2000, 1000) == 'C'*1000
 
 
 def test_write_should_modify_inner_object_on_canonical_storage(helper):
@@ -165,6 +203,9 @@ def test_getattr_should_return_default_permissions(helper):
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
+    assert oct(helper.getattr('').st_mode & 0o777) == oct(default_dir_mode)
+    assert oct(helper.getattr('/').st_mode & 0o777) == oct(default_dir_mode)
+
     assert oct(helper.getattr(dir_id+'/'+file_id).st_mode & 0o777) == oct(default_file_mode)
     assert oct(helper.getattr('/'+dir_id+'/'+file_id).st_mode & 0o777) == oct(default_file_mode)
     assert oct(helper.getattr(dir_id).st_mode & 0o777) == oct(default_dir_mode)
@@ -180,79 +221,92 @@ def test_getattr_should_return_default_permissions(helper):
     assert oct(helper.getattr('/'+dir_id+'/').st_mode & 0o777) == oct(default_dir_mode)
 
 
-def test_readdir_should_handle_subdirectories(helper):
+def test_listobjects_should_handle_subdirectories(helper):
     dir1 = 'dir1'
     dir2 = 'dir2'
     dir3 = 'dir3'
 
-    files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
+    files = ['file{}.txt'.format(i,) for i in range(1, 6)]
+
+    result = []
+
+    # Listing empty prefix should return empty result
+    dirs = to_python_list(helper.listobjects('dir1', '', 100))
+    assert dirs == []
 
     for file in files:
         helper.write('/'+dir1+'/'+dir2+'/'+file, random_str(), 0)
+        result.append('/'+dir1+'/'+dir2+'/'+file)
         helper.write('/'+dir1+'/'+dir3+'/'+file, random_str(), 0)
+        result.append('/'+dir1+'/'+dir3+'/'+file)
         helper.write('/'+dir1+'/'+file, random_str(), 0)
+        result.append('/'+dir1+'/'+file)
 
-    dirs = to_python_list(helper.readdir('', 0, 100))
-    assert dir1 in dirs
+    # List objects from root should include leading '/'
+    dirs = to_python_list(helper.listobjects('', '', 100))
 
-    dirs = to_python_list(helper.readdir(dir1, 0, 100))
-    dir1_contents = [dir2, dir3]
-    dir1_contents.extend(files)
-    assert dirs == dir1_contents
+    assert len(dirs) > 0
 
-    dirs = to_python_list(helper.readdir(dir1+'/'+dir2+'/', 0, 100))
-    assert dirs == files
+    for d in dirs:
+        assert d[0] == '/'
+
+    dirs = to_python_list(helper.listobjects('/', '', 100))
+    for d in dirs:
+        assert d[0] == '/'
+
+    # List only objects starting with 'dir1/dir2' prefix
+    dirs = to_python_list(helper.listobjects('dir1/dir2', '', 100))
+    assert dirs == ['/dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
+
+    # Check that the same results are returned for paths with and without
+    # forward slash
+    assert to_python_list(helper.listobjects('/dir1/dir2', '', 100)) \
+            == to_python_list(helper.listobjects('dir1/dir2', '', 100))
+
+    # Make sure that all results are returned for single query
+    dirs = to_python_list(helper.listobjects('dir1', '', 100))
+    assert set(dirs) == set(result)
+
+    # Make sure that all results are returned in chunks
+    dirs = []
+    marker = ""
+    chunk_size = 3
+    while True:
+        chunk = to_python_list(helper.listobjects('dir1', marker, chunk_size))
+
+        if len(chunk) < chunk_size:
+            break
+
+        marker = chunk[-1]
+
+        dirs.extend(chunk)
 
 
-def test_readdir_should_handle_offset_properly(helper):
-    test_dir = 'offset_test'
-
-    files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
-
-    for file in files:
-        helper.write(test_dir+'/'+file, random_str(), 0)
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 100))
-    assert dirs == files
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 1))
-    assert dirs == files[0:1]
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 2))
-    assert dirs == files[0:2]
-
-    dirs = to_python_list(helper.readdir(test_dir, 3, 100))
-    assert dirs == files[3:5]
-
-    dirs = to_python_list(helper.readdir(test_dir, 100, 100))
-    assert dirs == []
-
-    dirs = to_python_list(helper.readdir(test_dir, 0, 0))
-    assert dirs == []
-
-
-def test_readdir_should_handle_multiple_subdirs_with_offset(helper):
+def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
     test_dir = random_str()
+    contents = []
 
-    dirs = ['dir{}'.format(i,) for i in range(100)]
-    files = ['file{}.txt'.format(i,) for i in range(100)]
+    dirs = ['/'+test_dir+'/'+'dir{}'.format(i,) for i in range(100)]
+    files = ['/'+test_dir+'/'+'file{}.txt'.format(i,) for i in range(100)]
 
     step = 7
 
     for d in dirs:
-        helper.write(test_dir+'/'+d+'/file.txt', random_str(), 0)
+        helper.write(d+'/file.txt', random_str(), 0)
+        contents.append(d+'/file.txt')
 
     for f in files:
-        helper.write(test_dir+'/'+f, random_str(), 0)
-
-    contents = dirs
-    contents.extend(files)
+        helper.write(f, random_str(), 0)
+        contents.append(f)
 
     res = []
-    it = 0
-    while it < len(contents):
-        res.extend(to_python_list(helper.readdir(test_dir, it, step)))
-        it += step
+    i = 0
+    while i < len(contents):
+        marker = ''
+        if res:
+            marker = res[-1]
+        res.extend(to_python_list(helper.listobjects(test_dir, marker, step)))
+        i += step
 
     assert len(contents) == len(res)
     assert set(contents) == set(res)

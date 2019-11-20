@@ -133,6 +133,13 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         // In case this is a storage with files stored in single objects,
         // try to modify the contents in place
         if (m_blockSize == 0) {
+            if (!helper->hasRandomAccess() &&
+                (size + offset > helper->getMaxCanonicalObjectSize())) {
+                LOG(ERROR) << "Cannot write to object storage beyond "
+                           << helper->getMaxCanonicalObjectSize();
+                throw one::helpers::makePosixException(ERANGE);
+            }
+
             Locks::accessor acc;
             locks->insert(acc, m_fileId);
             auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
@@ -214,7 +221,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    if (currentSize == 0)
+    if (m_blockSize > 0 && currentSize == 0)
         return folly::makeFuture();
 
     // In case files on this storage are stored in single objects
@@ -268,31 +275,45 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
-    const mode_t mode, const FlagsSet & /*flags*/, const dev_t /*rdev*/)
+    const mode_t mode, const FlagsSet &flags, const dev_t /*rdev*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    if (m_blockSize > 0)
+    if (m_blockSize > 0) {
         return folly::makeFuture();
+    }
 
-    if (!S_ISREG(mode)) {
-        LOG_DBG(1)
-            << "Ignoring mknod request for " << fileId << " with mode " << mode
+    if (!S_ISREG(flagsToMask(flags))) {
+        LOG(ERROR)
+            << "Ignoring mknod request for " << fileId << " with flags "
+            << flagsToMask(flags)
             << " - only regular files can be created on object storages.";
         return folly::makeFuture();
     }
 
-    return folly::via(
-        m_executor.get(), [ fileId, helper = m_helper, locks = m_locks ] {
-            Locks::accessor acc;
-            locks->insert(acc, fileId);
-            auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
+    return folly::via(m_executor.get(), [
+        fileId, helper = m_helper, locks = m_locks
+    ] {
+        // This try-catch is necessary in order to return EEXIST error
+        // in case the object `fileId` already exists on the storage
+        try {
+            helper->getObjectInfo(fileId);
+        }
+        catch (const std::system_error &e) {
+            if (e.code().value() == ENOENT) {
+                Locks::accessor acc;
+                locks->insert(acc, fileId);
+                auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
 
-            helper->putObject(fileId,
-                folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
+                helper->putObject(fileId,
+                    folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()});
 
-            return folly::makeFuture();
-        });
+                return folly::makeFuture();
+            }
+            throw e;
+        }
+        throw one::helpers::makePosixException(EEXIST);
+    });
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::truncate(
@@ -436,25 +457,20 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(
-        m_executor.get(), [ fileId, helper = m_helper, locks = m_locks ] {
-            auto res = helper->listObjects(fileId, 0, 1);
-
-            if (res.empty())
-                return makeFuturePosixException<folly::Unit>(ENOENT);
-
-            return folly::makeFuture();
-        });
+    return getattr(fileId).then(
+        [](auto && /*unused*/) { return folly::makeFuture(); });
 }
 
-folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::readdir(
-    const folly::fbstring &fileId, const off_t offset, const std::size_t count)
+folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::listobjects(
+    const folly::fbstring &prefix, const folly::fbstring &marker,
+    const off_t offset, const size_t count)
 {
-    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(count);
+    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(offset)
+                << LOG_FARG(count);
 
     return folly::via(m_executor.get(),
-        [ fileId, count, offset, helper = m_helper, locks = m_locks ] {
-            return helper->listObjects(fileId, offset, count);
+        [ prefix, marker, offset, count, helper = m_helper, locks = m_locks ] {
+            return helper->listObjects(prefix, marker, offset, count);
         });
 }
 

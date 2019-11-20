@@ -18,6 +18,7 @@
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
+#include <boost/python/suite/indexing/vector_indexing_suite.hpp>
 #include <folly/ThreadName.h>
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 #include <vector>
 
 using namespace boost::python;
+using namespace one::helpers;
 
 using ReadDirResult = std::vector<std::string>;
 
@@ -40,6 +42,8 @@ private:
     std::unique_ptr<PyThreadState, decltype(&PyEval_RestoreThread)> threadState;
 };
 
+constexpr std::size_t kMaxCanonicakObjectSize = 2 * 1024 * 1024;
+
 class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
@@ -50,7 +54,7 @@ public:
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
-                  std::move(secretKey), 64 * 1024 * 1024, 0644, 0775,
+                  std::move(secretKey), 2 * 1024 * 1024, 0644, 0775,
                   scheme == "https"),
               std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
@@ -83,10 +87,11 @@ public:
         return m_helper->getattr(fileId).get();
     }
 
-    void mknod(std::string fileId, mode_t mode)
+    void mknod(std::string fileId, mode_t mode, std::vector<Flag> flags)
     {
         ReleaseGIL guard;
-        m_helper->mknod(fileId, mode | S_IFREG, {}, 0).get();
+        m_helper->mknod(fileId, mode, FlagsSet(flags.begin(), flags.end()), 0)
+            .get();
     }
 
     void mkdir(std::string fileId, mode_t mode)
@@ -95,11 +100,12 @@ public:
         m_helper->mkdir(fileId, mode).get();
     }
 
-    ReadDirResult readdir(std::string fileId, int offset, int count)
+    ReadDirResult listobjects(std::string fileId, std::string marker, int count)
     {
         ReleaseGIL guard;
         std::vector<std::string> res;
-        for (auto &direntry : m_helper->readdir(fileId, offset, count).get()) {
+        for (auto &direntry :
+            m_helper->listobjects(fileId, marker, 0, count).get()) {
             res.emplace_back(direntry.toStdString());
         }
         return res;
@@ -168,7 +174,7 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("getattr", &S3HelperProxy::getattr)
         .def("mknod", &S3HelperProxy::mknod)
         .def("mkdir", &S3HelperProxy::mkdir)
-        .def("readdir", &S3HelperProxy::readdir)
+        .def("listobjects", &S3HelperProxy::listobjects)
         .def("unlink", &S3HelperProxy::unlink)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)

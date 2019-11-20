@@ -567,6 +567,15 @@ public:
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) = 0;
 
+    virtual folly::Future<folly::fbvector<folly::fbstring>> listobjects(
+        const folly::fbstring &prefix, const folly::fbstring &marker,
+        const off_t offset, const size_t count)
+    {
+        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+            std::system_error{
+                std::make_error_code(std::errc::function_not_supported)});
+    }
+
     virtual folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &uuid, const folly::fbstring &name)
     {

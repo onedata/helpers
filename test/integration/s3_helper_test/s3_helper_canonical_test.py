@@ -18,15 +18,18 @@ from environment import common, docker, s3
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat
 from key_value_canonical_test_base import *
 from s3_helper import S3HelperProxy
-from io_perf_test_base import *
+from io_perf_test_base import \
+    test_write, \
+    test_write_read, \
+    test_read_write_truncate_unlink
 from posix_test_base import \
     test_read_should_read_written_data, \
     test_read_should_error_file_not_found, \
     test_mkdir_should_create_directory, \
-    test_readdir_should_list_files_in_directory, \
     test_unlink_should_pass_errors, \
     test_unlink_should_delete_file, \
-    test_truncate_should_not_create_file
+    test_truncate_should_not_create_file, \
+    test_read_should_not_read_after_end_of_file
 
 
 @pytest.fixture(scope='module')
@@ -67,3 +70,26 @@ def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket,
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          0)
+
+def truncate_test(helper, op_num, size):
+    """
+    On canonical S3, read should return only the existing bytes without padding
+    with zeros to the requested size.
+    """
+    for _ in range(op_num):
+        file_id = random_str()
+
+        helper.write(file_id, 'X'*size, 0)
+        assert helper.read(file_id, 0, size) == 'X'*size
+        helper.truncate(file_id, 1, size)
+        assert helper.read(file_id, 0, size) == 'X'
+
+
+def test_read_should_throw_for_write_beyond_supported_range(helper, file_id):
+    max_range = 2 * 1024 * 1024
+    data = random_str()
+
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.write(file_id, data, max_range+1)
+
+    assert 'Numerical result out of range' in str(excinfo.value)

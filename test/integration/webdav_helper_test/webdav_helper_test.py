@@ -40,7 +40,6 @@ from common_test_base import \
     test_read_should_read_all_possible_ranges, \
     test_read_should_pad_prefix_with_zeros, \
     test_read_should_read_data_with_holes, \
-    test_read_should_not_read_after_end_of_file, \
     test_read_should_read_empty_segment, \
     test_unlink_should_delete_empty_data, \
     test_truncate_should_increase_file_size
@@ -63,6 +62,7 @@ from posix_test_base import \
     test_unlink_should_delete_file, \
     test_mknod_should_create_regular_file_by_default, \
     test_chown_should_change_user_and_group, \
+    test_read_should_not_read_after_end_of_file, \
     test_read_write_large_file_should_maintain_consistency
     # test_symlink_should_create_link
     # test_link_should_create_hard_link

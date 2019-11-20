@@ -61,25 +61,22 @@ if(NOT WITH_GLUSTERFS)
     list(REMOVE_ITEM TEST_DIRS  glusterfs_helper_test)
 endif(NOT WITH_GLUSTERFS)
 
+add_library(posix_test_types SHARED posixTestTypes.cc)
+set_target_properties(posix_test_types PROPERTIES
+    PREFIX ""
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    BUILD_WITH_INSTALL_RPATH true
+    INSTALL_RPATH_USE_LINK_PATH true
+    INSTALL_RPATH "\$ORIGIN/../..")
+target_link_libraries(posix_test_types
+    helpersShared
+    ${Boost_LIBRARIES}
+    ${PYTHON_LIBRARIES})
+
 foreach(TEST_DIR ${TEST_DIRS})
     string(REGEX REPLACE "(.*)_test" "\\1" TEST_NAME ${TEST_DIR})
     file(COPY ${TEST_DIR} DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
     file(GLOB_RECURSE TEST_SRC ${TEST_DIR}/*.cc ${TEST_DIR}/*.h)
-
-    # Add Posix types to GlusterFS test
-    if("${TEST_DIR}" MATCHES ".*glusterfs.*")
-        add_library(posix_test_types SHARED ${TEST_DIR}/../posixTestTypes.cc)
-        set_target_properties(posix_test_types PROPERTIES
-            PREFIX ""
-            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-            BUILD_WITH_INSTALL_RPATH true
-            INSTALL_RPATH_USE_LINK_PATH true
-            INSTALL_RPATH "\$ORIGIN/../../..")
-        target_link_libraries(posix_test_types
-            helpersShared
-            ${Boost_LIBRARIES}
-            ${PYTHON_LIBRARIES})
-    endif()
 
     add_library(${TEST_NAME} SHARED ${TEST_SRC})
 
@@ -93,7 +90,8 @@ foreach(TEST_DIR ${TEST_DIRS})
     target_link_libraries(${TEST_NAME}
         helpersShared
         ${Boost_LIBRARIES}
-        ${PYTHON_LIBRARIES})
+        ${PYTHON_LIBRARIES}
+        posix_test_types)
 
     add_dependencies(${TEST_NAME} pythonProto)
 endforeach()
