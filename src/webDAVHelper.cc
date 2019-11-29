@@ -426,7 +426,12 @@ bool WebDAVHelper::isAccessTokenValid() const
 {
     // Refresh the token as soon as the token will be valid for
     // less than 60 seconds
-    const std::chrono::seconds kWebDAVAccessTokenMinimumTTL{60};
+    constexpr auto kWebDAVAccessTokenMinimumTTL = 60;
+    std::chrono::seconds webDAVAccessTokenMinimumTTL{
+        kWebDAVAccessTokenMinimumTTL};
+
+    if (P()->testTokenRefreshMode())
+        webDAVAccessTokenMinimumTTL = std::chrono::seconds{0};
 
     if (P()->credentialsType() == WebDAVCredentialsType::OAUTH2) {
         LOG_DBG(3) << "Checking WebDAV access token ttl: "
@@ -438,7 +443,7 @@ bool WebDAVHelper::isAccessTokenValid() const
 
         return std::chrono::duration_cast<std::chrono::seconds>(
                    std::chrono::system_clock::now() - P()->createdOn()) <
-            P()->accessTokenTTL() - kWebDAVAccessTokenMinimumTTL;
+            P()->accessTokenTTL() - webDAVAccessTokenMinimumTTL;
     }
 
     return true;
