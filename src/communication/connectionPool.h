@@ -138,7 +138,7 @@ private:
     /**
      * Close connections and handler pipelines.
      */
-    void close();
+    folly::Future<folly::Unit> close();
 
     /**
      * Setup trusted CA certificates by trying to find a CA file in on of common
