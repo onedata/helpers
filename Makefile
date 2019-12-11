@@ -4,6 +4,8 @@ all: test
 INSTALL_PREFIX ?= ${HOME}/.local/helpers
 BUILD_PROXY_IO ?= ON
 WITH_COVERAGE  ?= OFF
+# Build unit and integration tests
+WITH_TESTS     ?= ON
 
 # Build with Ceph storge helper by default
 WITH_CEPH    		?= ON
@@ -28,6 +30,7 @@ WITH_WEBDAV 		?= ON
 	                       -DWITH_S3=${WITH_S3} \
 	                       -DWITH_GLUSTERFS=${WITH_GLUSTERFS} \
 	                       -DWITH_WEBDAV=${WITH_WEBDAV} \
+	                       -DWITH_TESTS=${WITH_TESTS} \
 	                       -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} \
 	                       -DOPENSSL_LIBRARIES=${OPENSSL_LIBRARIES} ..
 	touch $@

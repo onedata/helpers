@@ -234,6 +234,12 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
             })
             .onError(
                 [self, helper, offset, size, retryCount](std::system_error &e) {
+                    if (e.code().value() == ERANGE) {
+                        return folly::makeFuture<folly::IOBufQueue>(
+                            folly::IOBufQueue(
+                                folly::IOBufQueue::cacheChainLength()));
+                    }
+
                     if (shouldRetryError(e.code().value()) && retryCount > 0) {
                         ONE_METRIC_COUNTER_INC(
                             "comp.helpers.mod.webdav.read.retries");

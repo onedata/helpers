@@ -113,11 +113,11 @@ S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     folly::fbstring accessKey, folly::fbstring secretKey,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
     const mode_t dirMode, const bool useHttps, Timeout timeout)
-    : m_bucket{std::move(bucketName)}
+    : KeyValueHelper{false, maximumCanonicalObjectSize}
+    , m_bucket{std::move(bucketName)}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
     , m_dirMode{dirMode}
-    , m_maxCanonicalObjectSize{maximumCanonicalObjectSize}
 {
     LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
@@ -195,9 +195,6 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.read");
 
-    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
-               << " at offset " << offset;
-
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->GetObject(request);
     },
@@ -207,8 +204,20 @@ folly::IOBufQueue S3Helper::getObject(
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG_DBG(2) << "Reading from object " << key << " failed with error "
+        // In case the read is from outside of the valid range, return empty buf
+        if (outcome.GetError().GetExceptionName() == "InvalidRange") {
+            auto readBytes = outcome.GetResult().GetContentLength();
+            LOG_DBG(1) << "Received InvalidRange error when reading object "
+                       << key << " in range (" << offset << ", "
+                       << offset + size
+                       << "). Returning buffer of size: " << readBytes;
+            buf.postallocate(static_cast<std::size_t>(readBytes));
+            return buf;
+        }
+
+        LOG_DBG(1) << "Reading from object " << key << " failed with error "
                    << outcome.GetError().GetMessage();
+
         throwOnError("GetObject", outcome);
     }
 
@@ -301,12 +310,6 @@ std::size_t S3Helper::modifyObject(
     auto bufSize = buf.chainLength();
 
     if (exists) {
-        if (static_cast<std::size_t>(attr.st_size) > m_maxCanonicalObjectSize) {
-            LOG_DBG(1) << "Attempt to write to file which is too large than "
-                       << m_maxCanonicalObjectSize << " - ignoring request";
-            return 0;
-        }
-
         auto originalObject = getObject(key, 0, attr.st_size);
         auto originalSize = originalObject.chainLength();
         folly::IOBufQueue newObject{folly::IOBufQueue::cacheChainLength()};
@@ -383,12 +386,29 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
     LOG_FCALL() << LOG_FARG(key);
 
+    struct stat attr = {};
+
+    // For the root directory always return the defaults
+    if (key.empty() || key == "/") {
+        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mtim.tv_sec =
+            std::chrono::time_point_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now())
+                .time_since_epoch()
+                .count();
+        attr.st_mtim.tv_nsec = 0;
+        attr.st_ctim = attr.st_mtim;
+        attr.st_atim = attr.st_mtim;
+
+        return attr;
+    }
+
     folly::fbstring normalizedKey = key;
 
     if (normalizedKey.front() == '/')
         normalizedKey.erase(normalizedKey.begin());
 
-    if (normalizedKey.back() == '/')
+    if (!normalizedKey.empty() && normalizedKey.back() == '/')
         normalizedKey.pop_back();
 
     if (normalizedKey == "/")
@@ -421,7 +441,6 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     // If a result was received, it can mean that either a file exists at this
     // key in which case the returned key is equal to requested key, or it is a
     // prefix shared by more files, and we should treat it as a directory
-    struct stat attr = {};
 
     // Add common prefixes as directory entries
     if (!outcome.GetResult().GetCommonPrefixes().empty()) {
@@ -438,6 +457,8 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                 .time_since_epoch()
                 .count();
         attr.st_mtim.tv_nsec = 0;
+        attr.st_ctim = attr.st_mtim;
+        attr.st_atim = attr.st_mtim;
 
         LOG_DBG(2) << "Returning stat for directory " << normalizedKey;
     }
@@ -474,27 +495,32 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 }
 
 folly::fbvector<folly::fbstring> S3Helper::listObjects(
-    const folly::fbstring &prefix, const off_t offset, const size_t size)
+    const folly::fbstring &prefix, const folly::fbstring &marker,
+    const off_t /*offset*/, const size_t size)
 {
-    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(offset) << LOG_FARG(size);
+    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(size);
 
     folly::fbstring normalizedPrefix = prefix;
 
     if (!normalizedPrefix.empty() && normalizedPrefix.back() != '/')
         normalizedPrefix += '/';
 
-    if (normalizedPrefix == "/")
-        normalizedPrefix = "";
+    if (normalizedPrefix.front() == '/')
+        normalizedPrefix.erase(0, 1);
+
+    folly::fbstring normalizedMarker = marker;
+    if (!normalizedMarker.empty() && normalizedMarker.front() == '/')
+        normalizedMarker.erase(0, 1);
 
     Aws::S3::Model::ListObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
-    request.SetMaxKeys(static_cast<int>(offset + size));
-    request.SetDelimiter("/");
+    request.SetMaxKeys(size);
+    request.SetMarker(normalizedMarker.c_str());
 
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
-               << " in bucket " << m_bucket << " at offset " << offset;
+               << " in bucket " << m_bucket << " after " << normalizedMarker;
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->ListObjects(request);
@@ -512,53 +538,18 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
 
     folly::fbvector<folly::fbstring> result;
 
-    auto totalEntryCount = outcome.GetResult().GetCommonPrefixes().size() +
-        outcome.GetResult().GetContents().size();
-
-    LOG_DBG(2) << "Received " << outcome.GetResult().GetCommonPrefixes().size()
-               << " common prefix keys and "
-               << outcome.GetResult().GetContents().size() << " object keys";
-
-    if (totalEntryCount < static_cast<size_t>(offset)) {
-        LOG_DBG(2) << "Received less results (" << totalEntryCount
-                   << ") than requested offset (" << offset << ")";
-        return result;
-    }
-
-    // S3 returns common prefixes (i.e. directories) in a seperate list
-    // than regular files. We have to combine them here into one entry
-    // list based on requested offset and number of entries.
-
-    // Add common prefixes as directory entries
-    auto commonPrefixList = outcome.GetResult().GetCommonPrefixes();
-
-    auto cpit = commonPrefixList.cbegin();
-    std::advance(cpit, std::min<std::size_t>(offset, commonPrefixList.size()));
-
-    for (; cpit != commonPrefixList.cend(); cpit++) {
-        boost::filesystem::path p(cpit->GetPrefix().c_str());
-        p = p.parent_path();
-        result.emplace_back(p.filename().c_str());
-    }
+    LOG_DBG(2) << "Received " << outcome.GetResult().GetContents().size()
+               << " object keys";
 
     // Add regular objects as file entries
-    auto objectList = outcome.GetResult().GetContents();
+    for (auto &object : outcome.GetResult().GetContents()) {
+        if (object.GetKey().empty())
+            continue;
 
-    auto it = objectList.cbegin();
-    auto commonPrefixOffset = 0;
-    if (static_cast<std::size_t>(offset) >= commonPrefixList.size()) {
-        commonPrefixOffset = offset - commonPrefixList.size();
-    }
-    else {
-        commonPrefixOffset = 0;
-    }
-
-    std::advance(
-        it, std::min<std::size_t>(commonPrefixOffset, objectList.size()));
-
-    for (; it != objectList.cend(); it++) {
-        boost::filesystem::path p(it->GetKey().c_str());
-        result.emplace_back(p.filename().c_str());
+        if (object.GetKey().front() != '/')
+            result.emplace_back(folly::fbstring("/") + object.GetKey().c_str());
+        else
+            result.emplace_back(object.GetKey().c_str());
     }
 
     return result;

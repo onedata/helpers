@@ -31,8 +31,11 @@ constexpr auto MAX_OBJECT_ID_DIGITS = 6;
  */
 class KeyValueHelper {
 public:
-    KeyValueHelper(const bool randomAccess = false)
+    KeyValueHelper(const bool randomAccess = false,
+        const std::size_t maxCanonicalObjectSize =
+            std::numeric_limits<std::size_t>::max())
         : m_randomAccess{randomAccess}
+        , m_maxCanonicalObjectSize{maxCanonicalObjectSize}
     {
     }
 
@@ -151,12 +154,16 @@ public:
      * some may provide a similar functionality in some other form.
      *
      * @param key The path, from which the objects should be listed.
+     * @param marker Specifies the offset marker (e.g. a token or last returned
+     *               entry) for storages which do not support numeric offset
+     *               for paging.
      * @param offset The start offset from which the object under key path
      *               should be returned.
      * @param size The maximum number of entries which should be returned.
      */
     virtual folly::fbvector<folly::fbstring> listObjects(
-        const folly::fbstring &key, const off_t offset, const size_t size)
+        const folly::fbstring &key, const folly::fbstring &marker,
+        const off_t offset, const size_t size)
     {
         throw std::system_error{
             std::make_error_code(std::errc::function_not_supported)};
@@ -188,6 +195,15 @@ public:
      */
     bool hasRandomAccess() const { return m_randomAccess; }
 
+    /**
+     * Return the maximum object size, which can be written or modified on this
+     * storage. This is a user defined setting.
+     */
+    std::size_t getMaxCanonicalObjectSize() const
+    {
+        return m_maxCanonicalObjectSize;
+    }
+
 protected:
     std::string adjustPrefix(const folly::fbstring &prefix) const
     {
@@ -207,7 +223,16 @@ protected:
     }
 
 private:
+    // Determines whether the storage helpers supports writing to objects
+    // at any offset, or if the objects have to be uploaded to storage
+    // in one call
     const bool m_randomAccess;
+
+    // For object storage with canonical paths, where block size is set to 0,
+    // i.e. entire files are stored in single objects, it is necessary to
+    // define the maximum object size which can be written or modified on the
+    // storage, as some storage do not allow writing from a specific offset.
+    const std::size_t m_maxCanonicalObjectSize;
 };
 
 } // namespace helpers

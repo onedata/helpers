@@ -95,7 +95,6 @@ folly::IOBufQueue CephRadosHelper::getObject(
     char *raw = static_cast<char *>(buf.preallocate(size, size).first);
 
     librados::bufferlist data;
-    data.append(ceph::buffer::create_static(size, raw));
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.cephrados.read");
 
@@ -121,6 +120,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
         throwOnError("GetObject", ret);
     }
 
+    std::memcpy(raw, data.c_str(), static_cast<std::size_t>(ret));
     buf.postallocate(static_cast<std::size_t>(ret));
 
     LOG_DBG(2) << "Read " << ret << " bytes from object " << key;
