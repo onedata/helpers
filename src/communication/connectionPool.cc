@@ -133,11 +133,11 @@ void ConnectionPool::connect()
                 m_idleConnections.emplace(clientPtr);
             })
             .onError([this](folly::exception_wrapper ew) {
-                close();
+                close().get();
                 ew.throw_exception();
             })
             .onError([this](std::exception &e) {
-                close();
+                close().get();
                 throw e;
             })
             .get();
@@ -269,26 +269,34 @@ void ConnectionPool::stop()
 
     m_connected = false;
 
-    close();
+    close().get();
 
     m_executor->join();
 }
 
-void ConnectionPool::close()
+folly::Future<folly::Unit> ConnectionPool::close()
 {
     m_idleConnections.clear();
 
     // Cancel any threads waiting on m_idleConnections.pop()
     m_idleConnections.abort();
 
+    folly::fbvector<folly::Future<folly::Unit>> stopFutures;
+
     for (const auto &client : m_connections) {
         if ((client->getPipeline() == nullptr) || !client->connected())
             continue;
 
-        folly::via(m_executor.get(),
-            [client]() mutable { return client->getPipeline()->close(); })
-            .get();
+        stopFutures.emplace_back(folly::via(m_executor.get(),
+            [client]() mutable { return client->getPipeline()->close(); }));
     }
+
+    return folly::collectAll(stopFutures.begin(), stopFutures.end())
+        .via(m_executor.get())
+        .then([this](auto && /*res*/) {
+            m_connections.clear();
+            return folly::Future<folly::Unit>{};
+        });
 }
 
 } // namespace communication
