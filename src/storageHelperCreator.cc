@@ -40,6 +40,9 @@
 namespace one {
 namespace helpers {
 
+constexpr std::size_t kProxyHelperMaximumReadBufferSize = 52'428'800;
+constexpr std::size_t kProxyHelperMaximumWriteBufferSize = 52'428'800;
+
 #ifdef BUILD_PROXY_IO
 
 StorageHelperCreator::StorageHelperCreator(
@@ -226,6 +229,30 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #endif
     ) {
         LOG_DBG(1) << "Created buffered helper of type: " << name;
+
+        if (name == PROXY_HELPER_NAME) {
+            // For proxy helper, limit the maximum read/write buffer size
+            // to set an upper bound for Protobuf message
+            auto proxyBufferLimits = m_bufferLimits;
+            proxyBufferLimits.readBufferMaxSize =
+                std::min(kProxyHelperMaximumReadBufferSize,
+                    proxyBufferLimits.readBufferMaxSize);
+            proxyBufferLimits.writeBufferMaxSize =
+                std::min(kProxyHelperMaximumWriteBufferSize,
+                    proxyBufferLimits.writeBufferMaxSize);
+
+            // Make sure minimum buffer sizes aren't larger than maximum sizes
+            proxyBufferLimits.readBufferMinSize =
+                std::min(proxyBufferLimits.readBufferMinSize,
+                    proxyBufferLimits.readBufferMaxSize);
+            proxyBufferLimits.writeBufferMinSize =
+                std::min(proxyBufferLimits.writeBufferMinSize,
+                    proxyBufferLimits.writeBufferMaxSize);
+
+            return std::make_shared<buffering::BufferAgent>(proxyBufferLimits,
+                std::move(helper), *m_scheduler, m_bufferMemoryLimitGuard);
+        }
+
         return std::make_shared<buffering::BufferAgent>(m_bufferLimits,
             std::move(helper), *m_scheduler, m_bufferMemoryLimitGuard);
     }
