@@ -51,6 +51,16 @@ public:
         m_communicator.connect();
     }
 
+    ~BufferAgentProxy() { stop(); }
+
+    void stop()
+    {
+        ReleaseGIL guard;
+        if (!m_stopped.test_and_set()) {
+            m_communicator.stop();
+        }
+    }
+
     one::helpers::FileHandlePtr open(std::string fileId,
         const std::unordered_map<folly::fbstring, folly::fbstring> &parameters)
     {
@@ -88,6 +98,7 @@ private:
     one::communication::Communicator m_communicator;
     std::shared_ptr<one::Scheduler> m_scheduler;
     std::shared_ptr<one::helpers::buffering::BufferAgent> m_helper;
+    std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
 };
 
 namespace {
@@ -121,6 +132,7 @@ BOOST_PYTHON_MODULE(buffer_agent)
     class_<BufferAgentProxy, boost::noncopyable>("BufferAgentProxy", no_init)
         .def("__init__", make_constructor(create))
         .def("open", raw_function(raw_open))
+        .def("stop", &BufferAgentProxy::stop)
         .def("read", &BufferAgentProxy::read)
         .def("write", &BufferAgentProxy::write)
         .def("release", &BufferAgentProxy::release);

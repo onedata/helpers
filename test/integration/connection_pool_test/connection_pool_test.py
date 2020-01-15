@@ -18,14 +18,18 @@ from environment import appmock, common, docker
 import connection_pool
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def endpoint(appmock_client):
-    return appmock_client.tcp_endpoint(443)
+    app = appmock_client.tcp_endpoint(443)
+    yield app
+    appmock_client.reset_tcp_history()
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def cp(endpoint):
-    return connection_pool.ConnectionPoolProxy(5, 2, endpoint.ip, endpoint.port)
+    pool = connection_pool.ConnectionPoolProxy(5, 2, endpoint.ip, endpoint.port)
+    yield pool
+    pool.stop()
 
 
 @pytest.mark.performance(

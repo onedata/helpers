@@ -17,19 +17,25 @@ from environment import appmock, common, docker
 import communication_stack
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def endpoint(appmock_client):
-    return appmock_client.tcp_endpoint(443)
+    app = appmock_client.tcp_endpoint(443)
+    yield app
+    appmock_client.reset_tcp_history()
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def com3(endpoint):
-    return communication_stack.Communicator(3, 1, endpoint.ip, endpoint.port, False)
+    c = communication_stack.Communicator(3, 1, endpoint.ip, endpoint.port, False)
+    yield c
+    c.stop()
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def com1(endpoint):
-    return communication_stack.Communicator(1, 1, endpoint.ip, endpoint.port, True)
+    c = communication_stack.Communicator(1, 1, endpoint.ip, endpoint.port, True)
+    yield c
+    c.stop()
 
 
 @pytest.mark.performance(
