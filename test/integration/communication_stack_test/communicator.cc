@@ -117,6 +117,15 @@ public:
         m_communicator.setScheduler(std::make_shared<Scheduler>(1));
     }
 
+    ~CommunicatorProxy() { stop(); }
+
+    void stop()
+    {
+        if (!m_stopped.test_and_set()) {
+            m_communicator.stop();
+        }
+    }
+
     void connect() { m_communicator.connect(); }
 
     std::string send(const std::string &description)
@@ -168,6 +177,7 @@ public:
 private:
     CustomCommunicator m_communicator;
     folly::Optional<folly::Future<ExampleServerMessage>> m_future;
+    std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
 };
 
 boost::shared_ptr<CommunicatorProxy> create(
@@ -199,6 +209,7 @@ BOOST_PYTHON_MODULE(communication_stack)
 {
     class_<CommunicatorProxy, boost::noncopyable>("Communicator", no_init)
         .def("__init__", make_constructor(create))
+        .def("stop", &CommunicatorProxy::stop)
         .def("connect", &CommunicatorProxy::connect)
         .def("send", &CommunicatorProxy::send)
         .def("sendAsync", &CommunicatorProxy::sendAsync)
