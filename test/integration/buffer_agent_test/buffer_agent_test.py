@@ -34,15 +34,19 @@ def file_id():
     return random_str()
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def endpoint(appmock_client):
-    return appmock_client.tcp_endpoint(443)
+    app = appmock_client.tcp_endpoint(443)
+    yield app
+    appmock_client.reset_tcp_history()
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def helper(storage_id, endpoint):
-    return buffer_agent.BufferAgentProxy(storage_id, endpoint.ip,
-                                 endpoint.port)
+    ba = buffer_agent.BufferAgentProxy(storage_id, endpoint.ip,
+                                      endpoint.port)
+    yield ba
+    ba.stop()
 
 
 @pytest.fixture
