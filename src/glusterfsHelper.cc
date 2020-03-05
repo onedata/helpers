@@ -234,7 +234,15 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
         if (buf.empty())
             return folly::makeFuture<std::size_t>(0);
 
-        auto iov = buf.front()->getIov();
+        auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
+        if (iobuf->isChained()) {
+            LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
+                       << " of size: " << iobuf->length();
+            iobuf->unshare();
+            iobuf->coalesce();
+        }
+
+        auto iov = iobuf->getIov();
         auto iov_size = iov.size();
 
         LOG_DBG(2) << "Attempting to write " << iov_size << " bytes at offset "
