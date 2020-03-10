@@ -31,6 +31,10 @@ namespace cert {
 class CertificateData;
 } // namespace cert
 
+namespace {
+const auto kDefaultProviderTimeout = 120ul;
+}
+
 /**
  * A @c ConnectionPool is responsible for managing connection pipeline
  * to the server.
@@ -58,10 +62,13 @@ public:
      * upgrade to clproto protocol after connection.
      * @param clprotoHandshake Flag determining whether connections should
      * perform clproto handshake after upgrading to clproto.
+     * @param providerTimeout Timeout for each request to a provider in seconds.
      */
     ConnectionPool(std::size_t connectionsNumber, std::size_t workersNumber,
         std::string host, uint16_t port, bool verifyServerCertificate,
-        bool clprotoUpgrade = true, bool clprotoHandshake = true);
+        bool clprotoUpgrade = true, bool clprotoHandshake = true,
+        const std::chrono::seconds providerTimeout = std::chrono::seconds{
+            kDefaultProviderTimeout});
 
     ConnectionPool(const ConnectionPool &) = delete;
     ConnectionPool &operator=(const ConnectionPool &) = delete;
@@ -153,6 +160,7 @@ private:
     const std::string m_host;
     const uint16_t m_port;
     const bool m_verifyServerCertificate;
+    const std::chrono::seconds m_providerTimeout;
     const bool m_clprotoUpgrade;
     const bool m_clprotoHandshake;
 
