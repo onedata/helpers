@@ -57,9 +57,9 @@ void Retrier<LowerLayer>::send(
     auto wrappedCallback =
         [ =, callback = std::move(callback) ](const std::error_code &ec) mutable
     {
-        if (ec && retries > 0) {
-            LOG_DBG(2) << "Sending message - remaining retry count: "
-                       << retries;
+        if (ec && (ec.value() != ETIMEDOUT) && retries > 0) {
+            LOG(WARNING) << "Resending message due to error (" << ec.message()
+                         << ") - remaining retry count: " << retries;
             send(std::move(message), std::move(callback), retries - 1);
         }
         else {
