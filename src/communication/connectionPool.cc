@@ -34,11 +34,12 @@ namespace communication {
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const std::size_t /*workersNumber*/, std::string host, const uint16_t port,
     const bool verifyServerCertificate, const bool clprotoUpgrade,
-    const bool clprotoHandshake)
+    const bool clprotoHandshake, const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
+    , m_providerTimeout{providerTimeout}
     , m_clprotoUpgrade{clprotoUpgrade}
     , m_clprotoHandshake{clprotoHandshake}
     , m_connected{false}
@@ -194,8 +195,7 @@ void ConnectionPool::send(
 
     CLProtoClientBootstrap *client = nullptr;
     try {
-        LOG_DBG(3) << "Waiting for idle connection to become available";
-
+        const auto sendStart = std::chrono::system_clock::now();
         while ((client == nullptr) || !client->connected()) {
             if (!m_connected) {
                 LOG_DBG(1)
@@ -208,7 +208,21 @@ void ConnectionPool::send(
                 return;
             }
 
-            m_idleConnections.pop(client);
+            if (!m_idleConnections.try_pop(client)) {
+                LOG_DBG(3) << "Waiting for idle connection to become available";
+
+                using namespace std::chrono_literals;
+                std::this_thread::sleep_for(1s);
+
+                if (std::chrono::system_clock::now() - sendStart >
+                    m_providerTimeout) {
+                    folly::via(folly::getCPUExecutor().get(), [callback] {
+                        callback(std::make_error_code(std::errc::timed_out));
+                    });
+                    return;
+                }
+                continue;
+            }
 
             // If the client connection failed, try to reconnect
             // asynchronously
@@ -233,6 +247,17 @@ void ConnectionPool::send(
         // We have aborted the wait by calling stop()
         LOG_DBG(2) << "Waiting for connection from connection pool aborted";
         callback(std::make_error_code(std::errc::connection_aborted));
+        return;
+    }
+    catch (const std::system_error &e) {
+        LOG(ERROR) << "Failed sending messages due to: " << e.what();
+        callback(e.code());
+        return;
+    }
+    catch (...) {
+        LOG(ERROR) << "Failed sending messages due to unknown connection error";
+        callback(
+            std::make_error_code(std::errc::resource_unavailable_try_again));
         return;
     }
 

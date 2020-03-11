@@ -290,11 +290,19 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         return;
     }
 
-    auto iov = op.buf.front()->getIov();
+    auto iobuf = op.buf.empty() ? folly::IOBuf::create(0) : op.buf.move();
+    if (iobuf->isChained()) {
+        LOG_DBG(2) << "Coalescing chained buffer at offset " << op.offset
+                   << " of size: " << iobuf->length();
+        iobuf->unshare();
+        iobuf->coalesce();
+    }
+
+    auto iov = iobuf->getIov();
     auto iov_size = iov.size();
     auto size = 0;
 
-    LOG_DBG(2) << "Attempting to write " << op.buf.chainLength()
+    LOG_DBG(2) << "Attempting to write " << iobuf->length()
                << " bytes at offset " << op.offset << " to file "
                << handle->m_fileId;
 
@@ -307,7 +315,7 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
             [](int result) { return result != -1; });
 
         if (res == -1) {
-            LOG_DBG(1) << "Writing to file " << handle->m_fileId
+            LOG(ERROR) << "Writing to file " << handle->m_fileId
                        << " failed with error " << errno;
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.write");
             op.promise.setException(makePosixException(errno));
@@ -316,7 +324,8 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         size += res;
     }
 
-    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId;
+    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId
+               << " at offset " << op.offset;
 
     ONE_METRIC_TIMERCTX_STOP(op.timer, size);
 

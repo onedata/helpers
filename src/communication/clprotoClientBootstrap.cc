@@ -57,6 +57,9 @@ void CLProtoClientBootstrap::setEOFCallback(
 folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     const folly::fbstring &host, const int port, size_t reconnectAttempt)
 {
+    reconnectAttempt =
+        std::min<size_t>(CLIENT_RECONNECT_DELAYS.size() - 1, reconnectAttempt);
+
     auto reconnectDelay = CLIENT_RECONNECT_DELAYS.at(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
@@ -230,24 +233,17 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                 })
                 .onError([this, host, port, executor, reconnectAttempt](
                              folly::exception_wrapper ew) {
-                    if (reconnectAttempt == 0u) {
-                        LOG(ERROR) << "Failed connecting to Oneprovider at "
-                                   << host << ":" << port;
-                        ew.throw_exception();
-                    }
-                    else {
-                        LOG_DBG(1) << "Reconnect attempt failed: " << ew.what()
-                                   << ". Retrying...";
+                    LOG_DBG(1) << "Reconnect attempt failed: " << ew.what()
+                               << ". Retrying...";
 
-                        // onError() doesn't keep the executor, so we have to
-                        // wrap it in via
-                        return folly::via(
-                            executor, [this, host, port, reconnectAttempt] {
-                                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-                                return connect(host, port, reconnectAttempt + 1)
-                                    .then([]() { return folly::makeFuture(); });
-                            });
-                    }
+                    // onError() doesn't keep the executor, so we have to
+                    // wrap it in via
+                    return folly::via(
+                        executor, [this, host, port, reconnectAttempt] {
+                            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
+                            return connect(host, port, reconnectAttempt + 1)
+                                .then([]() { return folly::makeFuture(); });
+                        });
                 });
         });
 }
