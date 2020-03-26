@@ -42,7 +42,7 @@ def server(request):
                     test_bucket.objects.filter(Prefix=file_id + '/', Delimiter='/')]
 
     bucket = 'data'
-    result = s3.up('onedata/s3proxy', [bucket], 'storage',
+    result = s3.up('onedata/minio:v1', [bucket], 'storage',
                    common.generate_uid())
     [container] = result['docker_ids']
 
