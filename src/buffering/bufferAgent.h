@@ -138,6 +138,8 @@ public:
         // mechanism in `WriteBuffer` will trigger a clear of the readCache if
         // needed. This might be optimized in the future by modifying readcache
         // on write.
+        LOG(INFO) << "[STORAGE_PERF] " << m_fileId << " - read from buffer ("
+                  << offset << ", " << size << ")";
         return m_writeBuffer->fsync().then(
             [=] { return m_readCache->read(offset, size, continuousSize); });
     }
@@ -146,6 +148,9 @@ public:
         const off_t offset, folly::IOBufQueue buf) override
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+        LOG(INFO) << "[STORAGE_PERF] " << m_fileId
+                  << " - writing block to buffer (" << offset << ", "
+                  << buf.chainLength() << ")";
         return m_writeBuffer->write(offset, std::move(buf));
     }
 

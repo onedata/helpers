@@ -159,7 +159,10 @@ folly::Future<std::size_t> FileHandle::multiwrite(
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);
-
+                LOG(INFO) << "[STORAGE_PERF] " << m_fileId
+                          << " - writing buffered block to storage helper ("
+                          << buf.first << ", " << buf.second.chainLength()
+                          << ")";
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return write(buf.first, std::move(buf.second))
                     .then([wroteSoFar](const std::size_t wrote) {

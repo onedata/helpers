@@ -145,10 +145,16 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
             auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
 
             if (size == 0) {
+                LOG(INFO) << "[STORAGE_PERF] " << m_fileId
+                          << " - modify byte range (" << offset << ", "
+                          << buf.chainLength() << ")";
                 folly::makeFuture<std::size_t>(static_cast<std::size_t>(
                     helper->modifyObject(m_fileId, std::move(buf), offset)));
             }
             else {
+                LOG(INFO) << "[STORAGE_PERF] " << m_fileId
+                          << " - modify byte range (" << offset << ", "
+                          << buf.chainLength() << ")";
                 folly::makeFuture<std::size_t>(static_cast<std::size_t>(
                     helper->modifyObject(m_fileId, std::move(buf), offset)));
             }
@@ -548,6 +554,10 @@ folly::IOBufQueue KeyValueFileHandle::readBlock(
     auto g = folly::makeGuard([&]() mutable { m_locks->erase(acc); });
 
     auto ret = ::readBlock(helper, key, blockOffset, size);
+
+    LOG(INFO) << "[STORAGE_PERF] " << blockId << " - read block ( "
+              << blockOffset << ", " << size << ")";
+
     return ret;
 }
 
@@ -593,10 +603,15 @@ void KeyValueFileHandle::writeBlock(
                 filledBuf.append(std::move(fetchedBuf));
             }
 
+            LOG(INFO) << "[STORAGE_PERF] " << blockId
+                      << " - put object unaligned with storage blockSize - ("
+                      << blockOffset << ", " << buf.chainLength() << ")";
             helper->putObject(key, std::move(filledBuf));
         }
     }
     else {
+        LOG(INFO) << "[STORAGE_PERF] " << blockId
+                  << " - put object aligned with storage blockSize";
         helper->putObject(key, std::move(buf));
     }
 }
