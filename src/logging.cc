@@ -12,12 +12,13 @@
 namespace one {
 namespace logging {
 namespace csv {
-constexpr const char read_write_perf::name[];
-constexpr const char read_write_perf::header[];
-constexpr const char read_write_perf::fmt[];
-}
-}
-}
+constexpr const char read_write_perf::name[];   // NOLINT
+constexpr const char read_write_perf::header[]; // NOLINT
+constexpr const char read_write_perf::fmt[];    // NOLINT
+} // namespace csv
+} // namespace logging
+} // namespace one
+
 std::ostream &operator<<(std::ostream &os, const folly::fbstring &c)
 {
     return os << c;

@@ -16,6 +16,8 @@
 #include <folly/ssl/Init.h>
 #include <spdlog/cfg/argv.h>
 
+#include <array>
+
 namespace one {
 namespace helpers {
 
@@ -31,12 +33,17 @@ void init()
 void startCustomLoggers(
     const std::string &logDirectory, const std::string &logLevels)
 {
-    using namespace one::logging;
+    using one::logging::csv::read_write_perf;
+    using one::logging::csv::register_logger;
+
     // Register object helper performance logger
-    csv::register_logger<csv::read_write_perf>(logDirectory);
+    register_logger<read_write_perf>(logDirectory);
+
+    // Set log levels based on spdlog compatible argv string
     auto spdlog_levels_str = std::string("SPDLOG_LEVEL=" + logLevels);
-    const char *spdlog_argv[] = {"unused", spdlog_levels_str.c_str()};
+    const char *spdlog_argv[] = {"unused", spdlog_levels_str.c_str()}; // NOLINT
     spdlog::cfg::load_argv_levels(2, spdlog_argv);
+
     spdlog::flush_every(std::chrono::seconds(4));
 }
 

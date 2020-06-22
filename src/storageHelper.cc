@@ -160,16 +160,18 @@ folly::Future<std::size_t> FileHandle::multiwrite(
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);
 
-                using namespace one::logging;
+                using one::logging::log_timer;
+                using one::logging::csv::log;
+                using one::logging::csv::read_write_perf;
+
                 log_timer<> timer;
                 auto offset = buf.first;
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return write(offset, std::move(buf.second)).then([
-                    wroteSoFar, offset, size, timer = std::move(timer),
-                    fileId = m_fileId
+                    wroteSoFar, offset, size, timer, fileId = m_fileId
                 ](const std::size_t wrote) mutable {
-                    csv::log<csv::read_write_perf>(fileId, "FileHandle",
-                        "write", offset, size, timer.stop());
+                    log<read_write_perf>(fileId, "FileHandle", "write", offset,
+                        size, timer.stop());
 
                     return wroteSoFar + wrote;
                 });

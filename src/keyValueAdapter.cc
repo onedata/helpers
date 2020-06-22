@@ -89,15 +89,18 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
-    using namespace one::logging;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
     log_timer<> timer;
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(), [
         this, offset, size, locks = m_locks,
         helper = std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
-        timer = std::move(timer), self = shared_from_this()
-    ]() mutable {
+        timer, self = shared_from_this()
+    ]() {
         // In case this is a storage with files stored in single objects,
         // read from an object using it's fileId as name of the object
         // on the storage
@@ -109,8 +112,8 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
             auto res = folly::makeFuture<folly::IOBufQueue>(
                 helper->getObject(m_fileId, offset, size));
 
-            csv::log<csv::read_write_perf>(m_fileId, "KeyValueFileHandle",
-                "read", offset, size, timer.stop());
+            log<read_write_perf>(m_fileId, "KeyValueFileHandle", "read", offset,
+                size, timer.stop());
 
             return res;
         }
@@ -136,7 +139,10 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         if (size == 0 && offset > 0)
             return folly::makeFuture<std::size_t>(0);
 
-        using namespace one::logging;
+        using one::logging::log_timer;
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+
         log_timer<> timer;
 
         // In case this is a storage with files stored in single objects,
@@ -196,10 +202,10 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         }
 
         return folly::collect(writeFutures)
-            .then([ size, offset, fileId = m_fileId, timer = std::move(timer) ](
-                const std::vector<folly::Unit> & /*unused*/) mutable {
-                csv::log<csv::read_write_perf>(fileId, "KeyValueFileHandle",
-                    "write", offset, size, timer.stop());
+            .then([ size, offset, fileId = m_fileId, timer ](
+                const std::vector<folly::Unit> & /*unused*/) {
+                log<read_write_perf>(fileId, "KeyValueFileHandle", "write",
+                    offset, size, timer.stop());
 
                 return size;
             })
@@ -560,13 +566,16 @@ folly::IOBufQueue KeyValueFileHandle::readBlock(
     m_locks->insert(acc, key);
     auto g = folly::makeGuard([&]() mutable { m_locks->erase(acc); });
 
-    using namespace one::logging;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
     log_timer<> timer;
 
     auto ret = ::readBlock(helper, key, blockOffset, size);
 
-    csv::log<csv::read_write_perf>(key.toStdString(), "KeyValueFileHandle",
-        "read", blockOffset, size, timer.stop());
+    log<read_write_perf>(key.toStdString(), "KeyValueFileHandle", "read",
+        blockOffset, size, timer.stop());
 
     return ret;
 }
@@ -613,24 +622,31 @@ void KeyValueFileHandle::writeBlock(
                 filledBuf.append(std::move(fetchedBuf));
             }
 
-            using namespace one::logging;
+            using one::logging::csv::log;
+            using one::logging::csv::read_write_perf;
+            using one::logging::log_timer;
+
             log_timer<> timer;
 
+            auto filledSize = filledBuf.chainLength();
             helper->putObject(key, std::move(filledBuf));
 
-            csv::log<csv::read_write_perf>(key.toStdString(),
-                "KeyValueFileHandle", "write", blockOffset, buf.chainLength(),
-                timer.stop());
+            log<read_write_perf>(key.toStdString(), "KeyValueFileHandle",
+                "write", blockOffset, filledSize, timer.stop());
         }
     }
     else {
-        using namespace one::logging;
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
         log_timer<> timer;
 
+        auto size = buf.chainLength();
         helper->putObject(key, std::move(buf));
 
-        csv::log<csv::read_write_perf>(key.toStdString(), "KeyValueFileHandle",
-            "write", blockOffset, buf.chainLength());
+        log<read_write_perf>(key.toStdString(), "KeyValueFileHandle", "write",
+            blockOffset, size);
     }
 }
 

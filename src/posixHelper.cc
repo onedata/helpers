@@ -232,7 +232,10 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
         return;
     }
 
-    using namespace one::logging;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
     log_timer<> logTimer;
 
     auto handle = m_handle.lock();
@@ -262,8 +265,8 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
 
     buf.postallocate(res);
 
-    csv::log<csv::read_write_perf>(handle->m_fileId, "PosixHelper", "read",
-        op.offset, op.size, logTimer.stop());
+    log<read_write_perf>(handle->m_fileId, "PosixHelper", "read", op.offset,
+        op.size, logTimer.stop());
 
     LOG_DBG(2) << "Read " << res << " bytes from file " << handle->m_fileId;
 
@@ -279,7 +282,10 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         return;
     }
 
-    using namespace one::logging;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
     log_timer<> logTimer;
 
     auto handle = m_handle.lock();
@@ -333,8 +339,8 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         size += res;
     }
 
-    csv::log<csv::read_write_perf>(handle->m_fileId, "PosixHelper", "write",
-        op.offset, size, logTimer.stop());
+    log<read_write_perf>(handle->m_fileId, "PosixHelper", "write", op.offset,
+        size, logTimer.stop());
 
     LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId
                << " at offset " << op.offset;

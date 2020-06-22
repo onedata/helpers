@@ -89,7 +89,10 @@ folly::IOBufQueue CephRadosHelper::getObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
-    using namespace one::logging;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
     log_timer<> logTimer;
 
     connect();
@@ -126,7 +129,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
     std::memcpy(raw, data.c_str(), static_cast<std::size_t>(ret));
     buf.postallocate(static_cast<std::size_t>(ret));
 
-    csv::log<csv::read_write_perf>(
+    log<read_write_perf>(
         key, "CephRadosHelper", "getObject", offset, size, logTimer.stop());
 
     LOG_DBG(2) << "Read " << ret << " bytes from object " << key;
@@ -142,7 +145,10 @@ std::size_t CephRadosHelper::putObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength())
                 << LOG_FARG(offset);
 
-    using namespace one::logging;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
     log_timer<> logTimer;
 
     connect();
@@ -170,7 +176,7 @@ std::size_t CephRadosHelper::putObject(
 
     throwOnError("PutObject", ret);
 
-    csv::log<csv::read_write_perf>(
+    log<read_write_perf>(
         key, "CephRadosHelper", "putObject", offset, size, logTimer.stop());
 
     LOG_DBG(2) << "Written " << size << " bytes to object " << key;

@@ -273,14 +273,16 @@ template <typename Clock = std::chrono::steady_clock> struct log_timer {
     {
     }
 
-    auto stop()
+    auto stop() const
     {
-        using namespace std::chrono;
+        using std::chrono::duration_cast;
+        using std::chrono::microseconds;
+
         return duration_cast<microseconds>(Clock::now() - startTimePoint)
             .count();
     }
 
-    std::chrono::time_point<Clock> startTimePoint;
+    const std::chrono::time_point<Clock> startTimePoint;
 };
 
 namespace csv {
