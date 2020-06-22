@@ -22,4 +22,3 @@ std::ostream &operator<<(std::ostream &os, const folly::fbstring &c)
 {
     return os << c;
 }
-

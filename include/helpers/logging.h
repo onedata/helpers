@@ -315,4 +315,3 @@ template <typename Tag, typename... Arg> void log(const Arg &... args)
 } // namespace csv
 } // namespace logging
 } // namespace one
-

@@ -207,11 +207,12 @@ private:
         m_cache.emplace_back(
             std::make_shared<ReadData>(offset, size, isPrefetch));
         m_handle.read(offset, size)
-            .then([readData = m_cache.back(), timer = std::move(timer), offset,
-                      size, fileId = m_handle.fileId()](
-                      folly::IOBufQueue buf) mutable {
-                csv::log<csv::read_write_perf>(fileId, "ReadCache",
-                    "prefetch", offset, size, timer.stop());
+            .then([
+                readData = m_cache.back(), timer = std::move(timer), offset,
+                size, fileId = m_handle.fileId()
+            ](folly::IOBufQueue buf) mutable {
+                csv::log<csv::read_write_perf>(fileId, "ReadCache", "prefetch",
+                    offset, size, timer.stop());
 
                 readData->size = buf.chainLength();
                 readData->buf = std::move(buf);
@@ -257,11 +258,10 @@ private:
 
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([=, s = weak_from_this(),
-                                                      fileId =
-                                                          m_handle.fileId(),
-                                                      timer = std::move(
-                                                          timer)]() mutable {
+        return readData->promise.getFuture().then([
+            =, s = weak_from_this(), fileId = m_handle.fileId(),
+            timer = std::move(timer)
+        ]() mutable {
             folly::call_once(readData->measureLatencyFlag, [&] {
                 if (auto self = s.lock()) {
                     const auto latency =
@@ -277,8 +277,8 @@ private:
                     LOG_DBG(2) << "Adjusted average read latency for " << fileId
                                << " to " << m_latency << " ns";
 
-                    csv::log<csv::read_write_perf>(fileId, "ReadCache",
-                        "read", offset, size, timer.stop());
+                    csv::log<csv::read_write_perf>(fileId, "ReadCache", "read",
+                        offset, size, timer.stop());
                 }
             });
 
