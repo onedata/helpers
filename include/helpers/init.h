@@ -22,6 +22,12 @@ namespace helpers {
 void init(void);
 
 /**
+ * Start custom loggers.
+ */
+void startCustomLoggers(
+    const std::string &logDirectory, const std::string &logLevels);
+
+/**
  * Initialize the monitoring configuration
  *
  * @param conf Monitoring configuration necessary to setup Graphite

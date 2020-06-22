@@ -138,8 +138,6 @@ public:
         // mechanism in `WriteBuffer` will trigger a clear of the readCache if
         // needed. This might be optimized in the future by modifying readcache
         // on write.
-        LOG(INFO) << "[STORAGE_PERF] " << m_fileId << " - read from buffer ("
-                  << offset << ", " << size << ")";
         return m_writeBuffer->fsync().then(
             [=] { return m_readCache->read(offset, size, continuousSize); });
     }
@@ -148,9 +146,7 @@ public:
         const off_t offset, folly::IOBufQueue buf) override
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
-        LOG(INFO) << "[STORAGE_PERF] " << m_fileId
-                  << " - writing block to buffer (" << offset << ", "
-                  << buf.chainLength() << ")";
+
         return m_writeBuffer->write(offset, std::move(buf));
     }
 
@@ -158,18 +154,18 @@ public:
     {
         LOG_FCALL() << LOG_FARG(isDataSync);
 
-        return m_writeBuffer->fsync().then([
-            readCache = m_readCache, wrappedHandle = m_wrappedHandle, isDataSync
-        ] {
-            readCache->clear();
-            return wrappedHandle->fsync(isDataSync);
-        });
+        return m_writeBuffer->fsync().then(
+            [readCache = m_readCache, wrappedHandle = m_wrappedHandle,
+                isDataSync] {
+                readCache->clear();
+                return wrappedHandle->fsync(isDataSync);
+            });
     }
 
     folly::Future<folly::Unit> flush() override
     {
         return m_writeBuffer->fsync().then(
-            [ readCache = m_readCache, wrappedHandle = m_wrappedHandle ] {
+            [readCache = m_readCache, wrappedHandle = m_wrappedHandle] {
                 readCache->clear();
                 return wrappedHandle->flush();
             });
@@ -245,26 +241,27 @@ public:
         LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(flags)
                     << LOG_FARGM(params);
 
-        return m_helper->open(fileId, flags, params).then([
-            fileId, agent = shared_from_this(), bl = m_bufferLimits,
-            memoryLimitGuard = m_bufferMemoryLimitGuard,
-            &scheduler = m_scheduler
-        ](FileHandlePtr handle) {
-            if (memoryLimitGuard->reserveBuffers(
-                    bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
-                return static_cast<FileHandlePtr>(
-                    std::make_shared<BufferedFileHandle>(std::move(fileId),
-                        std::move(handle), bl, scheduler, std::move(agent),
-                        memoryLimitGuard));
-            }
+        return m_helper->open(fileId, flags, params)
+            .then(
+                [fileId, agent = shared_from_this(), bl = m_bufferLimits,
+                    memoryLimitGuard = m_bufferMemoryLimitGuard,
+                    &scheduler = m_scheduler](FileHandlePtr handle) {
+                    if (memoryLimitGuard->reserveBuffers(
+                            bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
+                        return static_cast<FileHandlePtr>(
+                            std::make_shared<BufferedFileHandle>(
+                                std::move(fileId), std::move(handle), bl,
+                                scheduler, std::move(agent), memoryLimitGuard));
+                    }
 
-            LOG_DBG(1) << "Couldn't create buffered file handle for file "
-                       << fileId
-                       << " due to exhausted overall buffer limit by already "
-                          "opened files.";
+                    LOG_DBG(1)
+                        << "Couldn't create buffered file handle for file "
+                        << fileId
+                        << " due to exhausted overall buffer limit by already "
+                           "opened files.";
 
-            return handle;
-        });
+                    return handle;
+                });
     }
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override

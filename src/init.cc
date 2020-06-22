@@ -14,6 +14,7 @@
 #include "monitoring/monitoringConfiguration.h"
 #include <folly/Singleton.h>
 #include <folly/ssl/Init.h>
+#include <spdlog/cfg/argv.h>
 
 namespace one {
 namespace helpers {
@@ -25,6 +26,18 @@ void init()
     folly::SingletonVault::singleton()->registrationComplete();
 
     folly::ssl::init();
+}
+
+void startCustomLoggers(
+    const std::string &logDirectory, const std::string &logLevels)
+{
+    using namespace one::logging;
+    // Register object helper performance logger
+    csv::register_logger<csv::read_write_perf>(logDirectory);
+    auto spdlog_levels_str = std::string("SPDLOG_LEVEL=" + logLevels);
+    const char *spdlog_argv[] = {"unused", spdlog_levels_str.c_str()};
+    spdlog::cfg::load_argv_levels(2, spdlog_argv);
+    spdlog::flush_every(std::chrono::seconds(4));
 }
 
 void configureMonitoring(

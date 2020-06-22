@@ -64,11 +64,11 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
     if (reconnectAttempt == 0u) {
-        LOG_DBG(1) << "Creating new connection with id " << connectionId()
-                   << " to " << host.toStdString() << ":" << port;
+        LOG(INFO) << "Creating new connection with id " << connectionId()
+                  << "to " << host << ":" << port;
     }
     else {
-        LOG_DBG(1) << "Reconnecting connection with id " << connectionId()
+        LOG(INFO) << "Reconnecting connection with id " << connectionId()
                    << " to " << host.toStdString() << ":" << port << " in "
                    << reconnectDelay << " ms. Attempt: " << reconnectAttempt;
     }
@@ -101,9 +101,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
             // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
                 address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
-                .then([
-                    this, addressStr = address.describe(), host, port, executor
-                ](CLProtoPipeline * pipeline) {
+                .then([this, addressStr = address.describe(), host, port,
+                          executor](CLProtoPipeline *pipeline) {
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
@@ -233,7 +232,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                 })
                 .onError([this, host, port, executor, reconnectAttempt](
                              folly::exception_wrapper ew) {
-                    LOG_DBG(1) << "Reconnect attempt failed: " << ew.what()
+                    LOG(INFO) << "Reconnect attempt failed: " << ew.what()
                                << ". Retrying...";
 
                     // onError() doesn't keep the executor, so we have to

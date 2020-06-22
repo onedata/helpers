@@ -146,21 +146,22 @@ private:
         auto confirmationPromise =
             std::make_shared<folly::Promise<folly::Unit>>();
 
+        using namespace one::logging;
+        log_timer<> timer;
+
         m_writeFuture =
             m_writeFuture
-                .then([
-                    s = std::weak_ptr<WriteBuffer>(shared_from_this()),
-                    buffers = std::move(buffers)
-                ]() mutable {
+                .then([s = std::weak_ptr<WriteBuffer>(shared_from_this()),
+                          buffers = std::move(buffers)]() mutable {
                     if (auto self = s.lock())
                         return self->m_handle.multiwrite(std::move(buffers));
                     return folly::makeFuture<std::size_t>(std::system_error{
                         std::make_error_code(std::errc::owner_dead)});
                 })
-                .then([
-                    startPoint, sentSize,
-                    s = std::weak_ptr<WriteBuffer>(shared_from_this())
-                ](std::size_t) {
+                .then([startPoint, sentSize, fileId = m_handle.fileId(),
+                          timer = std::move(timer),
+                          s = std::weak_ptr<WriteBuffer>(shared_from_this())](
+                          std::size_t) mutable {
                     auto self = s.lock();
                     if (!self)
                         return;
@@ -176,6 +177,9 @@ private:
                     }
 
                     self->m_readCache->clear();
+
+                    csv::log<csv::read_write_perf>(fileId, "WriteBuffer",
+                        "pushBuffers", "-", sentSize, timer.stop());
                 })
                 .then(
                     [confirmationPromise] { confirmationPromise->setValue(); })
