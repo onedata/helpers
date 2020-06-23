@@ -22,10 +22,9 @@ namespace helpers {
 void init(void);
 
 /**
- * Start custom loggers.
+ * Start read/write perf logger.
  */
-void startCustomLoggers(
-    const std::string &logDirectory, const std::string &logLevels);
+void startReadWritePerfLogger(const std::string &logDirectory);
 
 /**
  * Initialize the monitoring configuration

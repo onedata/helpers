@@ -30,20 +30,16 @@ void init()
     folly::ssl::init();
 }
 
-void startCustomLoggers(
-    const std::string &logDirectory, const std::string &logLevels)
+void startReadWritePerfLogger(const std::string &logDirectory)
 {
     using one::logging::csv::read_write_perf;
     using one::logging::csv::register_logger;
 
     // Register object helper performance logger
     register_logger<read_write_perf>(logDirectory);
+    spdlog::get("read_write_perf")->set_level(spdlog::level::info);
 
     // Set log levels based on spdlog compatible argv string
-    auto spdlog_levels_str = std::string("SPDLOG_LEVEL=" + logLevels);
-    const char *spdlog_argv[] = {"unused", spdlog_levels_str.c_str()}; // NOLINT
-    spdlog::cfg::load_argv_levels(2, spdlog_argv);
-
     spdlog::flush_every(std::chrono::seconds(4));
 }
 
