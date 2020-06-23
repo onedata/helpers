@@ -281,9 +281,6 @@ private:
 
                     LOG_DBG(2) << "Adjusted average read latency for " << fileId
                                << " to " << m_latency << " ns";
-
-                    log<read_write_perf>(fileId, "ReadCache", "read", offset,
-                        size, timer.stop());
                 }
             });
 
@@ -312,6 +309,9 @@ private:
                            << buf.chainLength() - size;
                 buf.trimEnd(buf.chainLength() - size);
             }
+
+            log<read_write_perf>(
+                fileId, "ReadCache", "read", offset, size, timer.stop());
 
             return buf;
         });

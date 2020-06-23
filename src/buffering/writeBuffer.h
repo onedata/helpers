@@ -78,6 +78,12 @@ public:
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
+        log_timer<> timer;
+
         std::unique_lock<FiberMutex> lock{m_mutex};
 
         m_cancelFlushSchedule();
@@ -97,8 +103,17 @@ public:
             // We're always returning "everything" on success, so provider has
             // to try to save everything and return an error if not successful.
             pushBuffer();
-            return confirmOverThreshold().then([size] { return size; });
+
+            return confirmOverThreshold().then(
+                [ fileId = m_handle.fileId(), size, offset, timer ] {
+                    log<read_write_perf>(fileId, "WriteBuffer", "write", offset,
+                        size, timer.stop());
+                    return size;
+                });
         }
+
+        log<read_write_perf>(m_handle.fileId(), "WriteBuffer", "write", offset,
+            size, timer.stop());
 
         return folly::makeFuture(size);
     }
