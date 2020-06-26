@@ -142,9 +142,11 @@ folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
     LOG_FCALL() << LOG_FARG(hostname);
 
     folly::fbvector<folly::fbstring> regions{"us-east-2", "us-east-1",
-        "us-west-1", "us-west-2", "ca-central-1", "ap-south-1",
-        "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
-        "eu-central-1", "eu-west-1", "eu-west-2", "sa-east-1"};
+        "us-west-1", "us-west-2", "af-south-1", "ap-east-1", "ap-south-1",
+        "ap-northeast-3", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2",
+        "ap-northeast-1", "ca-central-1", "cn-north-1", "cn-northwest-1",
+        "eu-central-1", "eu-west-1", "eu-west-2", "eu-south-1", "eu-west-3",
+        "eu-north-1", "me-south-1", "sa-east-1"};
 
     LOG_DBG(1) << "Attempting to determine S3 region based on hostname: "
                << hostname;
@@ -512,9 +514,8 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     return attr;
 }
 
-folly::fbvector<folly::fbstring> S3Helper::listObjects(
-    const folly::fbstring &prefix, const folly::fbstring &marker,
-    const off_t /*offset*/, const size_t size)
+ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
+    const folly::fbstring &marker, const off_t /*offset*/, const size_t size)
 {
     LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(size);
 
@@ -554,7 +555,7 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
         throwOnError("ListObject", outcome);
     }
 
-    folly::fbvector<folly::fbstring> result;
+    ListObjectsResult result;
 
     LOG_DBG(2) << "Received " << outcome.GetResult().GetContents().size()
                << " object keys";
@@ -564,10 +565,26 @@ folly::fbvector<folly::fbstring> S3Helper::listObjects(
         if (object.GetKey().empty())
             continue;
 
+        folly::fbstring name{object.GetKey().c_str()};
+
         if (object.GetKey().front() != '/')
-            result.emplace_back(folly::fbstring("/") + object.GetKey().c_str());
-        else
-            result.emplace_back(object.GetKey().c_str());
+            name = "/" + name;
+
+        struct stat attr {
+        };
+        attr.st_mode = S_IFREG;
+        attr.st_size = object.GetSize();
+        attr.st_mode = S_IFREG | m_fileMode;
+        attr.st_mtim.tv_sec =
+            std::chrono::time_point_cast<std::chrono::seconds>(
+                object.GetLastModified().UnderlyingTimestamp())
+                .time_since_epoch()
+                .count();
+        attr.st_mtim.tv_nsec = 0;
+        attr.st_ctim = attr.st_mtim;
+        attr.st_atim = attr.st_mtim;
+
+        result.emplace_back(std::move(name), std::move(attr));
     }
 
     return result;

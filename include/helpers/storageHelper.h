@@ -43,6 +43,9 @@
 namespace one {
 namespace helpers {
 
+using ListObjectsResult =
+    folly::fbvector<std::tuple<folly::fbstring, struct stat>>;
+
 #if WITH_CEPH
 constexpr auto CEPH_HELPER_NAME = "ceph";
 constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
@@ -567,13 +570,12 @@ public:
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) = 0;
 
-    virtual folly::Future<folly::fbvector<folly::fbstring>> listobjects(
+    virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
         const off_t offset, const size_t count)
     {
-        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
-            std::system_error{
-                std::make_error_code(std::errc::function_not_supported)});
+        return folly::makeFuture<ListObjectsResult>(std::system_error{
+            std::make_error_code(std::errc::function_not_supported)});
     }
 
     virtual folly::Future<folly::fbstring> getxattr(

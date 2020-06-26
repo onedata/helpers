@@ -139,7 +139,7 @@ public:
 
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 
-    folly::fbvector<folly::fbstring> listObjects(const folly::fbstring &prefix,
+    ListObjectsResult listObjects(const folly::fbstring &prefix,
         const folly::fbstring &marker, const off_t offset,
         const size_t size) override;
 

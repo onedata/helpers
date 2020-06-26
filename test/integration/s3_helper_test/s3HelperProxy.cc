@@ -29,6 +29,35 @@
 using namespace boost::python;
 using namespace one::helpers;
 
+struct Stat {
+    time_t atime;
+    time_t mtime;
+    time_t ctime;
+    int gid;
+    int uid;
+    int mode;
+    size_t size;
+
+    static Stat fromStat(const struct stat &attr)
+    {
+        Stat res;
+        res.size = attr.st_size;
+        res.atime = attr.st_atim.tv_sec;
+        res.mtime = attr.st_mtim.tv_sec;
+        res.ctime = attr.st_ctim.tv_sec;
+        res.gid = attr.st_gid;
+        res.uid = attr.st_uid;
+        res.mode = attr.st_mode;
+
+        return res;
+    }
+
+    bool operator==(const Stat &o) const
+    {
+        return atime == o.atime && mtime == o.mtime && ctime == o.ctime &&
+            gid == o.gid && uid == o.uid && mode == o.mode && size == o.size;
+    }
+};
 using ReadDirResult = std::vector<std::string>;
 
 class ReleaseGIL {
@@ -81,10 +110,12 @@ public:
         m_helper->access(fileId, {}).get();
     }
 
-    struct stat getattr(std::string fileId)
+    Stat getattr(std::string fileId)
     {
         ReleaseGIL guard;
-        return m_helper->getattr(fileId).get();
+        auto attr = m_helper->getattr(fileId).get();
+
+        return Stat::fromStat(attr);
     }
 
     void mknod(std::string fileId, mode_t mode, std::vector<Flag> flags)
@@ -103,10 +134,10 @@ public:
     ReadDirResult listobjects(std::string fileId, std::string marker, int count)
     {
         ReleaseGIL guard;
-        std::vector<std::string> res;
+        ReadDirResult res;
         for (auto &direntry :
             m_helper->listobjects(fileId, marker, 0, count).get()) {
-            res.emplace_back(direntry.toStdString());
+            res.emplace_back(std::get<0>(direntry).toStdString());
         }
         return res;
     }
@@ -168,6 +199,19 @@ boost::shared_ptr<S3HelperProxy> create(std::string scheme,
 
 BOOST_PYTHON_MODULE(s3_helper)
 {
+    class_<ReadDirResult>("ReadDirResult")
+        .def(vector_indexing_suite<ReadDirResult>());
+
+    class_<Stat>("Stat")
+        .def_readwrite("st_atime", &Stat::atime)
+        .def_readwrite("st_mtime", &Stat::mtime)
+        .def_readwrite("st_ctime", &Stat::ctime)
+        .def_readwrite("st_gid", &Stat::gid)
+        .def_readwrite("st_uid", &Stat::uid)
+        .def_readwrite("st_mode", &Stat::mode)
+        .def_readwrite("st_size", &Stat::size)
+        .def("__eq__", &Stat::operator==);
+
     class_<S3HelperProxy, boost::noncopyable>("S3HelperProxy", no_init)
         .def("__init__", make_constructor(create))
         .def("access", &S3HelperProxy::access)

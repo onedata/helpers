@@ -139,7 +139,7 @@ public:
         return folly::makeFuture();
     }
 
-    virtual folly::Future<folly::fbvector<folly::fbstring>> listobjects(
+    virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
         const off_t offset, const size_t count) override;
 

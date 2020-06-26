@@ -19,7 +19,7 @@ BLOCK_SIZE = 1024
 
 def to_python_list(listobjects_result):
     r = [e for e in listobjects_result]
-    r.sort()
+    r.sort(key=lambda x: x[0])
     return r
 
 
@@ -231,8 +231,8 @@ def test_listobjects_should_handle_subdirectories(helper):
     result = []
 
     # Listing empty prefix should return empty result
-    dirs = to_python_list(helper.listobjects('dir1', '', 100))
-    assert dirs == []
+    objects = to_python_list(helper.listobjects('dir1', '', 100))
+    assert objects == []
 
     for file in files:
         helper.write('/'+dir1+'/'+dir2+'/'+file, random_str(), 0)
@@ -243,20 +243,21 @@ def test_listobjects_should_handle_subdirectories(helper):
         result.append('/'+dir1+'/'+file)
 
     # List objects from root should include leading '/'
-    dirs = to_python_list(helper.listobjects('', '', 100))
+    # objects is a list of tuples (path, stat)
+    objects = to_python_list(helper.listobjects('', '', 100))
 
-    assert len(dirs) > 0
+    assert len(objects) > 0
 
-    for d in dirs:
-        assert d[0] == '/'
+    for o in objects:
+        assert o[0] == '/'
 
-    dirs = to_python_list(helper.listobjects('/', '', 100))
-    for d in dirs:
-        assert d[0] == '/'
+    objects = to_python_list(helper.listobjects('/', '', 100))
+    for o in objects:
+        assert o[0] == '/'
 
     # List only objects starting with 'dir1/dir2' prefix
-    dirs = to_python_list(helper.listobjects('dir1/dir2', '', 100))
-    assert dirs == ['/dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
+    objects = to_python_list(helper.listobjects('dir1/dir2', '', 100))
+    assert objects == ['/dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
 
     # Check that the same results are returned for paths with and without
     # forward slash
@@ -264,11 +265,11 @@ def test_listobjects_should_handle_subdirectories(helper):
             == to_python_list(helper.listobjects('dir1/dir2', '', 100))
 
     # Make sure that all results are returned for single query
-    dirs = to_python_list(helper.listobjects('dir1', '', 100))
-    assert set(dirs) == set(result)
+    objects = to_python_list(helper.listobjects('dir1', '', 100))
+    assert set(objects) == set(result)
 
     # Make sure that all results are returned in chunks
-    dirs = []
+    objects = []
     marker = ""
     chunk_size = 3
     while True:
@@ -279,7 +280,7 @@ def test_listobjects_should_handle_subdirectories(helper):
 
         marker = chunk[-1]
 
-        dirs.extend(chunk)
+        objects.extend(chunk)
 
 
 def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
