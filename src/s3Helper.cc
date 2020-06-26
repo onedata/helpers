@@ -584,7 +584,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         attr.st_ctim = attr.st_mtim;
         attr.st_atim = attr.st_mtim;
 
-        result.emplace_back(std::move(name), std::move(attr));
+        result.emplace_back(std::move(name), attr);
     }
 
     return result;
