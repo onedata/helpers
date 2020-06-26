@@ -199,9 +199,6 @@ boost::shared_ptr<S3HelperProxy> create(std::string scheme,
 
 BOOST_PYTHON_MODULE(s3_helper)
 {
-    class_<ReadDirResult>("ReadDirResult")
-        .def(vector_indexing_suite<ReadDirResult>());
-
     class_<Stat>("Stat")
         .def_readwrite("st_atime", &Stat::atime)
         .def_readwrite("st_mtime", &Stat::mtime)

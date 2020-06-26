@@ -150,7 +150,14 @@ public:
 private:
     folly::fbstring getRegion(const folly::fbstring &hostname);
 
+    folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
+    folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;
+
     folly::fbstring m_bucket;
+    // Prefix relative to the S3 bucket, which should be used on all requests
+    // This effectively enables syncing of subdirectories within a bucket
+    // or specifying a specific subdirectory of a bucket as space directory
+    folly::fbstring m_prefix;
     std::unique_ptr<Aws::S3::S3Client> m_client;
     Timeout m_timeout;
 

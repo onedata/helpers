@@ -114,7 +114,6 @@ S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
     const mode_t dirMode, const bool useHttps, Timeout timeout)
     : KeyValueHelper{false, maximumCanonicalObjectSize}
-    , m_bucket{std::move(bucketName)}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
     , m_dirMode{dirMode}
@@ -124,6 +123,22 @@ S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
                 << LOG_FARG(useHttps) << LOG_FARG(timeout.count());
 
     static S3HelperApiInit init;
+
+    // Split bucket and prefix
+    std::vector<folly::fbstring> pathComponents;
+    folly::split('/', bucketName, pathComponents, true);
+    if (pathComponents.empty())
+        throw std::invalid_argument("Invalid bucket name.");
+
+    if (pathComponents.size() == 1) {
+        m_bucket = pathComponents[0];
+        m_prefix = "";
+    }
+    else {
+        m_bucket = pathComponents[0];
+        folly::join(
+            '/', ++pathComponents.begin(), pathComponents.end(), m_prefix);
+    }
 
     Aws::Auth::AWSCredentials credentials{accessKey.c_str(), secretKey.c_str()};
 
@@ -163,6 +178,37 @@ folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
     return "us-east-1";
 }
 
+folly::fbstring S3Helper::toEffectiveKey(const folly::fbstring &key) const
+{
+    if (m_prefix.empty())
+        return key;
+
+    if (key[0] == '/')
+        return m_prefix + key;
+
+    return m_prefix + "/" + key;
+}
+
+folly::fbstring S3Helper::fromEffectiveKey(const folly::fbstring &key) const
+{
+    if (m_prefix.empty())
+        return key;
+
+    std::vector<folly::fbstring> prefixComponents;
+    folly::split('/', m_prefix, prefixComponents, true);
+
+    std::vector<folly::fbstring> pathComponents;
+    folly::split('/', key, pathComponents, true);
+
+    auto it = pathComponents.begin();
+    std::advance(it, prefixComponents.size());
+
+    std::string result;
+    folly::join('/', it, pathComponents.end(), result);
+
+    return result;
+}
+
 folly::IOBufQueue S3Helper::getObject(
     const folly::fbstring &key, const off_t offset, const std::size_t size)
 {
@@ -171,6 +217,8 @@ folly::IOBufQueue S3Helper::getObject(
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
     if (size == 0u)
         return buf;
+
+    auto effectiveKey = toEffectiveKey(key);
 
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
@@ -182,7 +230,7 @@ folly::IOBufQueue S3Helper::getObject(
 
     Aws::S3::Model::GetObjectRequest request;
     request.SetBucket(m_bucket.c_str());
-    request.SetKey(key.c_str());
+    request.SetKey(effectiveKey.c_str());
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
     request.SetResponseStreamFactory([ data = data, size ] {
@@ -216,15 +264,15 @@ folly::IOBufQueue S3Helper::getObject(
         if (outcome.GetError().GetExceptionName() == "InvalidRange") {
             auto readBytes = outcome.GetResult().GetContentLength();
             LOG_DBG(1) << "Received InvalidRange error when reading object "
-                       << key << " in range (" << offset << ", "
+                       << effectiveKey << " in range (" << offset << ", "
                        << offset + size
                        << "). Returning buffer of size: " << readBytes;
             buf.postallocate(static_cast<std::size_t>(readBytes));
             return buf;
         }
 
-        LOG_DBG(1) << "Reading from object " << key << " failed with error "
-                   << outcome.GetError().GetMessage();
+        LOG_DBG(1) << "Reading from object " << effectiveKey
+                   << " failed with error " << outcome.GetError().GetMessage();
 
         throwOnError("GetObject", outcome);
     }
@@ -240,7 +288,7 @@ folly::IOBufQueue S3Helper::getObject(
     log<read_write_perf>(
         key, "S3Helper", "getObject", offset, size, logTimer.stop());
 
-    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
+    LOG_DBG(2) << "Read " << readBytes << " bytes from object " << effectiveKey;
 
     ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
 
@@ -253,6 +301,8 @@ std::size_t S3Helper::putObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
 
     assert(offset == 0); // NOLINT
+
+    auto effectiveKey = toEffectiveKey(key);
 
     auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
     if (iobuf->isChained()) {
@@ -271,7 +321,7 @@ std::size_t S3Helper::putObject(
     Aws::S3::Model::PutObjectRequest request;
     auto size = iobuf->length();
     request.SetBucket(m_bucket.c_str());
-    request.SetKey(key.c_str());
+    request.SetKey(effectiveKey.c_str());
     request.SetContentLength(size);
     auto stream = std::make_shared<std::stringstream>();
 #if !defined(__APPLE__)
@@ -284,7 +334,8 @@ std::size_t S3Helper::putObject(
 #endif
     request.SetBody(stream);
 
-    LOG_DBG(2) << "Attempting to write object " << key << " of size " << size;
+    LOG_DBG(2) << "Attempting to write object " << effectiveKey << " of size "
+               << size;
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->PutObject(request);
@@ -299,7 +350,7 @@ std::size_t S3Helper::putObject(
     log<read_write_perf>(
         key, "S3Helper", "putObject", offset, size, logTimer.stop());
 
-    LOG_DBG(2) << "Written " << size << " bytes to object " << key;
+    LOG_DBG(2) << "Written " << size << " bytes to object " << effectiveKey;
 
     return size;
 }
@@ -383,9 +434,11 @@ void S3Helper::deleteObject(const folly::fbstring &key)
 {
     LOG_FCALL() << LOG_FARG(key);
 
+    auto effectiveKey = toEffectiveKey(key);
+
     Aws::S3::Model::DeleteObjectRequest request;
     request.SetBucket(m_bucket.c_str());
-    request.SetKey(key.toStdString());
+    request.SetKey(effectiveKey.toStdString());
 
     auto outcome = retry([&, request = std::move(request) ]() {
         return m_client->DeleteObject(request);
@@ -406,10 +459,12 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
     LOG_FCALL() << LOG_FARG(key);
 
+    auto effectiveKey = toEffectiveKey(key);
+
     struct stat attr = {};
 
     // For the root directory always return the defaults
-    if (key.empty() || key == "/") {
+    if (effectiveKey.empty() || effectiveKey == "/") {
         attr.st_mode = S_IFDIR | m_dirMode;
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
@@ -423,7 +478,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         return attr;
     }
 
-    folly::fbstring normalizedKey = key;
+    folly::fbstring normalizedKey = effectiveKey;
 
     if (normalizedKey.front() == '/')
         normalizedKey.erase(normalizedKey.begin());
@@ -519,7 +574,9 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 {
     LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(size);
 
-    folly::fbstring normalizedPrefix = prefix;
+    auto effectivePrefix = toEffectiveKey(prefix);
+
+    folly::fbstring normalizedPrefix = effectivePrefix;
 
     if (!normalizedPrefix.empty() && normalizedPrefix.back() != '/')
         normalizedPrefix += '/';
@@ -527,7 +584,8 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     if (normalizedPrefix.front() == '/')
         normalizedPrefix.erase(0, 1);
 
-    folly::fbstring normalizedMarker = marker;
+    folly::fbstring normalizedMarker =
+        marker.empty() ? "" : toEffectiveKey(marker);
     if (!normalizedMarker.empty() && normalizedMarker.front() == '/')
         normalizedMarker.erase(0, 1);
 
@@ -550,7 +608,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     auto code = getReturnCode(outcome);
 
     if (code != SUCCESS_CODE) {
-        LOG_DBG(1) << "Listing objects from prefix " << prefix
+        LOG_DBG(1) << "Listing objects from prefix " << normalizedPrefix
                    << " failed with error " << outcome.GetError().GetMessage();
         throwOnError("ListObject", outcome);
     }
@@ -565,7 +623,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         if (object.GetKey().empty())
             continue;
 
-        folly::fbstring name{object.GetKey().c_str()};
+        folly::fbstring name = fromEffectiveKey(object.GetKey().c_str());
 
         if (object.GetKey().front() != '/')
             name = "/" + name;
