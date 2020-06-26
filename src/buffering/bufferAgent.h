@@ -146,6 +146,7 @@ public:
         const off_t offset, folly::IOBufQueue buf) override
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
         return m_writeBuffer->write(offset, std::move(buf));
     }
 

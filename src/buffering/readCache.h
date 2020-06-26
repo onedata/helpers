@@ -201,10 +201,22 @@ private:
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
                     << LOG_FARG(isPrefetch);
 
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
+        log_timer<> timer;
+
         m_cache.emplace_back(
             std::make_shared<ReadData>(offset, size, isPrefetch));
         m_handle.read(offset, size)
-            .then([readData = m_cache.back()](folly::IOBufQueue buf) {
+            .then([
+                readData = m_cache.back(), timer, offset, size,
+                fileId = m_handle.fileId()
+            ](folly::IOBufQueue buf) {
+                log<read_write_perf>(fileId, "ReadCache", "prefetch", offset,
+                    size, timer.stop());
+
                 readData->size = buf.chainLength();
                 readData->buf = std::move(buf);
                 readData->t_ =
@@ -244,9 +256,17 @@ private:
                 }));
 #endif
 
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
+        log_timer<> timer;
+
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([ =, s = weak_from_this() ] {
+        return readData->promise.getFuture().then([
+            =, s = weak_from_this(), fileId = m_handle.fileId()
+        ]() {
             folly::call_once(readData->measureLatencyFlag, [&] {
                 if (auto self = s.lock()) {
                     const auto latency =
@@ -254,15 +274,13 @@ private:
                             std::chrono::steady_clock::now() - startPoint)
                             .count();
 
-                    LOG_DBG(2)
-                        << "Latest measured read latency for "
-                        << m_handle.fileId() << " is " << m_latency << " ns";
+                    LOG_DBG(2) << "Latest measured read latency for " << fileId
+                               << " is " << m_latency << " ns";
 
                     m_latency = (m_latency + 2 * latency) / 3;
 
-                    LOG_DBG(2)
-                        << "Adjusted average read latency for "
-                        << m_handle.fileId() << " to " << m_latency << " ns";
+                    LOG_DBG(2) << "Adjusted average read latency for " << fileId
+                               << " to " << m_latency << " ns";
                 }
             });
 
@@ -291,6 +309,9 @@ private:
                            << buf.chainLength() - size;
                 buf.trimEnd(buf.chainLength() - size);
             }
+
+            log<read_write_perf>(
+                fileId, "ReadCache", "read", offset, size, timer.stop());
 
             return buf;
         });
