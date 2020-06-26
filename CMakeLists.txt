@@ -81,6 +81,10 @@ add_definitions(-DASIO_STANDALONE)
 # Setup cppmetrics
 set(CPPMETRICS_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/cppmetrics)
 
+# Setup spdlog
+add_definitions(-DFMT_HEADER_ONLY=1)
+set(SPDLOG_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/spdlog)
+
 # Utility libs
 find_library(LTDL_LIBRARY ltdl)
 find_library(ZLIB_LIBRARY z)

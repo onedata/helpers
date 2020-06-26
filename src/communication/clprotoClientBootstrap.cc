@@ -64,13 +64,13 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
     if (reconnectAttempt == 0u) {
-        LOG_DBG(1) << "Creating new connection with id " << connectionId()
-                   << " to " << host.toStdString() << ":" << port;
+        LOG(INFO) << "Creating new connection with id " << connectionId()
+                  << "to " << host << ":" << port;
     }
     else {
-        LOG_DBG(1) << "Reconnecting connection with id " << connectionId()
-                   << " to " << host.toStdString() << ":" << port << " in "
-                   << reconnectDelay << " ms. Attempt: " << reconnectAttempt;
+        LOG(INFO) << "Reconnecting connection with id " << connectionId()
+                  << " to " << host.toStdString() << ":" << port << " in "
+                  << reconnectDelay << " ms. Attempt: " << reconnectAttempt;
     }
 
     auto executor = group_.get();
@@ -233,8 +233,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                 })
                 .onError([this, host, port, executor, reconnectAttempt](
                              folly::exception_wrapper ew) {
-                    LOG_DBG(1) << "Reconnect attempt failed: " << ew.what()
-                               << ". Retrying...";
+                    LOG(INFO) << "Reconnect attempt failed: " << ew.what()
+                              << ". Retrying...";
 
                     // onError() doesn't keep the executor, so we have to
                     // wrap it in via

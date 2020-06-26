@@ -232,6 +232,12 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
         return;
     }
 
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
+    log_timer<> logTimer;
+
     auto handle = m_handle.lock();
     if (!handle) {
         op.promise.setException(makePosixException(ECANCELED));
@@ -259,6 +265,9 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
 
     buf.postallocate(res);
 
+    log<read_write_perf>(handle->m_fileId, "PosixHelper", "read", op.offset,
+        op.size, logTimer.stop());
+
     LOG_DBG(2) << "Read " << res << " bytes from file " << handle->m_fileId;
 
     ONE_METRIC_TIMERCTX_STOP(op.timer, res);
@@ -272,6 +281,12 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         op.promise.setException(makePosixException(EDOM));
         return;
     }
+
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
+    log_timer<> logTimer;
 
     auto handle = m_handle.lock();
     if (!handle) {
@@ -323,6 +338,9 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         }
         size += res;
     }
+
+    log<read_write_perf>(handle->m_fileId, "PosixHelper", "write", op.offset,
+        size, logTimer.stop());
 
     LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId
                << " at offset " << op.offset;

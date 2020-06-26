@@ -149,22 +149,32 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     for (auto &buf : buffs) {
-        const auto shouldHaveWrittenAfter =
-            shouldHaveWrittenSoFar + buf.second.chainLength();
+        auto size = buf.second.chainLength();
+        const auto shouldHaveWrittenAfter = shouldHaveWrittenSoFar + size;
 
         // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-        future =
-            future.then([ this, shouldHaveWrittenSoFar, buf = std::move(buf) ](
+        future = future.then(
+            [ this, shouldHaveWrittenSoFar, size, buf = std::move(buf) ](
                 const std::size_t wroteSoFar) mutable {
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);
 
+                using one::logging::log_timer;
+                using one::logging::csv::log;
+                using one::logging::csv::read_write_perf;
+
+                log_timer<> timer;
+                auto offset = buf.first;
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-                return write(buf.first, std::move(buf.second))
-                    .then([wroteSoFar](const std::size_t wrote) {
-                        return wroteSoFar + wrote;
-                    });
+                return write(offset, std::move(buf.second)).then([
+                    wroteSoFar, offset, size, timer, fileId = m_fileId
+                ](const std::size_t wrote) mutable {
+                    log<read_write_perf>(fileId, "FileHandle", "write", offset,
+                        size, timer.stop());
+
+                    return wroteSoFar + wrote;
+                });
             });
 
         shouldHaveWrittenSoFar = shouldHaveWrittenAfter;

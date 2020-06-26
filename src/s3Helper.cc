@@ -170,6 +170,12 @@ folly::IOBufQueue S3Helper::getObject(
     if (size == 0u)
         return buf;
 
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
+    log_timer<> logTimer;
+
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
     Aws::S3::Model::GetObjectRequest request;
@@ -229,6 +235,9 @@ folly::IOBufQueue S3Helper::getObject(
     auto readBytes = outcome.GetResult().GetContentLength();
     buf.postallocate(static_cast<std::size_t>(readBytes));
 
+    log<read_write_perf>(
+        key, "S3Helper", "getObject", offset, size, logTimer.stop());
+
     LOG_DBG(2) << "Read " << readBytes << " bytes from object " << key;
 
     ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
@@ -250,6 +259,12 @@ std::size_t S3Helper::putObject(
     }
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.write");
+
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
+    log_timer<> logTimer;
 
     Aws::S3::Model::PutObjectRequest request;
     auto size = iobuf->length();
@@ -278,6 +293,9 @@ std::size_t S3Helper::putObject(
     ONE_METRIC_TIMERCTX_STOP(timer, size);
 
     throwOnError("PutObject", outcome);
+
+    log<read_write_perf>(
+        key, "S3Helper", "putObject", offset, size, logTimer.stop());
 
     LOG_DBG(2) << "Written " << size << " bytes to object " << key;
 

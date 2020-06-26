@@ -78,6 +78,12 @@ public:
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
+        log_timer<> timer;
+
         std::unique_lock<FiberMutex> lock{m_mutex};
 
         m_cancelFlushSchedule();
@@ -97,8 +103,17 @@ public:
             // We're always returning "everything" on success, so provider has
             // to try to save everything and return an error if not successful.
             pushBuffer();
-            return confirmOverThreshold().then([size] { return size; });
+
+            return confirmOverThreshold().then(
+                [ fileId = m_handle.fileId(), size, offset, timer ] {
+                    log<read_write_perf>(fileId, "WriteBuffer", "write", offset,
+                        size, timer.stop());
+                    return size;
+                });
         }
+
+        log<read_write_perf>(m_handle.fileId(), "WriteBuffer", "write", offset,
+            size, timer.stop());
 
         return folly::makeFuture(size);
     }
@@ -146,6 +161,12 @@ private:
         auto confirmationPromise =
             std::make_shared<folly::Promise<folly::Unit>>();
 
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
+        log_timer<> timer;
+
         m_writeFuture =
             m_writeFuture
                 .then([
@@ -158,7 +179,7 @@ private:
                         std::make_error_code(std::errc::owner_dead)});
                 })
                 .then([
-                    startPoint, sentSize,
+                    startPoint, sentSize, fileId = m_handle.fileId(), timer,
                     s = std::weak_ptr<WriteBuffer>(shared_from_this())
                 ](std::size_t) {
                     auto self = s.lock();
@@ -176,6 +197,9 @@ private:
                     }
 
                     self->m_readCache->clear();
+
+                    log<read_write_perf>(fileId, "WriteBuffer", "pushBuffers",
+                        "-", sentSize, timer.stop());
                 })
                 .then(
                     [confirmationPromise] { confirmationPromise->setValue(); })

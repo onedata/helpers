@@ -19,6 +19,11 @@
 #include <map>
 #include <unordered_map>
 
+#include "spdlog/fmt/ostr.h"
+#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/sinks/rotating_file_sink.h"
+#include "spdlog/spdlog.h"
+
 #pragma once
 
 // clang-format off
@@ -55,7 +60,6 @@
  *     * FLAGS_v = n; - where n determines the verbosity level
  */
 // clang-format on
-
 /**
  * Logs a value in binary format
  */
@@ -99,7 +103,9 @@
  * method body and log the values of main parameters.
  */
 // clang-format off
-#define LOG_FCALL()                                                            \
+#define LOG_TRACE(...) SPDLOG_TRACE(spdlog::get("default"), __VA_ARGS__)
+
+#define LOG_FCALL()                                                             \
     VLOG(3) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: " // NOLINT
 // clang-format on
 
@@ -113,7 +119,7 @@
  * Logs function argument - must be used in 'stream' context and preceded by
  * LOG_FCALL() or VLOG(n).
  */
-#define LOG_FARG(ARG) " " #ARG "=" << ARG
+#define LOG_FARG(ARG) " " #ARG " = " << ARG
 
 /**
  * Log macros for different numeric bases.
@@ -256,3 +262,58 @@ static inline std::string print_stacktrace()
 }
 }
 }
+
+// Definition of custom spdlog based loggers
+namespace one {
+namespace logging {
+
+template <typename Clock = std::chrono::steady_clock> struct log_timer {
+    log_timer()
+        : startTimePoint(Clock::now())
+    {
+    }
+
+    auto stop() const
+    {
+        using std::chrono::duration_cast;
+        using std::chrono::microseconds;
+
+        return duration_cast<microseconds>(Clock::now() - startTimePoint)
+            .count();
+    }
+
+    const std::chrono::time_point<Clock> startTimePoint;
+};
+
+namespace csv {
+
+struct read_write_perf {
+    static constexpr const char name[] = "read_write_perf";
+    static constexpr const char header[] =
+        "Time,File,Class,Operation,Offset,Size,Duration [us]";
+    static constexpr const char fmt[] = "{},{},{},{},{},{}";
+};
+
+template <typename Tag> void register_logger(std::string path)
+{
+    using namespace std::chrono;
+    auto timestamp =
+        duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+            .count();
+    spdlog::basic_logger_mt(Tag::name,
+        path + "/" + Tag::name + "-" + std::to_string(timestamp) + ".csv");
+    spdlog::get(Tag::name)->set_pattern("%v");
+    spdlog::get(Tag::name)->info(Tag::header);
+    spdlog::get(Tag::name)->set_pattern("%H:%M:%S.%f,%v");
+    spdlog::get(Tag::name)->set_level(spdlog::level::off);
+}
+
+template <typename Tag, typename... Arg> void log(const Arg &... args)
+{
+    auto logger = spdlog::get(Tag::name);
+    if (logger)
+        logger->info(Tag::fmt, args...);
+}
+} // namespace csv
+} // namespace logging
+} // namespace one

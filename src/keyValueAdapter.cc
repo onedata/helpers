@@ -89,12 +89,18 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
+    log_timer<> timer;
+
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(), [
         this, offset, size, locks = m_locks,
         helper = std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
-        self = shared_from_this()
-    ] {
+        timer, self = shared_from_this()
+    ]() {
         // In case this is a storage with files stored in single objects,
         // read from an object using it's fileId as name of the object
         // on the storage
@@ -105,6 +111,9 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 
             auto res = folly::makeFuture<folly::IOBufQueue>(
                 helper->getObject(m_fileId, offset, size));
+
+            log<read_write_perf>(m_fileId, "KeyValueFileHandle", "read", offset,
+                size, timer.stop());
 
             return res;
         }
@@ -129,6 +138,12 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         const auto size = buf.chainLength();
         if (size == 0 && offset > 0)
             return folly::makeFuture<std::size_t>(0);
+
+        using one::logging::log_timer;
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+
+        log_timer<> timer;
 
         // In case this is a storage with files stored in single objects,
         // try to modify the contents in place
@@ -187,7 +202,11 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         }
 
         return folly::collect(writeFutures)
-            .then([size](const std::vector<folly::Unit> & /*unused*/) {
+            .then([ size, offset, fileId = m_fileId, timer ](
+                const std::vector<folly::Unit> & /*unused*/) {
+                log<read_write_perf>(fileId, "KeyValueFileHandle", "write",
+                    offset, size, timer.stop());
+
                 return size;
             })
             .then([](folly::Try<std::size_t> t) {
@@ -547,7 +566,17 @@ folly::IOBufQueue KeyValueFileHandle::readBlock(
     m_locks->insert(acc, key);
     auto g = folly::makeGuard([&]() mutable { m_locks->erase(acc); });
 
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+    using one::logging::log_timer;
+
+    log_timer<> timer;
+
     auto ret = ::readBlock(helper, key, blockOffset, size);
+
+    log<read_write_perf>(key.toStdString(), "KeyValueFileHandle", "read",
+        blockOffset, size, timer.stop());
+
     return ret;
 }
 
@@ -593,11 +622,31 @@ void KeyValueFileHandle::writeBlock(
                 filledBuf.append(std::move(fetchedBuf));
             }
 
+            using one::logging::csv::log;
+            using one::logging::csv::read_write_perf;
+            using one::logging::log_timer;
+
+            log_timer<> timer;
+
+            auto filledSize = filledBuf.chainLength();
             helper->putObject(key, std::move(filledBuf));
+
+            log<read_write_perf>(key.toStdString(), "KeyValueFileHandle",
+                "write", blockOffset, filledSize, timer.stop());
         }
     }
     else {
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+        using one::logging::log_timer;
+
+        log_timer<> timer;
+
+        auto size = buf.chainLength();
         helper->putObject(key, std::move(buf));
+
+        log<read_write_perf>(key.toStdString(), "KeyValueFileHandle", "write",
+            blockOffset, size);
     }
 }
 
