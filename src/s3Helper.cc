@@ -626,10 +626,6 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         if (object.GetKey().empty())
             continue;
 
-        // Skip directories
-        if (object.GetKey().back() == '/')
-            continue;
-
         folly::fbstring name = fromEffectiveKey(object.GetKey().c_str());
 
         if (object.GetKey().front() != '/')
@@ -637,9 +633,19 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
         struct stat attr {
         };
-        attr.st_mode = S_IFREG;
-        attr.st_size = object.GetSize();
-        attr.st_mode = S_IFREG | m_fileMode;
+        if (object.GetKey().back() == '/') {
+            attr.st_mode = S_IFDIR;
+            attr.st_mode = S_IFDIR | m_dirMode;
+            attr.st_size = 0;
+            name.pop_back();
+            if (name.empty())
+                continue;
+        }
+        else {
+            attr.st_mode = S_IFREG;
+            attr.st_mode = S_IFREG | m_fileMode;
+            attr.st_size = object.GetSize();
+        }
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 object.GetLastModified().UnderlyingTimestamp())
