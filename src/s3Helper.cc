@@ -206,6 +206,9 @@ folly::fbstring S3Helper::fromEffectiveKey(const folly::fbstring &key) const
     std::string result;
     folly::join('/', it, pathComponents.end(), result);
 
+    if (key.back() == '/')
+        result += "/";
+
     return result;
 }
 
@@ -621,6 +624,10 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     // Add regular objects as file entries
     for (auto &object : outcome.GetResult().GetContents()) {
         if (object.GetKey().empty())
+            continue;
+
+        // Skip directories
+        if (object.GetKey().back() == '/')
             continue;
 
         folly::fbstring name = fromEffectiveKey(object.GetKey().c_str());
