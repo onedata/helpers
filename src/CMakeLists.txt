@@ -22,6 +22,14 @@ if(WITH_SWIFT)
 endif(WITH_SWIFT)
 
 #
+# Add XRootD include dir when building with XRootD helper
+#
+if(WITH_XROOTD)
+    list(APPEND HELPERS_SYSTEM_INCLUDE_DIRS ${XROOTD_INCLUDE_DIRS})
+endif(WITH_XROOTD)
+
+
+#
 # Add GlusterFS include dir when building with GlusterFS helper
 #
 if(WITH_GLUSTERFS)
@@ -59,6 +67,11 @@ if(NOT WITH_WEBDAV)
     list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/webDAVHelper.cc)
     list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/webDAVHelperParams.cc)
 endif(NOT WITH_WEBDAV)
+
+if(NOT WITH_XROOTD)
+    list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/xrootdHelper.cc)
+    list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/xrootdHelperParams.cc)
+endif(NOT WITH_XROOTD)
 
 add_library(helpers OBJECT ${HELPER_SOURCES})
 add_dependencies(helpers clproto)

@@ -73,6 +73,11 @@ constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
 constexpr auto WEBDAV_HELPER_NAME = "webdav";
 #endif
 
+#if WITH_XROOTD
+constexpr auto XROOTD_HELPER_NAME = "xrootd";
+#endif
+
+
 namespace {
 constexpr std::chrono::milliseconds ASYNC_OPS_TIMEOUT{120000};
 const std::error_code SUCCESS_CODE{};

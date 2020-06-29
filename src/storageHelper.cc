@@ -11,6 +11,7 @@
 #include "helpers/logging.h"
 #include "posixHelperParams.h"
 #include "webDAVHelperParams.h"
+#include "xrootdHelperParams.h"
 
 #include <folly/futures/Future.h>
 
@@ -93,6 +94,11 @@ std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
 #if WITH_WEBDAV
     if (name == WEBDAV_HELPER_NAME) {
         return WebDAVHelperParams::create(params);
+    }
+#endif
+#if WITH_XROOTD
+    if (name == XROOTD_HELPER_NAME) {
+        return XRootDHelperParams::create(params);
     }
 #endif
 
