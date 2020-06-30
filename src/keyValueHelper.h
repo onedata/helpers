@@ -161,9 +161,8 @@ public:
      *               should be returned.
      * @param size The maximum number of entries which should be returned.
      */
-    virtual folly::fbvector<folly::fbstring> listObjects(
-        const folly::fbstring &key, const folly::fbstring &marker,
-        const off_t offset, const size_t size)
+    virtual ListObjectsResult listObjects(const folly::fbstring &key,
+        const folly::fbstring &marker, const off_t offset, const size_t size)
     {
         throw std::system_error{
             std::make_error_code(std::errc::function_not_supported)};

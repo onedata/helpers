@@ -35,13 +35,14 @@ from posix_test_base import \
 @pytest.fixture(scope='module')
 def server(request):
     class Server(object):
-        def __init__(self, scheme, hostname, bucket, access_key, secret_key):
+        def __init__(self, scheme, hostname, bucket, access_key, secret_key, prefix = ""):
             [ip, port] = hostname.split(':')
             self.scheme = scheme
             self.hostname = hostname
             self.access_key = access_key
             self.secret_key = secret_key
             self.bucket = bucket
+            self.prefix = prefix
             self.s3 = boto3.resource('s3', endpoint_url=scheme+"://"+hostname,
                                 aws_access_key_id = self.access_key,
                                 aws_secret_access_key = self.secret_key)
@@ -49,7 +50,7 @@ def server(request):
         def list(self, file_id):
             test_bucket = self.s3.Bucket(self.bucket)
             return [o.key for o in
-                    test_bucket.objects.filter(Prefix=file_id + '/', Delimiter='/')]
+                    test_bucket.objects.filter(Prefix=os.path.join(self.prefix, file_id) + '/', Delimiter='/')]
 
     bucket = 'data'
     result = s3.up('onedata/minio:v1', [bucket], 'storage',
@@ -67,7 +68,7 @@ def server(request):
 
 @pytest.fixture
 def helper(server):
-    return S3HelperProxy(server.scheme, server.hostname, server.bucket,
+    return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          0)
 

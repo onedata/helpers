@@ -480,7 +480,7 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
         [](auto && /*unused*/) { return folly::makeFuture(); });
 }
 
-folly::Future<folly::fbvector<folly::fbstring>> KeyValueAdapter::listobjects(
+folly::Future<ListObjectsResult> KeyValueAdapter::listobjects(
     const folly::fbstring &prefix, const folly::fbstring &marker,
     const off_t offset, const size_t count)
 {
