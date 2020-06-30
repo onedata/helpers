@@ -35,8 +35,8 @@ public:
      * @param fileId XRootD-specific ID associated with the file.
      * @param helper A pointer to the helper that created the handle.
      */
-    XRootDFileHandle(
-        folly::fbstring fileId, std::shared_ptr<XRootDHelper> helper);
+    XRootDFileHandle(folly::fbstring fileId, std::unique_ptr<XrdCl::File> &&file,
+        std::shared_ptr<XRootDHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
@@ -50,12 +50,16 @@ public:
     folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf, const int retryCount);
 
+    folly::Future<folly::Unit> release() override;
+
+    folly::Future<folly::Unit> fsync(bool isDataSync) override;
+
     const Timeout &timeout() override;
 
 private:
     const folly::fbstring m_fileId;
 
-    XrdCl::File m_file;
+    std::unique_ptr<XrdCl::File> m_file;
 };
 
 /**
@@ -194,6 +198,8 @@ private:
     }
 
     std::shared_ptr<folly::IOExecutor> m_executor;
+
+    XrdCl::FileSystem m_fs;
 };
 
 /**
