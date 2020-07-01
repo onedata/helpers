@@ -309,13 +309,16 @@ folly::Future<folly::Unit> XRootDHelper::access(
             [tf = std::move(tf)]() mutable { return folly::makeFuture(); })
         .onError([fileId, retryCount,
                      s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
-                     const XrdCl::PipelineException & /*unused*/) mutable {
+                     const XrdCl::PipelineException &ex) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-            if (retryCount > 0) {
-                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.read.retries")
+            LOG(ERROR) << "Access of file " << fileId << " failed due to "
+                       << ex.what() << ":" << ex.GetError().code;
+
+            if (retryCount > 0 && shouldRetryError(ex)) {
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.access.retries")
                 return folly::via(self->executor().get())
                     .delayed(retryDelay(retryCount))
                     .then(
@@ -324,7 +327,7 @@ folly::Future<folly::Unit> XRootDHelper::access(
                         });
             }
 
-            return makeFuturePosixException<folly::Unit>(EIO);
+            return makeFuturePosixException<folly::Unit>(ENOENT);
         });
 }
 
@@ -432,9 +435,11 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
             });
         }};
 
-    auto tf = XrdCl::Async(
-        XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(), {}, {}) >>
-        openTask);
+    LOG(ERROR) << "Opening file: " << url().GetURL() + fileId.toStdString();
+    auto tf =
+        XrdCl::Async(XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
+                         XrdCl::OpenFlags::Read | XrdCl::OpenFlags::Write) >>
+            openTask);
 
     return f
         .then(executor().get(),
@@ -449,7 +454,7 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
                 return makeFuturePosixException<FileHandlePtr>(ECANCELED);
 
             LOG(ERROR) << "Open of file " << fileId << " failed due to "
-                       << ex.what();
+                       << ex.what() << ":" << ex.GetError().code;
 
             return makeFuturePosixException<FileHandlePtr>(EIO);
         })
@@ -614,7 +619,49 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     const mode_t mode, const FlagsSet &flags, const dev_t rdev,
     const int retryCount)
 {
-    return folly::makeFuture();
+    auto p = folly::Promise<folly::Unit>();
+    auto f = p.getFuture();
+
+    auto file = std::make_unique<XrdCl::File>(false);
+    auto filePtr = file.get();
+
+    std::packaged_task<void(XrdCl::XRootDStatus & st)> &&openTask{
+        [p = std::move(p), file = std::move(file)](
+            XrdCl::XRootDStatus &st) mutable {
+            p.setWith([&st, file = std::move(file)]() mutable {
+                if (!st.IsOK())
+                    throw XrdCl::PipelineException(st);
+            });
+        }};
+
+    LOG(ERROR) << "Creating file: " << url().GetURL() + fileId.toStdString();
+    auto tf = XrdCl::Async(
+        XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
+            XrdCl::OpenFlags::Update | XrdCl::OpenFlags::New,
+            XrdCl::Access::UR | XrdCl::Access::UW | XrdCl::Access::GR |
+                XrdCl::Access::GW | XrdCl::Access::OR) |
+        XrdCl::Close(filePtr) >> openTask);
+
+    return f
+        .then(executor().get(),
+            [tf = std::move(tf)]() mutable { return folly::makeFuture(); })
+        .onError([fileId, s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
+                     const XrdCl::PipelineException &ex) mutable {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::Unit>(ECANCELED);
+
+            LOG(ERROR) << "Creation of file " << fileId << " failed due to "
+                       << ex.what() << ":" << ex.GetError().code;
+
+            return makeFuturePosixException<folly::Unit>(EIO);
+        })
+        .onError([fileId](const std::system_error &ex) mutable {
+            LOG(ERROR) << "Creation of file " << fileId << " failed due to "
+                       << ex.what();
+
+            return makeFuturePosixException<folly::Unit>(EIO);
+        });
 }
 
 folly::Future<folly::Unit> XRootDHelper::mkdir(
