@@ -34,8 +34,12 @@
 
 #if WITH_WEBDAV
 #include "webDAVHelper.h"
-#include <folly/executors/IOExecutor.h>
 #endif
+
+#if WITH_XROOTD
+#include "xrootdHelper.h"
+#endif
+
 
 namespace one {
 namespace helpers {
@@ -62,6 +66,9 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
+#if WITH_XROOTD
+    std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
     asio::io_service &nullDeviceService,
     communication::Communicator &communicator,
     std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits)
@@ -87,6 +94,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_WEBDAV
     m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_WEBDAV
+    m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
     m_nullDeviceService{nullDeviceService}
@@ -209,6 +220,12 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #if WITH_WEBDAV
     if (name == WEBDAV_HELPER_NAME)
         helper = WebDAVHelperFactory{m_webDAVExecutor}
+                     .createStorageHelperWithOverride(args, overrideParams);
+#endif
+
+#if WITH_XROOTD
+    if (name == XROOTD_HELPER_NAME)
+        helper = XRootDHelperFactory{m_xrootdExecutor}
                      .createStorageHelperWithOverride(args, overrideParams);
 #endif
 

@@ -19,7 +19,7 @@
 #include <boost/optional.hpp>
 #include <tbb/concurrent_hash_map.h>
 
-#ifdef WITH_WEBDAV
+#if defined(WITH_WEBDAV) || defined(WITH_XROOTD)
 #include <folly/executors/IOExecutor.h>
 #endif
 
@@ -124,6 +124,9 @@ public:
 #if WITH_WEBDAV
         std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
+#if WITH_XROOTD
+        std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
         asio::io_service &nullDeviceService,
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
@@ -145,6 +148,9 @@ public:
 #endif
 #if WITH_WEBDAV
         std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
+#if WITH_XROOTD
+        std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
         asio::io_service &nullDeviceService,
         std::size_t bufferSchedulerWorkers = 1,
@@ -191,6 +197,9 @@ private:
 #endif
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> m_webDAVExecutor;
+#endif
+#if WITH_XROOTD
+    std::shared_ptr<folly::IOExecutor> m_xrootdExecutor;
 #endif
 
     asio::io_service &m_nullDeviceService;
