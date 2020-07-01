@@ -13,23 +13,20 @@
 #include <XrdCl/XrdClFileOperations.hh>
 #include <XrdCl/XrdClFileSystemOperations.hh>
 
+#include <set>
+
 namespace one {
 namespace helpers {
 
 namespace {
-/*
- *
- *const std::set<int> WebDAV_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
- *    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
- *    ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED,
- *    ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
- *    ECANCELED};
- *
- *inline bool shouldRetryError(int ec)
- *{
- *    return WebDAV_RETRY_ERRORS.find(ec) != WebDAV_RETRY_ERRORS.cend();
- *}
- */
+
+const std::set<int> XROOTD_RETRY_ERRORS = {XrdCl::errRetry, XrdCl::errOperationExpired};
+
+inline bool shouldRetryError(const XrdCl::PipelineException &ex)
+{
+    auto ec = ex.GetError().errNo;
+    return XROOTD_RETRY_ERRORS.find(ec) != XROOTD_RETRY_ERRORS.cend();
+}
 
 const auto kXRootDRetryMinimumDelay = std::chrono::milliseconds{5};
 
@@ -89,12 +86,12 @@ folly::Future<folly::IOBufQueue> XRootDFileHandle::read(
             })
         .onError([retryCount, offset, size,
                      s = std::weak_ptr<XRootDFileHandle>{shared_from_this()}](
-                     const XrdCl::PipelineException & /*unused*/) mutable {
+                     const XrdCl::PipelineException & ex) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
 
-            if (retryCount > 0) {
+            if (retryCount > 0 && shouldRetryError(ex)) {
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.read.retries")
                 return folly::via(self->helper()->executor().get())
                     .delayed(retryDelay(retryCount))
@@ -139,12 +136,14 @@ folly::Future<std::size_t> XRootDFileHandle::write(
             p.setWith([&st]() {
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st);
+
+                return folly::Unit();
             });
         }};
 
-    auto tf = XrdCl::Async(
-        XrdCl::Write(m_file.get(), static_cast<long unsigned int>(offset),
-            static_cast<unsigned int>(size), const_cast<void *>(data)) >>
+    auto &&tf = XrdCl::Async(
+        XrdCl::Write(m_file.get(), static_cast<uint64_t>(offset),
+            static_cast<uint32_t>(size), const_cast<void *>(data)) >>
         writeTask);
 
     return f
@@ -160,7 +159,7 @@ folly::Future<std::size_t> XRootDFileHandle::write(
                 return makeFuturePosixException<std::size_t>(ECANCELED);
 
             if (retryCount > 0) {
-                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.access.retries")
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.write.retries")
                 return folly::via(self->helper()->executor().get())
                     .delayed(retryDelay(retryCount))
                     .then([self = std::move(self), buf = std::move(buf), offset,
@@ -174,9 +173,99 @@ folly::Future<std::size_t> XRootDFileHandle::write(
         });
 }
 
-folly::Future<folly::Unit> XRootDFileHandle::release() {}
+folly::Future<folly::Unit> XRootDFileHandle::release()
+{
+    return release(kXRootDRetryCount);
+}
 
-folly::Future<folly::Unit> XRootDFileHandle::fsync(bool isDataSync) {}
+folly::Future<folly::Unit> XRootDFileHandle::release(const int retryCount)
+{
+    if (!m_file->IsOpen())
+        return {};
+
+    auto p = folly::Promise<folly::Unit>();
+    auto f = p.getFuture();
+
+    std::packaged_task<void(XrdCl::XRootDStatus & st)> closeTask{
+        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
+            p.setWith([&st]() {
+                if (!st.IsOK())
+                    throw XrdCl::PipelineException(st);
+            });
+        }};
+
+    auto tf = XrdCl::Async(XrdCl::Close(m_file.get()) >> closeTask);
+
+    return f
+        .then(helper()->executor().get(),
+            [tf = std::move(tf)]() mutable { return folly::makeFuture(); })
+        .onError([retryCount,
+                     s = std::weak_ptr<XRootDFileHandle>{shared_from_this()}](
+                     const XrdCl::PipelineException & /*unused*/) mutable {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::Unit>(ECANCELED);
+
+            if (retryCount > 0) {
+                ONE_METRIC_COUNTER_INC(
+                    "comp.helpers.mod.xrootd.release.retries")
+                return folly::via(self->helper()->executor().get())
+                    .delayed(retryDelay(retryCount))
+                    .then([self = std::move(self), retryCount]() mutable {
+                        return self->release(retryCount - 1);
+                    });
+            }
+
+            return makeFuturePosixException<folly::Unit>(EIO);
+        });
+}
+
+folly::Future<folly::Unit> XRootDFileHandle::fsync(bool isDataSync)
+{
+    return fsync(isDataSync, kXRootDRetryCount);
+}
+
+folly::Future<folly::Unit> XRootDFileHandle::fsync(
+    bool isDataSync, const int retryCount)
+{
+    assert(m_file->IsOpen());
+
+    auto p = folly::Promise<folly::Unit>();
+    auto f = p.getFuture();
+
+    std::packaged_task<void(XrdCl::XRootDStatus & st)> syncTask{
+        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
+            p.setWith([&st]() {
+                if (!st.IsOK())
+                    throw XrdCl::PipelineException(st);
+            });
+        }};
+
+    auto tf = XrdCl::Async(XrdCl::Sync(m_file.get()) >> syncTask);
+
+    return f
+        .then(helper()->executor().get(),
+            [tf = std::move(tf)]() mutable { return folly::makeFuture(); })
+        .onError([retryCount, isDataSync,
+                     s = std::weak_ptr<XRootDFileHandle>{shared_from_this()}](
+                     const XrdCl::PipelineException & /*unused*/) mutable {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::Unit>(ECANCELED);
+
+            if (retryCount > 0) {
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.fsync.retries")
+                return folly::via(self->helper()->executor().get())
+                    .delayed(retryDelay(retryCount))
+                    .then([self = std::move(self), isDataSync,
+                              retryCount]() mutable {
+                        return self->fsync(isDataSync, retryCount - 1);
+                    });
+            }
+
+            return makeFuturePosixException<folly::Unit>(EIO);
+        });
+}
 
 const Timeout &XRootDFileHandle::timeout() { return m_helper->timeout(); }
 
@@ -337,15 +426,13 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
                               shared_from_this()}]() mutable {
                 auto self = s.lock();
                 if (!self)
-                    return makeFuturePosixException<
-                        std::shared_ptr<XRootDFileHandle>>(ECANCELED);
+                    throw makePosixException(ECANCELED);
 
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st);
 
-                return folly::makeFuture<std::shared_ptr<XRootDFileHandle>>(
-                    std::make_shared<XRootDFileHandle>(
-                        fileId, std::move(file), std::move(self)));
+                return std::make_shared<XRootDFileHandle>(
+                    fileId, std::move(file), std::move(self));
             });
         }};
 
@@ -360,10 +447,19 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
                 return folly::makeFuture<FileHandlePtr>(std::move(handle));
             })
         .onError([fileId, s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
-                     const XrdCl::PipelineException & /*unused*/) mutable {
+                     const XrdCl::PipelineException &ex) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<FileHandlePtr>(ECANCELED);
+
+            LOG(ERROR) << "Open of file " << fileId << " failed due to "
+                       << ex.what();
+
+            return makeFuturePosixException<FileHandlePtr>(EIO);
+        })
+        .onError([fileId](const std::system_error &ex) mutable {
+            LOG(ERROR) << "Open of file " << fileId << " failed due to "
+                       << ex.what();
 
             return makeFuturePosixException<FileHandlePtr>(EIO);
         });

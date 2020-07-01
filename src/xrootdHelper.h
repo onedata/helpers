@@ -52,7 +52,11 @@ public:
 
     folly::Future<folly::Unit> release() override;
 
+    folly::Future<folly::Unit> release(const int retryCount);
+
     folly::Future<folly::Unit> fsync(bool isDataSync) override;
+
+    folly::Future<folly::Unit> fsync(bool isDataSync, const int retryCount);
 
     const Timeout &timeout() override;
 
