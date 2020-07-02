@@ -1,7 +1,7 @@
 """This module tests XRootD helper."""
 
 __author__ = "Bartek Kryza"
-__copyright__ = """(C) 2018 ACK CYFRONET AGH,
+__copyright__ = """(C) 2020 ACK CYFRONET AGH,
 This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
@@ -42,14 +42,14 @@ from common_test_base import \
     test_read_should_read_data_with_holes, \
     test_read_should_read_empty_segment, \
     test_unlink_should_delete_empty_data, \
-    test_truncate_should_increase_file_size
-    # test_truncate_should_decrease_file_size
+    test_truncate_should_increase_file_size, \
+    test_truncate_should_decrease_file_size
 
 
 from io_perf_test_base import \
     test_write, \
-    test_write_read, \
-    test_read_write_truncate_unlink
+    test_write_read
+    # test_read_write_truncate_unlink
     # test_truncate
 
 from posix_test_base import \
@@ -66,17 +66,8 @@ from posix_test_base import \
     test_read_write_large_file_should_maintain_consistency
     # test_symlink_should_create_link
     # test_link_should_create_hard_link
-    # test_mknod_should_set_premissions
     # test_truncate_should_not_create_file
-
-from xattr_test_base import \
-    test_setxattr_should_set_extended_attribute, \
-    test_setxattr_should_set_large_extended_attribute, \
-    test_setxattr_should_set_extended_attribute_with_empty_value, \
-    test_getxattr_should_return_extended_attribute, \
-    test_listxattr_should_list_extended_attribute
-    # test_removexattr_should_remove_extended_attribute, \
-    # test_setxattr_should_handle_create_replace_flags
+    # test_mknod_should_set_premissions
 
 
 @pytest.fixture(scope='module')
@@ -92,7 +83,7 @@ def server(request):
     url = result['url'].encode('ascii')
 
     def fin():
-        pass #docker.remove([container], force=True, volumes=True)
+        docker.remove([container], force=True, volumes=True)
 
     request.addfinalizer(fin)
 
@@ -104,21 +95,6 @@ def server(request):
 @pytest.fixture
 def helper(server):
     return XRootDHelperProxy(server.url)
-
-
-@pytest.mark.directory_operations_tests
-def test_mknod_should_return_enoent_on_missing_parent(helper, file_id):
-    dir1_id = random_str()
-    dir2_id = random_str()
-    dir3_id = random_str()
-    data = random_str()
-    offset = random_int()
-
-    with pytest.raises(RuntimeError) as excinfo:
-        helper.write(dir1_id+"/"+dir2_id+"/"+dir3_id+"/"+file_id,
-                data, offset)
-
-    assert 'No such file or directory' in str(excinfo.value)
 
 
 @pytest.mark.directory_operations_tests
@@ -152,9 +128,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
 
 def test_readdir_should_handle_offset_properly(helper):
     def to_python_list(readdir_result):
-        r = [e for e in readdir_result]
-        r.sort()
-        return r
+        return [str(e) for e in readdir_result]
 
     test_dir = 'offset_test'
 
@@ -166,16 +140,18 @@ def test_readdir_should_handle_offset_properly(helper):
         helper.write(test_dir+'/'+file, random_str(), 0)
 
     dirs = to_python_list(helper.readdir(test_dir, 0, 100))
-    assert dirs == files
+    assert len(dirs) == len(files)
+
+    files_in_xrootd_order = dirs
 
     dirs = to_python_list(helper.readdir(test_dir, 0, 1))
-    assert dirs == files[0:1]
+    assert dirs == files_in_xrootd_order[0:1]
 
     dirs = to_python_list(helper.readdir(test_dir, 0, 2))
-    assert dirs == files[0:2]
+    assert dirs == files_in_xrootd_order[0:2]
 
     dirs = to_python_list(helper.readdir(test_dir, 3, 100))
-    assert dirs == files[3:5]
+    assert dirs == files_in_xrootd_order[3:5]
 
     dirs = to_python_list(helper.readdir(test_dir, 100, 100))
     assert dirs == []

@@ -35,7 +35,8 @@ public:
      * @param fileId XRootD-specific ID associated with the file.
      * @param helper A pointer to the helper that created the handle.
      */
-    XRootDFileHandle(folly::fbstring fileId, std::unique_ptr<XrdCl::File> &&file,
+    XRootDFileHandle(folly::fbstring fileId,
+        std::unique_ptr<XrdCl::File> &&file,
         std::shared_ptr<XRootDHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
@@ -158,32 +159,6 @@ public:
         const folly::fbstring &fileId, off_t offset, size_t count,
         const int retryCount);
 
-    folly::Future<folly::fbstring> getxattr(
-        const folly::fbstring &fileId, const folly::fbstring &name) override;
-
-    folly::Future<folly::fbstring> getxattr(const folly::fbstring &fileId,
-        const folly::fbstring &name, const int retryCount);
-
-    folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
-        const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace) override;
-
-    folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
-        const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace, const int retryCount);
-
-    folly::Future<folly::Unit> removexattr(
-        const folly::fbstring &fileId, const folly::fbstring &name) override;
-
-    folly::Future<folly::Unit> removexattr(const folly::fbstring &fileId,
-        const folly::fbstring &name, const int retryCount);
-
-    folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &fileId) override;
-
-    folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &fileId, const int retryCount);
-
     std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
     XRootDCredentialsType credentialsType() const
@@ -226,7 +201,7 @@ public:
 
     const std::vector<folly::fbstring> overridableParams() const override
     {
-        return {"url", "timeout"};
+        return {"url", "timeout", "credentialsType", "credentials"};
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)

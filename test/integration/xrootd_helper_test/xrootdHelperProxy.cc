@@ -25,6 +25,8 @@ using namespace boost::python;
 
 using ReadDirResult = std::vector<std::string>;
 
+using one::helpers::Flag;
+
 class ReleaseGIL {
 public:
     ReleaseGIL()
@@ -96,14 +98,16 @@ public:
     std::string read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
-        return m_helper->open(fileId, 0, {})
+        return m_helper->open(fileId, O_RDONLY, {})
             .then([&](one::helpers::FileHandlePtr handle) {
-                return handle->read(offset, size);
-            })
-            .then([](folly::IOBufQueue &&buf) {
-                std::string data;
-                buf.appendToString(data);
-                return data;
+                return handle->read(offset, size)
+                    .then([handle](folly::IOBufQueue &&buf) {
+                        return handle->release().then([handle, buf = std::move(buf)]() {
+                            std::string data;
+                            buf.appendToString(data);
+                            return data;
+                        });
+                    });
             })
             .get();
     }
@@ -112,29 +116,28 @@ public:
     {
         ReleaseGIL guard;
 
-        auto mknodLambda = [&] {
+        auto mknodLambda = [=] {
             return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
-        auto writeLambda = [&] {
+        auto writeLambda = [=] {
             return m_helper->open(fileId, O_WRONLY, {})
-                .then([&](one::helpers::FileHandlePtr handle) {
+                .then([=](one::helpers::FileHandlePtr handle) {
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
                     return handle->write(offset, std::move(buf))
                         .then([handle](std::size_t size) {
-                            handle->flush();
-                            return size;
+                            return handle->release().then(
+                                [handle, size]() { return size; });
                         });
                 });
         };
 
         return m_helper->access(fileId, 0)
             .then(writeLambda)
-            .onError([
-                mknodLambda = std::move(mknodLambda),
-                writeLambda = std::move(writeLambda), executor = m_executor
-            ](std::exception const &e) {
+            .onError([mknodLambda = std::move(mknodLambda),
+                         writeLambda = std::move(writeLambda),
+                         executor = m_executor](std::exception const &e) {
                 return mknodLambda().then(writeLambda);
             })
             .get();
