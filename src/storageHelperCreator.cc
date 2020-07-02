@@ -40,7 +40,6 @@
 #include "xrootdHelper.h"
 #endif
 
-
 namespace one {
 namespace helpers {
 

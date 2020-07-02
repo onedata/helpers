@@ -77,7 +77,6 @@ constexpr auto WEBDAV_HELPER_NAME = "webdav";
 constexpr auto XROOTD_HELPER_NAME = "xrootd";
 #endif
 
-
 namespace {
 constexpr std::chrono::milliseconds ASYNC_OPS_TIMEOUT{120000};
 const std::error_code SUCCESS_CODE{};
