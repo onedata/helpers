@@ -40,7 +40,8 @@ parser.add_argument(
     '--valgrind',
     action='store_true',
     default=False,
-    help='run tests under Valgrind')
+    help='run tests under Valgrind',
+    dest='valgrind')
 
 parser.add_argument(
     '--image', '-i',
