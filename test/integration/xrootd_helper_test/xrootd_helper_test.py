@@ -48,9 +48,9 @@ from common_test_base import \
 
 from io_perf_test_base import \
     test_write, \
-    test_write_read
-    # test_read_write_truncate_unlink
-    # test_truncate
+    test_write_read, \
+    test_read_write_truncate_unlink, \
+    test_truncate
 
 from posix_test_base import \
     test_read_should_read_written_data, \

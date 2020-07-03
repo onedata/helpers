@@ -765,7 +765,8 @@ folly::Future<folly::Unit> XRootDHelper::truncate(const folly::fbstring &fileId,
 ;
 
 auto tf = XrdCl::Async(
-    XrdCl::Truncate(m_fs, ensureRelPath(fileId.toStdString()), size) >>
+    XrdCl::Truncate(
+        m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString()), size) >>
     truncateTask);
 
 return f
