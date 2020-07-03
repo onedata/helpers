@@ -86,7 +86,7 @@ public:
      * Closes connection to XRootD storage cluster and destroys internal
      * context object.
      */
-    ~XRootDHelper();
+    ~XRootDHelper() = default;
 
     folly::fbstring name() const override { return XROOTD_HELPER_NAME; };
 
