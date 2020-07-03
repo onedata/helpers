@@ -95,7 +95,7 @@ StorageHelperCreator::StorageHelperCreator(
     m_webDAVExecutor{std::move(webDAVExecutor)}
     ,
 #endif
-#if WITH_WEBDAV
+#if WITH_XROOTD
     m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
@@ -126,6 +126,9 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> webDAVExecutor,
 #endif
+#if WITH_XROOTD
+    std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
     asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
     buffering::BufferLimits bufferLimits)
     :
@@ -150,6 +153,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_WEBDAV
     m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_XROOTD
+    m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
     m_nullDeviceService{nullDeviceService}
