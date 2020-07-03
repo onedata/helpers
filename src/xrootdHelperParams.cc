@@ -28,8 +28,9 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
     const auto &url = getParam(parameters, "url");
     const auto &credentialsTypeStr =
         getParam(parameters, "credentialsType", "none");
-
     const auto &credentials = getParam(parameters, "credentials", "");
+    const auto fileModeMask = getParam(parameters, "fileModeMask", "0644");
+    const auto dirModeMask = getParam(parameters, "dirModeMask", "0775");
 
     LOG_FCALL() << LOG_FARG(url) << LOG_FARG(credentials)
                 << LOG_FARG(credentialsTypeStr);
@@ -90,8 +91,14 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
     m_url = endpointUrl;
     m_credentialsType = credentialsType;
     m_credentials = credentials;
+    m_fileModeMask = parsePosixPermissions(fileModeMask);
+    m_dirModeMask = parsePosixPermissions(dirModeMask);
 }
 
 const XrdCl::URL &XRootDHelperParams::url() const { return m_url; }
+
+mode_t XRootDHelperParams::fileModeMask() const { return m_fileModeMask; }
+
+mode_t XRootDHelperParams::dirModeMask() const { return m_dirModeMask; }
 } // namespace helpers
 } // namespace one

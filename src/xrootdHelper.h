@@ -170,6 +170,10 @@ public:
 
     folly::fbstring credentials() const { return P()->credentials(); }
 
+    mode_t fileModeMask() const { return P()->fileModeMask(); }
+
+    mode_t dirModeMask() const { return P()->dirModeMask(); }
+
 private:
     std::shared_ptr<XRootDHelperParams> P() const
     {

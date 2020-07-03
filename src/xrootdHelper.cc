@@ -500,9 +500,10 @@ folly::Future<struct stat> XRootDHelper::getattr(
     auto f = p.getFuture();
 
     std::packaged_task<void(XrdCl::XRootDStatus & st, XrdCl::StatInfo & info)>
-        statTask{[p = std::move(p)](
+        statTask{[p = std::move(p), fileModeMask = fileModeMask(),
+                     dirModeMask = dirModeMask()](
                      XrdCl::XRootDStatus &st, XrdCl::StatInfo &info) mutable {
-            p.setWith([&st, &info]() {
+            p.setWith([&st, &info, fileModeMask, dirModeMask]() {
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st); // NOLINT
 
@@ -510,21 +511,39 @@ folly::Future<struct stat> XRootDHelper::getattr(
                 attr.st_size = info.GetSize();
 
                 const auto &flags = info.GetFlags();
-                if ((flags & kXR_isDir) != 0u)
+
+                if ((flags & kXR_isDir) != 0u) {
                     attr.st_mode = S_IFDIR;
+
+                    if ((flags & kXR_readable) != 0u)
+                        attr.st_mode |=
+                            dirModeMask & (S_IRGRP | S_IRUSR | S_IROTH);
+
+                    if ((flags & kXR_writable) != 0u)
+                        attr.st_mode |=
+                            dirModeMask & (S_IWGRP | S_IWUSR | S_IWOTH);
+
+                    if (flags & kXR_xset)
+                        attr.st_mode |=
+                            dirModeMask & (S_IXGRP | S_IXUSR | S_IXOTH);
+                }
                 else if ((flags & kXR_other) != 0u)
                     attr.st_mode = S_IFIFO;
-                else
+                else {
                     attr.st_mode = S_IFREG;
 
-                if ((flags & kXR_readable) != 0u)
-                    attr.st_mode |= S_IRGRP | S_IRUSR;
+                    if ((flags & kXR_readable) != 0u)
+                        attr.st_mode |=
+                            fileModeMask & (S_IRGRP | S_IRUSR | S_IROTH);
 
-                if ((flags & kXR_writable) != 0u)
-                    attr.st_mode |= S_IWGRP | S_IWUSR;
+                    if ((flags & kXR_writable) != 0u)
+                        attr.st_mode |=
+                            fileModeMask & (S_IWGRP | S_IWUSR | S_IWOTH);
 
-                if (flags & kXR_xset)
-                    attr.st_mode |= S_IXGRP | S_IXUSR;
+                    if (flags & kXR_xset)
+                        attr.st_mode |=
+                            fileModeMask & (S_IXGRP | S_IXUSR | S_IXOTH);
+                }
 
                 attr.st_mtim.tv_sec = info.GetModTime();
                 attr.st_mtim.tv_nsec = 0;
@@ -544,7 +563,8 @@ folly::Future<struct stat> XRootDHelper::getattr(
     return f
         .then(executor().get(),
             [tf = std::move(tf)](struct stat &&attr) mutable {
-                return folly::makeFuture<struct stat>(attr);
+                return folly::makeFuture<struct stat>(
+                    std::move(attr)); // NOLINT
             })
         .onError([fileId, retryCount,
                      s = std::weak_ptr<XRootDHelper>{shared_from_this()}](

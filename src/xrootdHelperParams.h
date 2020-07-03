@@ -36,10 +36,16 @@ public:
 
     const folly::fbstring &credentials() const;
 
+    mode_t fileModeMask() const;
+
+    mode_t dirModeMask() const;
+
 private:
     XrdCl::URL m_url;
     XRootDCredentialsType m_credentialsType;
     folly::fbstring m_credentials;
+    mode_t m_fileModeMask;
+    mode_t m_dirModeMask;
 };
 } // namespace helpers
 } // namespace one
