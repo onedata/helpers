@@ -136,10 +136,9 @@ public:
 
         return m_helper->access(fileId, 0)
             .then(writeLambda)
-            .onError([
-                mknodLambda = std::move(mknodLambda),
-                writeLambda = std::move(writeLambda), executor = m_executor
-            ](std::exception const &e) {
+            .onError([mknodLambda = std::move(mknodLambda),
+                         writeLambda = std::move(writeLambda),
+                         executor = m_executor](std::exception const &e) {
                 return mknodLambda().then(writeLambda);
             })
             .get();

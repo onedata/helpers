@@ -223,9 +223,9 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto effectiveKey = toEffectiveKey(key);
 
+    using one::logging::log_timer;
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
-    using one::logging::log_timer;
 
     log_timer<> logTimer;
 
@@ -236,7 +236,7 @@ folly::IOBufQueue S3Helper::getObject(
     request.SetKey(effectiveKey.c_str());
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
-    request.SetResponseStreamFactory([ data = data, size ] {
+    request.SetResponseStreamFactory([data = data, size] {
         // NOLINTNEXTLINE
         auto stream = new std::stringstream;
 #if !defined(__APPLE__)
@@ -254,9 +254,10 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.read");
 
-    auto outcome = retry([&, request = std::move(request) ]() {
-        return m_client->GetObject(request);
-    },
+    auto outcome = retry(
+        [&, request = std::move(request)]() {
+            return m_client->GetObject(request);
+        },
         std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
             std::placeholders::_1, "GetObject"));
 
@@ -315,9 +316,9 @@ std::size_t S3Helper::putObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.write");
 
+    using one::logging::log_timer;
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
-    using one::logging::log_timer;
 
     log_timer<> logTimer;
 
@@ -340,9 +341,10 @@ std::size_t S3Helper::putObject(
     LOG_DBG(2) << "Attempting to write object " << effectiveKey << " of size "
                << size;
 
-    auto outcome = retry([&, request = std::move(request) ]() {
-        return m_client->PutObject(request);
-    },
+    auto outcome = retry(
+        [&, request = std::move(request)]() {
+            return m_client->PutObject(request);
+        },
         std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>,
             std::placeholders::_1, "PutObject"));
 
@@ -443,9 +445,10 @@ void S3Helper::deleteObject(const folly::fbstring &key)
     request.SetBucket(m_bucket.c_str());
     request.SetKey(effectiveKey.toStdString());
 
-    auto outcome = retry([&, request = std::move(request) ]() {
-        return m_client->DeleteObject(request);
-    },
+    auto outcome = retry(
+        [&, request = std::move(request)]() {
+            return m_client->DeleteObject(request);
+        },
         std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectOutcome>,
             std::placeholders::_1, "DeleteObject"));
 
@@ -501,9 +504,10 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     LOG_DBG(2) << "Attempting to get object info for " << normalizedKey
                << " in bucket " << m_bucket;
 
-    auto outcome = retry([&, request = std::move(request) ]() {
-        return m_client->ListObjects(request);
-    },
+    auto outcome = retry(
+        [&, request = std::move(request)]() {
+            return m_client->ListObjects(request);
+        },
         std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
             std::placeholders::_1, "ListObjects"));
 
@@ -602,9 +606,10 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
                << " in bucket " << m_bucket << " after " << normalizedMarker;
 
-    auto outcome = retry([&, request = std::move(request) ]() {
-        return m_client->ListObjects(request);
-    },
+    auto outcome = retry(
+        [&, request = std::move(request)]() {
+            return m_client->ListObjects(request);
+        },
         std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
             std::placeholders::_1, "ListObjects"));
 

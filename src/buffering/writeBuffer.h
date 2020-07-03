@@ -78,9 +78,9 @@ public:
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
+        using one::logging::log_timer;
         using one::logging::csv::log;
         using one::logging::csv::read_write_perf;
-        using one::logging::log_timer;
 
         log_timer<> timer;
 
@@ -105,7 +105,7 @@ public:
             pushBuffer();
 
             return confirmOverThreshold().then(
-                [ fileId = m_handle.fileId(), size, offset, timer ] {
+                [fileId = m_handle.fileId(), size, offset, timer] {
                     log<read_write_perf>(fileId, "WriteBuffer", "write", offset,
                         size, timer.stop());
                     return size;
@@ -161,27 +161,24 @@ private:
         auto confirmationPromise =
             std::make_shared<folly::Promise<folly::Unit>>();
 
+        using one::logging::log_timer;
         using one::logging::csv::log;
         using one::logging::csv::read_write_perf;
-        using one::logging::log_timer;
 
         log_timer<> timer;
 
         m_writeFuture =
             m_writeFuture
-                .then([
-                    s = std::weak_ptr<WriteBuffer>(shared_from_this()),
-                    buffers = std::move(buffers)
-                ]() mutable {
+                .then([s = std::weak_ptr<WriteBuffer>(shared_from_this()),
+                          buffers = std::move(buffers)]() mutable {
                     if (auto self = s.lock())
                         return self->m_handle.multiwrite(std::move(buffers));
                     return folly::makeFuture<std::size_t>(std::system_error{
                         std::make_error_code(std::errc::owner_dead)});
                 })
-                .then([
-                    startPoint, sentSize, fileId = m_handle.fileId(), timer,
-                    s = std::weak_ptr<WriteBuffer>(shared_from_this())
-                ](std::size_t) {
+                .then([startPoint, sentSize, fileId = m_handle.fileId(), timer,
+                          s = std::weak_ptr<WriteBuffer>(shared_from_this())](
+                          std::size_t) {
                     auto self = s.lock();
                     if (!self)
                         return;

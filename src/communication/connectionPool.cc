@@ -130,9 +130,10 @@ void ConnectionPool::connect()
     for (auto &client : m_connections) {
         // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         client->connect(m_host, m_port)
-            .then(m_executor.get(), [ this, clientPtr = client.get() ]() {
-                m_idleConnections.emplace(clientPtr);
-            })
+            .then(m_executor.get(),
+                [this, clientPtr = client.get()]() {
+                    m_idleConnections.emplace(clientPtr);
+                })
             .onError([this](folly::exception_wrapper ew) {
                 close().get();
                 ew.throw_exception();
@@ -227,15 +228,15 @@ void ConnectionPool::send(
             // If the client connection failed, try to reconnect
             // asynchronously
             if (!client->connected() && m_connected) {
-                client->connect(m_host, m_port).then(m_executor.get(), [
-                    this, client, executor = m_executor
-                ]() {
-                    if (m_connected)
-                        // NOLINTNEXTLINE
-                        m_idleConnections.emplace(client);
-                    else
-                        client->getPipeline()->close();
-                });
+                client->connect(m_host, m_port)
+                    .then(m_executor.get(),
+                        [this, client, executor = m_executor]() {
+                            if (m_connected)
+                                // NOLINTNEXTLINE
+                                m_idleConnections.emplace(client);
+                            else
+                                client->getPipeline()->close();
+                        });
                 client = nullptr;
             }
         }

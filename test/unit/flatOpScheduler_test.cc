@@ -80,7 +80,7 @@ struct FlatOpSchedulerTest : public ::testing::Test {
     void SetUp() override
     {
         for (std::size_t i = 0; i < 50; i++) {
-            m_poolWorkers.emplace_back([&, tid = i ] {
+            m_poolWorkers.emplace_back([&, tid = i] {
                 folly::setThreadName("FOPS-" + std::to_string(tid));
                 m_ioService.run();
             });

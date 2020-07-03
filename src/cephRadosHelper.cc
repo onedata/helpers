@@ -89,9 +89,9 @@ folly::IOBufQueue CephRadosHelper::getObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
+    using one::logging::log_timer;
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
-    using one::logging::log_timer;
 
     log_timer<> logTimer;
 
@@ -145,9 +145,9 @@ std::size_t CephRadosHelper::putObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength())
                 << LOG_FARG(offset);
 
+    using one::logging::log_timer;
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
-    using one::logging::log_timer;
 
     log_timer<> logTimer;
 

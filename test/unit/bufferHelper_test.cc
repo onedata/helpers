@@ -103,7 +103,7 @@ folly::Future<folly::IOBufQueue> FileHandle::read(
 folly::Future<std::size_t> FileHandle::write(
     const off_t offset, folly::IOBufQueue buf)
 {
-    return folly::via(&m_executor, [ this, size = buf.chainLength() ] {
+    return folly::via(&m_executor, [this, size = buf.chainLength()] {
         if (++m_simultaneous > 1)
             m_wasSimultaneous = true;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));

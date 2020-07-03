@@ -634,7 +634,7 @@ public:
         std::shared_ptr<StorageHelperParams> params)
     {
         return folly::via(
-            executor().get(), [ this, params = std::move(params) ]() {
+            executor().get(), [this, params = std::move(params)]() {
                 invalidateParams()->setValue(std::move(params));
             });
     }
