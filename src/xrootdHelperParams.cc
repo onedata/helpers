@@ -28,9 +28,12 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
     const auto &url = getParam(parameters, "url");
     const auto &credentialsTypeStr =
         getParam(parameters, "credentialsType", "none");
-    const auto &credentials = getParam(parameters, "credentials", "");
-    const auto fileModeMask = getParam(parameters, "fileModeMask", "0644");
-    const auto dirModeMask = getParam(parameters, "dirModeMask", "0775");
+    const auto &credentials = getParam<folly::fbstring, folly::fbstring>(
+        parameters, "credentials", "");
+    const auto fileModeMask = getParam<folly::fbstring, folly::fbstring>(
+        parameters, "fileModeMask", "0644");
+    const auto dirModeMask = getParam<folly::fbstring, folly::fbstring>(
+        parameters, "dirModeMask", "0775");
 
     LOG_FCALL() << LOG_FARG(url) << LOG_FARG(credentials)
                 << LOG_FARG(credentialsTypeStr);
