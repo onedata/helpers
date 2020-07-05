@@ -59,21 +59,6 @@ inline std::string ensureAbsPath(
 }
 
 /**
- * Make sure that the path is relative, i.e. not starting with '/', as required
- * by some XRootD operations
- */
-inline std::string ensureRelPath(const std::string &path)
-{
-    if (path.empty())
-        return path;
-
-    if (path.front() == '/')
-        return path.substr(1);
-
-    return path;
-}
-
-/**
  * Convert POSIX flags to XRootD open flags.
  */
 inline auto flagsToOpenFlags(const int flags)
@@ -129,7 +114,7 @@ inline auto modeToAccess(const mode_t mode)
 /**
  * Convert XRootD Status Code to appropriate POSIX error
  */
-static int xrootdStatusToPosixError(const XrdCl::XRootDStatus &xrootdStatus)
+int xrootdStatusToPosixError(const XrdCl::XRootDStatus &xrootdStatus)
 {
     switch (xrootdStatus.errNo) {
         case kXR_AuthFailed:
@@ -162,7 +147,7 @@ static int xrootdStatusToPosixError(const XrdCl::XRootDStatus &xrootdStatus)
             return EIO;
     }
 }
-}
+} // namespace
 
 XRootDFileHandle::XRootDFileHandle(folly::fbstring fileId,
     std::unique_ptr<XrdCl::File> &&file, std::shared_ptr<XRootDHelper> helper)
@@ -210,8 +195,7 @@ folly::Future<folly::IOBufQueue> XRootDFileHandle::read(
 
     return f
         .then(helper()->executor().get(),
-            [buf = std::move(buf), offset, size, fileId = fileId(),
-                timer = std::move(timer),
+            [buf = std::move(buf), fileId = fileId(), timer = std::move(timer),
                 tf = std::move(tf)](std::size_t readBytes) mutable {
                 buf.postallocate(static_cast<std::size_t>(readBytes));
                 ONE_METRIC_TIMERCTX_STOP(timer, readBytes);
@@ -269,7 +253,8 @@ folly::Future<std::size_t> XRootDFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.xrootd.write");
 
-    auto data = reinterpret_cast<const void *>(buf.front()->data());
+    auto data = const_cast<void *>(                           // NOLINT
+        reinterpret_cast<const void *>(buf.front()->data())); // NOLINT
     auto size = buf.front()->length();
 
     auto p = folly::Promise<folly::Unit>();
@@ -285,10 +270,10 @@ folly::Future<std::size_t> XRootDFileHandle::write(
             });
         }};
 
-    auto tf = XrdCl::Async(
-        XrdCl::Write(m_file.get(), static_cast<uint64_t>(offset),
-            static_cast<uint32_t>(size), const_cast<void *>(data)) |
-        XrdCl::Sync(m_file.get()) >> writeTask);
+    auto tf =
+        XrdCl::Async(XrdCl::Write(m_file.get(), static_cast<uint64_t>(offset),
+                         static_cast<uint32_t>(size), data) |
+            XrdCl::Sync(m_file.get()) >> writeTask);
 
     return f
         .then(helper()->executor().get(),
@@ -441,31 +426,28 @@ folly::Future<folly::Unit> XRootDHelper::access(
 }
 
 folly::Future<folly::Unit> XRootDHelper::access(
-    const folly::fbstring &fileId, const int mask, const int retryCount)
+    const folly::fbstring &fileId, const int /*mask*/, const int retryCount)
 {
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(
-        XrdCl::XRootDStatus & st, XrdCl::LocationInfo & info)>
-        locateTask{[p = std::move(p)](XrdCl::XRootDStatus &st,
-                       XrdCl::LocationInfo &info) mutable {
-            p.setWith([&st, &info]() {
+    std::packaged_task<void(XrdCl::XRootDStatus & st, XrdCl::StatInfo & info)>
+        statTask{[p = std::move(p)](XrdCl::XRootDStatus &st,
+                     XrdCl::StatInfo & /*info*/) mutable {
+            p.setWith([&st]() {
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st); // NOLINT
-                return folly::Unit();
             });
         }};
 
-    auto tf =
-        XrdCl::Async(XrdCl::Locate(m_fs,
-                         ensureAbsPath(url().GetPath(), fileId.toStdString()),
-                         XrdCl::OpenFlags::Read) >>
-            locateTask);
+    auto tf = XrdCl::Async(
+        XrdCl::Stat(
+            m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
+        statTask);
 
     return f
         .then(executor().get(),
-            [tf = std::move(tf)]() mutable { return folly::makeFuture(); })
+            [tf = std::move(tf)]() { return folly::makeFuture(); })
         .onError([fileId, retryCount,
                      s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
                      const XrdCl::PipelineException &ex) mutable {
@@ -523,7 +505,7 @@ folly::Future<struct stat> XRootDHelper::getattr(
                         attr.st_mode |=
                             dirModeMask & (S_IWGRP | S_IWUSR | S_IWOTH);
 
-                    if (flags & kXR_xset)
+                    if ((flags & kXR_xset) != 0u)
                         attr.st_mode |=
                             dirModeMask & (S_IXGRP | S_IXUSR | S_IXOTH);
                 }
@@ -540,7 +522,7 @@ folly::Future<struct stat> XRootDHelper::getattr(
                         attr.st_mode |=
                             fileModeMask & (S_IWGRP | S_IWUSR | S_IWOTH);
 
-                    if (flags & kXR_xset)
+                    if ((flags & kXR_xset) != 0u)
                         attr.st_mode |=
                             fileModeMask & (S_IXGRP | S_IXUSR | S_IXOTH);
                 }
@@ -808,7 +790,7 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
 }
 
 folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
-    const mode_t mode, const FlagsSet & /*flags*/, const dev_t /*rdev*/,
+    const mode_t mode, const FlagsSet &flags, const dev_t rdev,
     const int retryCount)
 {
     auto p = folly::Promise<folly::Unit>();
@@ -834,12 +816,23 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     return f
         .then(executor().get(),
             [tf = std::move(tf)]() mutable { return folly::makeFuture(); })
-        .onError([fileId, file = std::move(file),
+        .onError([fileId, file = std::move(file), flags, rdev, mode, retryCount,
                      s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
                      const XrdCl::PipelineException &ex) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
+
+            if (retryCount > 0 && shouldRetryError(ex)) {
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.mknod.retries")
+                return folly::via(self->executor().get())
+                    .delayed(retryDelay(retryCount))
+                    .then([self = std::move(self), fileId, mode, flags, rdev,
+                              retryCount]() mutable {
+                        return self->mknod(
+                            fileId, mode, flags, rdev, retryCount - 1);
+                    });
+            }
 
             LOG(ERROR) << "Creation of file " << fileId
                        << " failed due to: " << ex.GetError().GetErrorMessage()
@@ -847,12 +840,6 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
 
             return makeFuturePosixException<folly::Unit>(
                 xrootdStatusToPosixError(ex.GetError()));
-        })
-        .onError([fileId](const std::system_error &ex) mutable {
-            LOG(ERROR) << "Creation of file " << fileId
-                       << " failed due to: " << ex.what();
-
-            return makeFuturePosixException<folly::Unit>(EIO);
         });
 }
 
@@ -1007,7 +994,9 @@ folly::Future<folly::fbvector<folly::fbstring>> XRootDHelper::readdir(
 
     return f
         .then(executor().get(),
-            [tf = std::move(tf)](auto &&result) { return result; })
+            [tf = std::move(tf)](auto &&result) {
+                return std::forward<decltype(result)>(result);
+            })
         .onError([fileId, offset, count, retryCount,
                      s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
                      const XrdCl::PipelineException &ex) mutable {
