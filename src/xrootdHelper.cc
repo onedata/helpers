@@ -52,6 +52,9 @@ inline std::string ensureAbsPath(
     if (root.empty())
         return ensureAbsPath("/", path);
 
+    if (path.empty() || path == "/")
+        return root;
+
     if (root.back() != '/' && path.front() != '/')
         return root + '/' + path;
 
@@ -414,7 +417,7 @@ const Timeout &XRootDFileHandle::timeout() { return m_helper->timeout(); }
 XRootDHelper::XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
     std::shared_ptr<folly::IOExecutor> executor)
     : m_executor{std::move(executor)}
-    , m_fs{params->url()}
+    , m_fs{params->url(), true}
 {
     invalidateParams()->setValue(std::move(params));
 }
@@ -1006,7 +1009,8 @@ folly::Future<folly::fbvector<folly::fbstring>> XRootDHelper::readdir(
                     folly::fbvector<folly::fbstring>>(ECANCELED);
 
             if (retryCount > 0 && shouldRetryError(ex)) {
-                ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.mkdir.retries")
+                ONE_METRIC_COUNTER_INC(
+                    "comp.helpers.mod.xrootd.readdir.retries")
                 return folly::via(self->executor().get())
                     .delayed(retryDelay(retryCount))
                     .then([self = std::move(self), fileId, offset, count,
