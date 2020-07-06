@@ -11,7 +11,9 @@
 #include "helpers/logging.h"
 #include "posixHelperParams.h"
 #include "webDAVHelperParams.h"
+#if WITH_XROOTD
 #include "xrootdHelperParams.h"
+#endif
 
 #include <folly/futures/Future.h>
 
