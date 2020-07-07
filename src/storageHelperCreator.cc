@@ -33,6 +33,7 @@
 #endif
 
 #if WITH_WEBDAV
+#include "httpHelper.h"
 #include "webDAVHelper.h"
 #endif
 
@@ -227,6 +228,11 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     if (name == WEBDAV_HELPER_NAME)
         helper = WebDAVHelperFactory{m_webDAVExecutor}
                      .createStorageHelperWithOverride(args, overrideParams);
+
+    if (name == HTTP_HELPER_NAME)
+        helper =
+            HTTPHelperFactory{m_webDAVExecutor}.createStorageHelperWithOverride(
+                args, overrideParams);
 #endif
 
 #if WITH_XROOTD
