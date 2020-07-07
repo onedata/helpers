@@ -30,82 +30,82 @@
 namespace one {
 namespace helpers {
 
+namespace {
 /**
  * Convert HTTP Status Code to appropriate POSIX error
  */
 static int httpStatusToPosixError(uint16_t httpStatus)
 {
-    const auto kHTTPStatusDivider = 100;
-    if (httpStatus / kHTTPStatusDivider == 2)
+    const auto kWebDAVStatusDivider = 100;
+    if (httpStatus / kWebDAVStatusDivider == 2)
         return 0;
 
-    if (httpStatus / kHTTPStatusDivider < 4)
+    if (httpStatus / kWebDAVStatusDivider < 4)
         return EIO;
 
-    switch (httpStatus) {
-        case HTTPStatus::BadRequest:
+    switch (static_cast<WebDAVStatus>(httpStatus)) {
+        case WebDAVStatus::BadRequest:
             return EBADMSG;
-        case HTTPStatus::Unauthorized:
-        case HTTPStatus::Forbidden:
+        case WebDAVStatus::Unauthorized:
+        case WebDAVStatus::Forbidden:
             return EPERM;
-        case HTTPStatus::NotFound:
+        case WebDAVStatus::NotFound:
             return ENOENT;
-        case HTTPStatus::MethodNotAllowed:
+        case WebDAVStatus::MethodNotAllowed:
             return ENOTSUP;
-        case HTTPStatus::NotAcceptable:
+        case WebDAVStatus::NotAcceptable:
             return EACCES;
-        case HTTPStatus::ProxyAuthenticationRequired:
+        case WebDAVStatus::ProxyAuthenticationRequired:
             return EACCES;
-        case HTTPStatus::RequestTimeout:
+        case WebDAVStatus::RequestTimeout:
             return EAGAIN;
-        case HTTPStatus::Conflict:
+        case WebDAVStatus::Conflict:
             return EBADMSG;
-        case HTTPStatus::Gone:
+        case WebDAVStatus::Gone:
             return ENXIO;
-        case HTTPStatus::LengthRequired:
+        case WebDAVStatus::LengthRequired:
             return EINVAL;
-        case HTTPStatus::PreconditionFailed:
+        case WebDAVStatus::PreconditionFailed:
             return EINVAL;
-        case HTTPStatus::PayloadTooLarge:
+        case WebDAVStatus::PayloadTooLarge:
             return EFBIG;
-        case HTTPStatus::URITooLong:
+        case WebDAVStatus::URITooLong:
             return EINVAL;
-        case HTTPStatus::UnsupportedMediaType:
+        case WebDAVStatus::UnsupportedMediaType:
             return EINVAL;
-        case HTTPStatus::RangeNotSatisfiable:
+        case WebDAVStatus::RangeNotSatisfiable:
             return ERANGE;
-        case HTTPStatus::ExpectationFailed:
+        case WebDAVStatus::ExpectationFailed:
             return EINVAL;
-        case HTTPStatus::UpgradeRequired:
+        case WebDAVStatus::UpgradeRequired:
             return EINVAL;
-        case HTTPStatus::PreconditionRequired:
+        case WebDAVStatus::PreconditionRequired:
             return EINVAL;
-        case HTTPStatus::TooManyRequests:
+        case WebDAVStatus::TooManyRequests:
             return EBUSY;
-        case HTTPStatus::RequestHeaderFieldsTooLarge:
+        case WebDAVStatus::RequestHeaderFieldsTooLarge:
             return EFBIG;
-        case HTTPStatus::UnavailableForLegalReasons:
+        case WebDAVStatus::UnavailableForLegalReasons:
             return EPERM;
-        case HTTPStatus::InternalServerError:
+        case WebDAVStatus::InternalServerError:
             return EIO;
-        case HTTPStatus::NotImplemented:
+        case WebDAVStatus::NotImplemented:
             return ENOTSUP;
-        case HTTPStatus::BadGateway:
+        case WebDAVStatus::BadGateway:
             return ENXIO;
-        case HTTPStatus::ServiceUnavailable:
+        case WebDAVStatus::ServiceUnavailable:
             return ENXIO;
-        case HTTPStatus::GatewayTimeout:
+        case WebDAVStatus::GatewayTimeout:
             return EAGAIN;
-        case HTTPStatus::HTTPVersionNotSupported:
+        case WebDAVStatus::HTTPVersionNotSupported:
             return EINVAL;
-        case HTTPStatus::NetworkAuthenticationRequired:
+        case WebDAVStatus::NetworkAuthenticationRequired:
             return EACCES;
         default:
             return EIO;
     }
 }
 
-namespace {
 // Retry only in case one of these errors occured
 const std::set<int> WebDAV_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
     EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
@@ -226,7 +226,7 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
 
             return (*getRequest)(fileId, offset, size)
                 .onError([fileId, self, offset, size, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV read request of file "
                                << fileId << " to: " << redirect.location;
                     return self->read(offset, size, retryCount - 1,
@@ -350,7 +350,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
                             return size;
                         })
                     .onError([fileId, self, offset, queue, retryCount](
-                                 const HTTPFoundException &redirect) {
+                                 const WebDAVFoundException &redirect) {
                         LOG_DBG(2)
                             << "Redirecting WebDAV write request of file "
                             << fileId << " to: " << redirect.location;
@@ -503,7 +503,7 @@ folly::Future<folly::Unit> WebDAVHelper::access(const folly::fbstring &fileId,
                         return folly::makeFuture();
                     })
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV access request of file "
                                << fileId << " to: " << redirect.location;
                     return self->access(fileId, {}, retryCount - 1,
@@ -641,7 +641,7 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
                         return attrs;
                     })
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV getattr request of file "
                                << fileId << " to: " << redirect.location;
                     return self->getattr(
@@ -711,7 +711,7 @@ folly::Future<folly::Unit> WebDAVHelper::unlink(const folly::fbstring &fileId,
             return (*request)(fileId)
                 .then(session->evb, [request]() { return folly::makeFuture(); })
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV unlink request of file "
                                << fileId << " to: " << redirect.location;
                     return self->unlink(fileId, {}, retryCount - 1,
@@ -779,7 +779,7 @@ folly::Future<folly::Unit> WebDAVHelper::rmdir(const folly::fbstring &fileId,
             return (*request)(fileId)
                 .then(session->evb, [request]() { return folly::makeFuture(); })
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV rmdir request of file "
                                << fileId << " to: " << redirect.location;
                     return self->rmdir(
@@ -865,7 +865,7 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
             return (*request)(fileId, size, std::move(fillBuf))
                 .then(session->evb, [request]() { return folly::makeFuture(); })
                 .onError([fileId, size, currentSize, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV truncate request of file "
                                << fileId << " to: " << redirect.location;
                     return self->truncate(fileId, size, currentSize,
@@ -935,7 +935,7 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
 
             return (*request)(fileId, 0, std::make_unique<folly::IOBuf>())
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV mknod request of file "
                                << fileId << " to: " << redirect.location;
                     return self->mknod(fileId, {}, {}, {}, retryCount - 1,
@@ -1023,7 +1023,7 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(const folly::fbstring &fileId,
             return (*request)(fileId)
                 .then(session->evb, [request]() { return folly::makeFuture(); })
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV mkdir request of file "
                                << fileId << " to: " << redirect.location;
                     return self->mkdir(fileId, {}, retryCount - 1,
@@ -1099,7 +1099,7 @@ folly::Future<folly::Unit> WebDAVHelper::rename(const folly::fbstring &from,
             return (*request)(from, to)
                 .then(session->evb, [request]() { return folly::makeFuture(); })
                 .onError([from, to, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV rename request of file "
                                << from << " to: " << redirect.location;
                     return self->rename(
@@ -1260,7 +1260,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                         }
                     })
                 .onError([fileId, offset, count, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV readdir request of file "
                                << fileId << " to: " << redirect.location;
                     return self->readdir(fileId, offset, count, retryCount - 1,
@@ -1368,7 +1368,7 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
                         return result;
                     })
                 .onError([fileId, name, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV getxattr request of file "
                                << fileId << " to: " << redirect.location;
                     return self->getxattr(fileId, name, retryCount - 1,
@@ -1445,7 +1445,7 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
             return (*request)(fileId, name, value, false)
                 .then(session->evb, [fileId, name, request]() {})
                 .onError([fileId, name, value, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting WebDAV setxattr request of file "
                                << fileId << " to: " << redirect.location;
                     return self->setxattr(fileId, name, value, {}, {},
@@ -1521,7 +1521,7 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
             return (*request)(fileId, name, "", true)
                 .then(session->evb, [fileId, name, request]() {})
                 .onError([fileId, name, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2)
                         << "Redirecting WebDAV removexattr request of file "
                         << fileId << " to: " << redirect.location;
@@ -1619,7 +1619,7 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
                         return result;
                     })
                 .onError([fileId, self, retryCount](
-                             const HTTPFoundException &redirect) {
+                             const WebDAVFoundException &redirect) {
                     LOG_DBG(2)
                         << "Redirecting WebDAV listxattr request of file "
                         << fileId << " to: " << redirect.location;
@@ -2064,10 +2064,10 @@ void WebDAVGET::onError(const proxygen::HTTPException &error) noexcept
 
 void WebDAVGET::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2121,10 +2121,10 @@ folly::Future<folly::Unit> WebDAVPUT::operator()(
 
 void WebDAVPUT::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2182,10 +2182,10 @@ void WebDAVPATCH::onHeadersComplete(
 
 void WebDAVPATCH::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2224,10 +2224,10 @@ folly::Future<folly::Unit> WebDAVMKCOL::operator()(
 
 void WebDAVMKCOL::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2282,10 +2282,10 @@ void WebDAVPROPFIND::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void WebDAVPROPFIND::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2421,10 +2421,10 @@ void WebDAVPROPPATCH::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void WebDAVPROPPATCH::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2502,10 +2502,10 @@ folly::Future<folly::Unit> WebDAVDELETE::operator()(
 
 void WebDAVDELETE::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2546,10 +2546,10 @@ folly::Future<folly::Unit> WebDAVMOVE::operator()(
 
 void WebDAVMOVE::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 
@@ -2591,10 +2591,10 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
 
 void WebDAVCOPY::onEOM() noexcept
 {
-    if (m_resultCode == HTTPStatus::Found) {
+    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
         // The request is being redirected to another URL
         m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
+            WebDAVFoundException{m_redirectURL.toString()});
         return;
     }
 

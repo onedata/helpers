@@ -27,7 +27,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
 
     constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
     constexpr auto kDefaultConnectionPoolSize = 10u;
-    constexpr auto kDefaultMaximumPoolSize = 0u;
+    constexpr auto kDefaultMaximumUploadSize = 0u;
     constexpr auto kDefaultAccessTokenTTL = 0u;
 
     const auto &endpoint = getParam(parameters, "endpoint");
@@ -47,7 +47,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     const auto connectionPoolSize = getParam<uint32_t>(
         parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
     const auto maximumUploadSize = getParam<size_t>(
-        parameters, "maximumUploadSize", kDefaultMaximumPoolSize);
+        parameters, "maximumUploadSize", kDefaultMaximumUploadSize);
     const auto fileMode = getParam(parameters, "fileMode", "0644");
     const auto dirMode = getParam(parameters, "dirMode", "0775");
 
