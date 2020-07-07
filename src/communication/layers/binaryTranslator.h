@@ -100,9 +100,9 @@ template <class LowerLayer>
 auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
-    return LowerLayer::setOnMessageCallback([onMessageCallback =
-                                                 std::move(onMessageCallback)](
-        std::string message) {
+    return LowerLayer::setOnMessageCallback([onMessageCallback = std::move(
+                                                 onMessageCallback)](
+                                                std::string message) {
         LOG_DBG(2) << "Received low level message of size: " << message.size();
         auto serverMsg = std::make_unique<clproto::ServerMessage>();
         if (serverMsg->ParseFromString(message)) {

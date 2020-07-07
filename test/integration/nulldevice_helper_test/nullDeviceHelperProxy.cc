@@ -117,10 +117,9 @@ public:
 
         return m_helper->access(fileId, 0)
             .then(writeLambda)
-            .onError([
-                mknodLambda = mknodLambda, writeLambda = writeLambda,
-                executor = std::make_shared<one::AsioExecutor>(m_service)
-            ](std::exception const &e) {
+            .onError([mknodLambda = mknodLambda, writeLambda = writeLambda,
+                         executor = std::make_shared<one::AsioExecutor>(
+                             m_service)](std::exception const &e) {
                 return folly::via(executor.get(), mknodLambda)
                     .then(writeLambda)
                     .get();

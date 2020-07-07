@@ -201,19 +201,17 @@ private:
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
                     << LOG_FARG(isPrefetch);
 
+        using one::logging::log_timer;
         using one::logging::csv::log;
         using one::logging::csv::read_write_perf;
-        using one::logging::log_timer;
 
         log_timer<> timer;
 
         m_cache.emplace_back(
             std::make_shared<ReadData>(offset, size, isPrefetch));
         m_handle.read(offset, size)
-            .then([
-                readData = m_cache.back(), timer, offset, size,
-                fileId = m_handle.fileId()
-            ](folly::IOBufQueue buf) {
+            .then([readData = m_cache.back(), timer, offset, size,
+                      fileId = m_handle.fileId()](folly::IOBufQueue buf) {
                 log<read_write_perf>(fileId, "ReadCache", "prefetch", offset,
                     size, timer.stop());
 
@@ -256,17 +254,17 @@ private:
                 }));
 #endif
 
+        using one::logging::log_timer;
         using one::logging::csv::log;
         using one::logging::csv::read_write_perf;
-        using one::logging::log_timer;
 
         log_timer<> timer;
 
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([
-            =, s = weak_from_this(), fileId = m_handle.fileId()
-        ]() {
+        return readData->promise.getFuture().then([=, s = weak_from_this(),
+                                                      fileId =
+                                                          m_handle.fileId()]() {
             folly::call_once(readData->measureLatencyFlag, [&] {
                 if (auto self = s.lock()) {
                     const auto latency =

@@ -50,7 +50,7 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
     return m_communicator
         .communicate<messages::proxyio::RemoteData>(std::move(msg))
         .then([timer = std::move(timer)](
-            const messages::proxyio::RemoteData &rd) mutable {
+                  const messages::proxyio::RemoteData &rd) mutable {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
             buf.append(rd.data());
             LOG_DBG(2) << "Received " << buf.chainLength()
@@ -98,7 +98,7 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
     return m_communicator
         .communicate<messages::proxyio::RemoteWriteResult>(std::move(msg))
         .then([timer = std::move(timer)](
-            const messages::proxyio::RemoteWriteResult &result) mutable {
+                  const messages::proxyio::RemoteWriteResult &result) mutable {
             ONE_METRIC_TIMERCTX_STOP(timer, result.wrote());
             LOG_DBG(2) << "Written " << result.wrote() << " bytes";
             return result.wrote();

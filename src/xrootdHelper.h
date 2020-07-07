@@ -1,0 +1,222 @@
+/**
+ * @file xrootdHelper.h
+ * @author Bartek Kryza
+ * @copyright (C) 2020 ACK CYFRONET AGH
+ * @copyright This software is released under the MIT license cited in
+ * 'LICENSE.txt'
+ */
+
+#pragma once
+
+#include "helpers/storageHelper.h"
+#include "xrootdHelperParams.h"
+
+#include "helpers/logging.h"
+
+#include <XrdCl/XrdClFile.hh>
+#include <folly/Executor.h>
+#include <folly/executors/IOExecutor.h>
+
+namespace one {
+namespace helpers {
+
+constexpr auto kXRootDRetryCount = 6;
+
+class XRootDHelper;
+
+/**
+ * The @c FileHandle implementation for XRootD storage helper.
+ */
+class XRootDFileHandle : public FileHandle,
+                         public std::enable_shared_from_this<XRootDFileHandle> {
+public:
+    /**
+     * Constructor.
+     * @param fileId XRootD-specific ID associated with the file.
+     * @param helper A pointer to the helper that created the handle.
+     */
+    XRootDFileHandle(folly::fbstring fileId,
+        std::unique_ptr<XrdCl::File> &&file,
+        std::shared_ptr<XRootDHelper> helper);
+
+    folly::Future<folly::IOBufQueue> read(
+        const off_t offset, const std::size_t size) override;
+
+    folly::Future<folly::IOBufQueue> read(
+        const off_t offset, const std::size_t size, const int retryCount);
+
+    folly::Future<std::size_t> write(
+        const off_t offset, folly::IOBufQueue buf) override;
+
+    folly::Future<std::size_t> write(
+        const off_t offset, folly::IOBufQueue buf, const int retryCount);
+
+    folly::Future<folly::Unit> release() override;
+
+    folly::Future<folly::Unit> release(const int retryCount);
+
+    folly::Future<folly::Unit> fsync(bool isDataSync) override;
+
+    folly::Future<folly::Unit> fsync(bool isDataSync, const int retryCount);
+
+    const Timeout &timeout() override;
+
+private:
+    const folly::fbstring m_fileId;
+
+    std::unique_ptr<XrdCl::File> m_file;
+};
+
+/**
+ * The XRootDHelper class provides access to XRootD storage via librados
+ * library.
+ */
+class XRootDHelper : public StorageHelper,
+                     public std::enable_shared_from_this<XRootDHelper> {
+public:
+    /**
+     * Constructor.
+     * operations.
+     */
+    XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
+        std::shared_ptr<folly::IOExecutor> executor);
+
+    /**
+     * Destructor.
+     * Closes connection to XRootD storage cluster and destroys internal
+     * context object.
+     */
+    ~XRootDHelper() = default;
+
+    folly::fbstring name() const override { return XROOTD_HELPER_NAME; };
+
+    folly::Future<folly::Unit> access(
+        const folly::fbstring &fileId, const int mask) override;
+
+    folly::Future<folly::Unit> access(
+        const folly::fbstring &fileId, const int mask, const int retryCount);
+
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
+
+    folly::Future<struct stat> getattr(
+        const folly::fbstring &fileId, const int retryCount);
+
+    folly::Future<FileHandlePtr> open(
+        const folly::fbstring &fileId, const int, const Params &) override;
+
+    folly::Future<folly::Unit> unlink(
+        const folly::fbstring &fileId, const size_t currentSize) override;
+
+    folly::Future<folly::Unit> unlink(const folly::fbstring &fileId,
+        const size_t currentSize, const int retryCount);
+
+    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
+
+    folly::Future<folly::Unit> rmdir(
+        const folly::fbstring &fileId, const int retryCount);
+
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize) override;
+
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize, const int retryCount);
+
+    folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
+
+    folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev,
+        const int retryCount);
+
+    folly::Future<folly::Unit> mkdir(
+        const folly::fbstring &fileId, const mode_t mode) override;
+
+    folly::Future<folly::Unit> mkdir(
+        const folly::fbstring &fileId, const mode_t mode, const int retryCount);
+
+    folly::Future<folly::Unit> rename(
+        const folly::fbstring &from, const folly::fbstring &to) override;
+
+    folly::Future<folly::Unit> rename(const folly::fbstring &from,
+        const folly::fbstring &to, const int retryCount);
+
+    folly::Future<folly::Unit> chmod(
+        const folly::fbstring &fileId, const mode_t mode) override
+    {
+        return folly::makeFuture();
+    }
+
+    folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
+        const uid_t uid, const gid_t gid) override
+    {
+        return folly::makeFuture();
+    }
+
+    folly::Future<folly::fbvector<folly::fbstring>> readdir(
+        const folly::fbstring &fileId, off_t offset, size_t count) override;
+
+    folly::Future<folly::fbvector<folly::fbstring>> readdir(
+        const folly::fbstring &fileId, off_t offset, size_t count,
+        const int retryCount);
+
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
+
+    XRootDCredentialsType credentialsType() const
+    {
+        return P()->credentialsType();
+    }
+
+    XrdCl::URL url() const { return P()->url(); }
+
+    folly::fbstring credentials() const { return P()->credentials(); }
+
+    mode_t fileModeMask() const { return P()->fileModeMask(); }
+
+    mode_t dirModeMask() const { return P()->dirModeMask(); }
+
+private:
+    std::shared_ptr<XRootDHelperParams> P() const
+    {
+        return std::dynamic_pointer_cast<XRootDHelperParams>(params().get());
+    }
+
+    std::shared_ptr<folly::IOExecutor> m_executor;
+
+    XrdCl::FileSystem m_fs;
+};
+
+/**
+ * An implementation of @c StorageHelperFactory for XRootD storage helper.
+ */
+class XRootDHelperFactory : public StorageHelperFactory {
+public:
+    /**
+     * Constructor.
+     * @param service @c io_service that will be used for some async
+     * operations.
+     */
+    XRootDHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
+    {
+        LOG_FCALL();
+    }
+
+    virtual folly::fbstring name() const override { return XROOTD_HELPER_NAME; }
+
+    const std::vector<folly::fbstring> overridableParams() const override
+    {
+        return {"url", "timeout", "credentialsType", "credentials"};
+    };
+
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
+    {
+        return std::make_shared<XRootDHelper>(
+            XRootDHelperParams::create(parameters), m_executor);
+    }
+
+private:
+    std::shared_ptr<folly::IOExecutor> m_executor;
+};
+
+} // namespace helpers
+} // namespace one

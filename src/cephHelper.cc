@@ -57,46 +57,46 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
 
     auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
 
-    return helper->connect().then([
-        this, offset, size,
-        s = std::weak_ptr<CephFileHandle>{shared_from_this()}, helper,
-        timer = std::move(timer)
-    ] {
-        auto self = s.lock();
-        if (!self)
-            return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
+    return helper->connect().then(
+        [this, offset, size,
+            s = std::weak_ptr<CephFileHandle>{shared_from_this()}, helper,
+            timer = std::move(timer)] {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
 
-        folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
-        char *raw = static_cast<char *>(buffer.preallocate(size, size).first);
-        librados::bufferlist data;
-        libradosstriper::RadosStriper &rs = helper->getRadosStriper();
+            folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
+            char *raw =
+                static_cast<char *>(buffer.preallocate(size, size).first);
+            librados::bufferlist data;
+            libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
-        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
-                   << offset << " from file " << m_fileId;
+            LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
+                       << offset << " from file " << m_fileId;
 
-        auto ret = retry(
-            [&]() {
-                return rs.read(m_fileId.toStdString(), &data, size, offset);
-            },
-            std::bind(CephRetryCondition, _1, "read"));
+            auto ret = retry(
+                [&]() {
+                    return rs.read(m_fileId.toStdString(), &data, size, offset);
+                },
+                std::bind(CephRetryCondition, _1, "read"));
 
-        if (ret < 0) {
-            LOG_DBG(1) << "Read failed from " << m_fileId
-                       << " with error:" << ret;
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.read");
-            return makeFuturePosixException<folly::IOBufQueue>(ret);
-        }
+            if (ret < 0) {
+                LOG_DBG(1) << "Read failed from " << m_fileId
+                           << " with error:" << ret;
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.read");
+                return makeFuturePosixException<folly::IOBufQueue>(ret);
+            }
 
-        LOG_DBG(2) << "Read " << ret << " bytes at offset " << offset
-                   << " from file " << m_fileId;
+            LOG_DBG(2) << "Read " << ret << " bytes at offset " << offset
+                       << " from file " << m_fileId;
 
-        data.copy(0, ret, raw);
-        buffer.postallocate(ret);
+            data.copy(0, ret, raw);
+            buffer.postallocate(ret);
 
-        ONE_METRIC_TIMERCTX_STOP(timer, ret);
+            ONE_METRIC_TIMERCTX_STOP(timer, ret);
 
-        return folly::makeFuture(std::move(buffer));
-    });
+            return folly::makeFuture(std::move(buffer));
+        });
 }
 
 folly::Future<std::size_t> CephFileHandle::write(
@@ -108,49 +108,49 @@ folly::Future<std::size_t> CephFileHandle::write(
 
     auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
 
-    return helper->connect().then([
-        this, buf = std::move(buf), offset, helper,
-        s = std::weak_ptr<CephFileHandle>{shared_from_this()},
-        timer = std::move(timer)
-    ]() mutable {
-        auto self = s.lock();
-        if (!self)
-            return makeFuturePosixException<std::size_t>(ECANCELED);
+    return helper->connect().then(
+        [this, buf = std::move(buf), offset, helper,
+            s = std::weak_ptr<CephFileHandle>{shared_from_this()},
+            timer = std::move(timer)]() mutable {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<std::size_t>(ECANCELED);
 
-        auto size = buf.chainLength();
-        librados::bufferlist data;
+            auto size = buf.chainLength();
+            librados::bufferlist data;
 
-        if (size > 0u) {
-            for (auto &byteRange : *buf.front())
-                data.append(ceph::buffer::create_static(byteRange.size(),
-                    reinterpret_cast<char *>(        // NOLINT
-                        const_cast<unsigned char *>( // NOLINT
-                            byteRange.data()))));    // NOLINT
-        }
+            if (size > 0u) {
+                for (auto &byteRange : *buf.front())
+                    data.append(ceph::buffer::create_static(byteRange.size(),
+                        reinterpret_cast<char *>(        // NOLINT
+                            const_cast<unsigned char *>( // NOLINT
+                                byteRange.data()))));    // NOLINT
+            }
 
-        LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
-                   << offset << " to file " << m_fileId;
-        libradosstriper::RadosStriper &rs = helper->getRadosStriper();
+            LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
+                       << offset << " to file " << m_fileId;
+            libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
-        auto ret = retry([&, data = std::move(data) ]() {
-            return rs.write(m_fileId.toStdString(), data, size, offset);
-        },
-            std::bind(CephRetryCondition, _1, "write"));
+            auto ret = retry(
+                [&, data = std::move(data)]() {
+                    return rs.write(m_fileId.toStdString(), data, size, offset);
+                },
+                std::bind(CephRetryCondition, _1, "write"));
 
-        if (ret < 0) {
-            LOG_DBG(1) << "Write failed to" << m_fileId
-                       << " with error:" << ret;
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.write");
-            return makeFuturePosixException<std::size_t>(ret);
-        }
+            if (ret < 0) {
+                LOG_DBG(1) << "Write failed to" << m_fileId
+                           << " with error:" << ret;
+                ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.write");
+                return makeFuturePosixException<std::size_t>(ret);
+            }
 
-        LOG_DBG(2) << "Written " << ret << " bytes at offset " << offset
-                   << " to file " << m_fileId;
+            LOG_DBG(2) << "Written " << ret << " bytes at offset " << offset
+                       << " to file " << m_fileId;
 
-        ONE_METRIC_TIMERCTX_STOP(timer, size);
+            ONE_METRIC_TIMERCTX_STOP(timer, size);
 
-        return folly::makeFuture(size);
-    });
+            return folly::makeFuture(size);
+        });
 }
 
 const Timeout &CephFileHandle::timeout() { return m_helper->timeout(); }
@@ -194,7 +194,7 @@ folly::Future<folly::Unit> CephHelper::unlink(
     LOG_FCALL() << LOG_FARG(fileId);
 
     return connect().then(
-        [ this, fileId, s = std::weak_ptr<CephHelper>{shared_from_this()} ] {
+        [this, fileId, s = std::weak_ptr<CephHelper>{shared_from_this()}] {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException(ECANCELED);
@@ -232,10 +232,9 @@ folly::Future<folly::Unit> CephHelper::truncate(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.ceph.truncate");
 
-    return connect().then([
-        this, size, fileId, s = std::weak_ptr<CephHelper>{shared_from_this()},
-        timer = std::move(timer)
-    ] {
+    return connect().then([this, size, fileId,
+                              s = std::weak_ptr<CephHelper>{shared_from_this()},
+                              timer = std::move(timer)] {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException(ECANCELED);
@@ -282,37 +281,37 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return connect().then([
-        this, fileId, name, s = std::weak_ptr<CephHelper>{shared_from_this()}
-    ] {
-        auto self = s.lock();
-        if (!self)
-            return makeFuturePosixException<folly::fbstring>(ECANCELED);
+    return connect().then(
+        [this, fileId, name,
+            s = std::weak_ptr<CephHelper>{shared_from_this()}] {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::fbstring>(ECANCELED);
 
-        std::string xattrValue;
+            std::string xattrValue;
 
-        LOG_DBG(2) << "Getting extended attribute " << name << " from file "
-                   << fileId;
+            LOG_DBG(2) << "Getting extended attribute " << name << " from file "
+                       << fileId;
 
-        librados::bufferlist bl;
-        auto ret = retry(
-            [&]() {
-                return m_radosStriper.getxattr(
-                    fileId.toStdString(), name.c_str(), bl);
-            },
-            std::bind(CephRetryCondition, _1, "getxattr"));
+            librados::bufferlist bl;
+            auto ret = retry(
+                [&]() {
+                    return m_radosStriper.getxattr(
+                        fileId.toStdString(), name.c_str(), bl);
+                },
+                std::bind(CephRetryCondition, _1, "getxattr"));
 
-        if (ret < 0) {
-            LOG_DBG(1) << "Getting extended attribute failed: " << ret;
-            return makeFuturePosixException<folly::fbstring>(ret);
-        }
+            if (ret < 0) {
+                LOG_DBG(1) << "Getting extended attribute failed: " << ret;
+                return makeFuturePosixException<folly::fbstring>(ret);
+            }
 
-        bl.copy(0, ret, xattrValue);
+            bl.copy(0, ret, xattrValue);
 
-        LOG_DBG(2) << "Got extended attribute with value: " << xattrValue;
+            LOG_DBG(2) << "Got extended attribute with value: " << xattrValue;
 
-        return folly::makeFuture<folly::fbstring>(xattrValue);
-    });
+            return folly::makeFuture<folly::fbstring>(xattrValue);
+        });
 }
 
 folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
@@ -322,10 +321,9 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name) << LOG_FARG(value)
                 << LOG_FARG(create) << LOG_FARG(replace);
 
-    return connect().then([
-        this, fileId, name, value, create, replace,
-        s = std::weak_ptr<CephHelper>{shared_from_this()}
-    ] {
+    return connect().then([this, fileId, name, value, create, replace,
+                              s = std::weak_ptr<CephHelper>{
+                                  shared_from_this()}] {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException(ECANCELED);
@@ -409,34 +407,34 @@ folly::Future<folly::Unit> CephHelper::removexattr(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return connect().then([
-        this, fileId, name, s = std::weak_ptr<CephHelper>{shared_from_this()}
-    ] {
-        auto self = s.lock();
-        if (!self)
-            return makeFuturePosixException(ECANCELED);
+    return connect().then(
+        [this, fileId, name,
+            s = std::weak_ptr<CephHelper>{shared_from_this()}] {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException(ECANCELED);
 
-        LOG_DBG(2) << "Attempting to remove extended attribute " << name
-                   << " for file " << fileId;
+            LOG_DBG(2) << "Attempting to remove extended attribute " << name
+                       << " for file " << fileId;
 
-        auto ret = retry(
-            [&]() {
-                return m_radosStriper.rmxattr(
-                    fileId.toStdString(), name.c_str());
-            },
-            std::bind(CephRetryCondition, _1, "rmxattr"));
+            auto ret = retry(
+                [&]() {
+                    return m_radosStriper.rmxattr(
+                        fileId.toStdString(), name.c_str());
+                },
+                std::bind(CephRetryCondition, _1, "rmxattr"));
 
-        if (ret < 0) {
-            LOG_DBG(1) << "Failed to remove extended attribute " << name
-                       << " for file " << fileId << " with error: " << ret;
-            return makeFuturePosixException<folly::Unit>(ret);
-        }
+            if (ret < 0) {
+                LOG_DBG(1) << "Failed to remove extended attribute " << name
+                           << " for file " << fileId << " with error: " << ret;
+                return makeFuturePosixException<folly::Unit>(ret);
+            }
 
-        LOG_DBG(2) << "Removed extended attribute " << name << " from file "
-                   << fileId;
+            LOG_DBG(2) << "Removed extended attribute " << name << " from file "
+                       << fileId;
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
@@ -445,9 +443,9 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
     LOG_FCALL() << LOG_FARG(fileId);
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-    return connect().then([
-        this, fileId, s = std::weak_ptr<CephHelper>{shared_from_this()}
-    ] {
+    return connect().then([this, fileId,
+                              s = std::weak_ptr<CephHelper>{
+                                  shared_from_this()}] {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException<folly::fbvector<folly::fbstring>>(
@@ -489,7 +487,7 @@ folly::Future<folly::Unit> CephHelper::connect()
     LOG_FCALL();
 
     return folly::via(m_executor.get(),
-        [ this, s = std::weak_ptr<CephHelper>{shared_from_this()} ] {
+        [this, s = std::weak_ptr<CephHelper>{shared_from_this()}] {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException(ECANCELED);

@@ -207,7 +207,7 @@ auto Sequencer<LowerLayer, Scheduler>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
     return LowerLayer::setOnMessageCallback(
-        [ this, onMessageCallback = std::move(onMessageCallback) ](
+        [this, onMessageCallback = std::move(onMessageCallback)](
             ServerMessagePtr serverMsg) {
             if (!serverMsg->has_message_stream())
                 onMessageCallback(std::move(serverMsg));

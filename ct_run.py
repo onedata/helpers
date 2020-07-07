@@ -40,12 +40,13 @@ parser.add_argument(
     '--valgrind',
     action='store_true',
     default=False,
-    help='run tests under Valgrind')
+    help='run tests under Valgrind',
+    dest='valgrind')
 
 parser.add_argument(
     '--image', '-i',
     action='store',
-    default='onedata/builder:2002-1',
+    default='onedata/builder:2002-2',
     help='docker image to use as a test master',
     dest='image')
 
@@ -69,10 +70,10 @@ base_test_dir = os.path.join(os.path.realpath(args.release), 'test',
                              'integration')
 test_dirs = map(lambda suite: os.path.join(base_test_dir, suite), args.suites)
 if args.valgrind:
-    if len(test_dirs) != 1: 
+    if len(test_dirs) != 1:
         raise SystemExit('Valgrind test run requires specification of a single '
                          'test case suite, e.g. \'--suite ceph_helper_test\'')
-    if args.gdb: 
+    if args.gdb:
         raise SystemExit('GDB and Valgrind cannot be used simultanously for '
                          'tests')
 

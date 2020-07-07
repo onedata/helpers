@@ -157,8 +157,8 @@ public:
         auto promise = std::make_shared<folly::Promise<SvrMsg>>();
         auto future = promise->getFuture();
         auto callback = [promise = std::move(promise)](
-            const std::error_code &ec, ServerMessagePtr protoMessage)
-        {
+                            const std::error_code &ec,
+                            ServerMessagePtr protoMessage) {
             if (ec) {
                 LOG(ERROR) << "Communicate error: " << ec.message() << "("
                            << ec.value() << ")";

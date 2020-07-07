@@ -6,6 +6,7 @@ option(WITH_S3 "Include S3 direct IO support" ON)
 option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
 option(WITH_WEBDAV "Include WebDAV direct IO support" ON)
+option(WITH_XROOTD "Include XRootD direct IO support" ON)
 option(WITH_TESTS "Build tests" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
 
@@ -159,6 +160,13 @@ else(WITH_WEBDAV)
     add_definitions(-DWITH_WEBDAV=0)
 endif(WITH_WEBDAV)
 
+if(WITH_XROOTD)
+    include(/usr/share/xrootd/cmake/XRootDConfig.cmake)
+    find_package(XRootD REQUIRED)
+    add_definitions(-DWITH_XROOTD=1)
+else(WITH_XROOTD)
+    add_definitions(-DWITH_XROOTD=0)
+endif(WITH_XROOTD)
 
 # Setup compile flags
 set(PLATFORM_EXTRA_LIBS
@@ -234,6 +242,10 @@ endif(WITH_GLUSTERFS)
 if(WITH_WEBDAV)
     list(APPEND HELPERS_LIBRARIES ${PROXYGEN_LIBRARY})
 endif(WITH_WEBDAV)
+
+if(WITH_XROOTD)
+    list(APPEND HELPERS_LIBRARIES ${XROOTD_LIBRARIES})
+endif(WITH_XROOTD)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
 target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})

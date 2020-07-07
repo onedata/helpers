@@ -176,9 +176,8 @@ void Inbox<LowerLayer>::communicate(
             std::chrono::system_clock::now(), messageName};
     }
 
-    auto sendErrorCallback =
-        [ this, messageId = std::move(messageId) ](const std::error_code &ec)
-    {
+    auto sendErrorCallback = [this, messageId = std::move(messageId)](
+                                 const std::error_code &ec) {
         if (ec) {
             typename decltype(m_callbacks)::accessor acc;
             if (m_callbacks.find(acc, messageId)) {

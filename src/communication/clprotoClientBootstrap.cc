@@ -101,9 +101,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
             // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
                 address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
-                .then([
-                    this, addressStr = address.describe(), host, port, executor
-                ](CLProtoPipeline * pipeline) {
+                .then([this, addressStr = address.describe(), host, port,
+                          executor](CLProtoPipeline *pipeline) {
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 

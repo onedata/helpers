@@ -1,13 +1,13 @@
 /**
- * @file webDAVHelperProxy.cc
+ * @file xrootdHelperProxy.cc
  * @author Bartek Kryza
- * @copyright (C) 2018 ACK CYFRONET AGH
+ * @copyright (C) 2020 ACK CYFRONET AGH
  * @copyright This software is released under the MIT license cited in
  * 'LICENSE.txt'
  */
 
 #include "posixHelper.h"
-#include "webDAVHelper.h"
+#include "xrootdHelper.h"
 
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
@@ -25,6 +25,8 @@ using namespace boost::python;
 
 using ReadDirResult = std::vector<std::string>;
 
+using one::helpers::Flag;
+
 class ReleaseGIL {
 public:
     ReleaseGIL()
@@ -36,33 +38,28 @@ private:
     std::unique_ptr<PyThreadState, decltype(&PyEval_RestoreThread)> threadState;
 };
 
-constexpr auto kWebDAVHelperThreadCount = 5u;
-constexpr auto kWebDAVConnectionPoolSize = 10u;
-constexpr auto kWebDAVMaximumUploadSize = 0u;
+constexpr auto kXRootDHelperThreadCount = 5u;
+constexpr auto kXRootDConnectionPoolSize = 10u;
+constexpr auto kXRootDMaximumUploadSize = 0u;
 
-class WebDAVHelperProxy {
+class XRootDHelperProxy {
 public:
-    WebDAVHelperProxy(std::string endpoint, std::string credentials)
+    XRootDHelperProxy(std::string url)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
-              kWebDAVHelperThreadCount)}
+              kXRootDHelperThreadCount)}
     {
         using namespace one::helpers;
 
         std::unordered_map<folly::fbstring, folly::fbstring> params;
-        params["endpoint"] = endpoint;
-        params["verifyServerCertificate"] = "true";
-        params["credentialsType"] = "basic";
-        params["credentials"] = credentials;
-        params["rangeWriteSupport"] = "sabredav";
-        params["connectionPoolSize"] =
-            std::to_string(kWebDAVConnectionPoolSize);
-        params["maximumUploadSize"] = std::to_string(kWebDAVMaximumUploadSize);
+        params["url"] = url;
+        params["credentialsType"] = "none";
+        params["credentials"] = "admin:password";
 
-        m_helper = std::make_shared<WebDAVHelper>(
-            WebDAVHelperParams::create(params), m_executor);
+        m_helper = std::make_shared<XRootDHelper>(
+            XRootDHelperParams::create(params), m_executor);
     }
 
-    ~WebDAVHelperProxy() {}
+    ~XRootDHelperProxy() {}
 
     struct stat getattr(std::string fileId)
     {
@@ -101,14 +98,17 @@ public:
     std::string read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
-        return m_helper->open(fileId, 0, {})
+        return m_helper->open(fileId, O_RDONLY, {})
             .then([&](one::helpers::FileHandlePtr handle) {
-                return handle->read(offset, size);
-            })
-            .then([](folly::IOBufQueue &&buf) {
-                std::string data;
-                buf.appendToString(data);
-                return data;
+                return handle->read(offset, size)
+                    .then([handle](folly::IOBufQueue &&buf) {
+                        return handle->release().then(
+                            [handle, buf = std::move(buf)]() {
+                                std::string data;
+                                buf.appendToString(data);
+                                return data;
+                            });
+                    });
             })
             .get();
     }
@@ -117,19 +117,19 @@ public:
     {
         ReleaseGIL guard;
 
-        auto mknodLambda = [&] {
+        auto mknodLambda = [=] {
             return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
-        auto writeLambda = [&] {
+        auto writeLambda = [=] {
             return m_helper->open(fileId, O_WRONLY, {})
-                .then([&](one::helpers::FileHandlePtr handle) {
+                .then([=](one::helpers::FileHandlePtr handle) {
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
                     return handle->write(offset, std::move(buf))
                         .then([handle](std::size_t size) {
-                            handle->flush();
-                            return size;
+                            return handle->release().then(
+                                [handle, size]() { return size; });
                         });
                 });
         };
@@ -197,34 +197,32 @@ public:
 
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;
-    std::shared_ptr<one::helpers::WebDAVHelper> m_helper;
+    std::shared_ptr<one::helpers::XRootDHelper> m_helper;
 };
 
 namespace {
-boost::shared_ptr<WebDAVHelperProxy> create(
-    std::string endpoint, std::string credentials)
+auto create(std::string url)
 {
-    return boost::make_shared<WebDAVHelperProxy>(
-        std::move(endpoint), std::move(credentials));
+    return boost::make_shared<XRootDHelperProxy>(std::move(url));
 }
 } // namespace
 
-BOOST_PYTHON_MODULE(webdav_helper)
+BOOST_PYTHON_MODULE(xrootd_helper)
 {
-    class_<WebDAVHelperProxy, boost::noncopyable>("WebDAVHelperProxy", no_init)
+    class_<XRootDHelperProxy, boost::noncopyable>("XRootDHelperProxy", no_init)
         .def("__init__", make_constructor(create))
-        .def("getattr", &WebDAVHelperProxy::getattr)
-        .def("unlink", &WebDAVHelperProxy::unlink)
-        .def("rmdir", &WebDAVHelperProxy::rmdir)
-        .def("readdir", &WebDAVHelperProxy::readdir)
-        .def("rename", &WebDAVHelperProxy::rename)
-        .def("read", &WebDAVHelperProxy::read)
-        .def("write", &WebDAVHelperProxy::write)
-        .def("mkdir", &WebDAVHelperProxy::mkdir)
-        .def("mknod", &WebDAVHelperProxy::mknod)
-        .def("truncate", &WebDAVHelperProxy::truncate)
-        .def("getxattr", &WebDAVHelperProxy::getxattr)
-        .def("setxattr", &WebDAVHelperProxy::setxattr)
-        .def("removexattr", &WebDAVHelperProxy::removexattr)
-        .def("listxattr", &WebDAVHelperProxy::listxattr);
+        .def("getattr", &XRootDHelperProxy::getattr)
+        .def("unlink", &XRootDHelperProxy::unlink)
+        .def("rmdir", &XRootDHelperProxy::rmdir)
+        .def("readdir", &XRootDHelperProxy::readdir)
+        .def("rename", &XRootDHelperProxy::rename)
+        .def("read", &XRootDHelperProxy::read)
+        .def("write", &XRootDHelperProxy::write)
+        .def("mkdir", &XRootDHelperProxy::mkdir)
+        .def("mknod", &XRootDHelperProxy::mknod)
+        .def("truncate", &XRootDHelperProxy::truncate)
+        .def("getxattr", &XRootDHelperProxy::getxattr)
+        .def("setxattr", &XRootDHelperProxy::setxattr)
+        .def("removexattr", &XRootDHelperProxy::removexattr)
+        .def("listxattr", &XRootDHelperProxy::listxattr);
 }
