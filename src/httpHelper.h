@@ -339,8 +339,8 @@ private:
         spAcc->second = folly::fbvector<HTTPSessionPtr>();
 
         m_idleSessionPool.insert(ispAcc, key);
-        ispAcc->second =
-            folly::MPMCQueue<HTTPSession *, std::atomic, true>(kHTTPSessionPoolSize);
+        ispAcc->second = folly::MPMCQueue<HTTPSession *, std::atomic, true>(
+            kHTTPSessionPoolSize);
 
         for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
             auto httpSession = std::make_unique<HTTPSession>();
