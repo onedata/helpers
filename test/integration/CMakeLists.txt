@@ -63,6 +63,7 @@ endif(NOT WITH_GLUSTERFS)
 
 if(NOT WITH_WEBDAV)
     list(REMOVE_ITEM TEST_DIRS  webdav_helper_test)
+    list(REMOVE_ITEM TEST_DIRS  http_helper_test)
 endif(NOT WITH_WEBDAV)
 
 if(NOT WITH_XROOTD)

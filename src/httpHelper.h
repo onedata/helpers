@@ -117,7 +117,7 @@ class HTTPHelper;
 class HTTPSession;
 
 using HTTPSessionPtr = std::unique_ptr<HTTPSession>;
-using HTTPSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
+using HTTPSessionPoolKey = std::tuple<folly::fbstring, uint16_t, bool, bool>;
 
 /**
  * Handle 302 redirect by retrying the request.
@@ -321,6 +321,8 @@ public:
 private:
     void initializeSessionPool(const HTTPSessionPoolKey &key)
     {
+        constexpr auto kHTTPSessionPoolSize = 1024u;
+
         // Initialize HTTP session pool with connection to the
         // main host:port as defined in the helper parameters
         // Since some requests may create redirects, these will
@@ -338,7 +340,7 @@ private:
 
         m_idleSessionPool.insert(ispAcc, key);
         ispAcc->second =
-            folly::MPMCQueue<HTTPSession *, std::atomic, true>(100);
+            folly::MPMCQueue<HTTPSession *, std::atomic, true>(kHTTPSessionPoolSize);
 
         for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
             auto httpSession = std::make_unique<HTTPSession>();
@@ -525,7 +527,9 @@ public:
     const Timeout &timeout() override;
 
 private:
-    const folly::fbstring m_fileId;
+    folly::fbstring m_fileId;
+    folly::fbstring m_effectiveFileId;
+    HTTPSessionPoolKey m_sessionPoolKey;
 };
 
 /**
