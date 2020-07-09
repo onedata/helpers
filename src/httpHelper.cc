@@ -34,7 +34,7 @@ namespace {
 /**
  * Convert HTTP Status Code to appropriate POSIX error
  */
-static int httpStatusToPosixError(uint16_t httpStatus)
+int httpStatusToPosixError(uint16_t httpStatus)
 {
     const auto kHTTPStatusDivider = 100;
     if (httpStatus / kHTTPStatusDivider == 2)
@@ -490,7 +490,8 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                     return makeFuturePosixException<struct stat>(
                         e.code().value());
                 })
-                .onError([=](const proxygen::HTTPException &ex) {
+                .onError([=](const proxygen::HTTPException & /*ex*/) {
+                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     if (retryCount > 0) {
                         ONE_METRIC_COUNTER_INC(
                             "comp.helpers.mod.http.getattr.retries")
@@ -997,14 +998,13 @@ void HTTPHEAD::onHeadersComplete(
             HTTPFoundException{m_redirectURL.toString()});
         return;
     }
-    else {
-        auto result = httpStatusToPosixError(m_resultCode);
 
-        if (result != 0)
-            m_resultPromise.setException(makePosixException(result));
-        else
-            m_resultPromise.setValue(std::move(res));
-    }
+    auto result = httpStatusToPosixError(m_resultCode);
+
+    if (result != 0)
+        m_resultPromise.setException(makePosixException(result));
+    else
+        m_resultPromise.setValue(std::move(res));
 }
 
 void HTTPHEAD::onEOM() noexcept {}
