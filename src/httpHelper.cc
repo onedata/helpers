@@ -141,30 +141,6 @@ inline std::string ensureHttpPath(const folly::fbstring &path)
 
     return folly::sformat("{}", result);
 }
-
-inline std::string buildRootPath(
-    const std::string &endpointPath, const std::string &fileId)
-{
-    Poco::StringTokenizer endpointElements(endpointPath, "/",
-        Poco::StringTokenizer::TOK_IGNORE_EMPTY |
-            Poco::StringTokenizer::TOK_TRIM);
-
-    Poco::StringTokenizer fileElements(fileId, "/",
-        Poco::StringTokenizer::TOK_IGNORE_EMPTY |
-            Poco::StringTokenizer::TOK_TRIM);
-
-    std::vector<std::string> elements;
-
-    elements.insert(std::end(elements), std::begin(endpointElements),
-        std::end(endpointElements));
-    elements.insert(
-        std::end(elements), std::begin(fileElements), std::end(fileElements));
-
-    return std::accumulate(elements.begin(), elements.end(), std::string(),
-        [](const std::string &a, const std::string &b) -> std::string {
-            return a + (a.length() > 0 ? "/" : "") + b;
-        });
-}
 } // namespace
 
 void HTTPSession::reset()

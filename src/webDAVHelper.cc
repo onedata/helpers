@@ -34,7 +34,7 @@ namespace {
 /**
  * Convert HTTP Status Code to appropriate POSIX error
  */
-static int httpStatusToPosixError(uint16_t httpStatus)
+int httpStatusToPosixError(uint16_t httpStatus)
 {
     const auto kWebDAVStatusDivider = 100;
     if (httpStatus / kWebDAVStatusDivider == 2)
