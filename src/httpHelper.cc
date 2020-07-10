@@ -580,7 +580,9 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
                             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
                     auto sslCtx = sslContext->getSSLCtx();
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
                     SSL_CTX_set_max_proto_version(sslCtx, TLS1_2_VERSION);
+#endif
                     if (!setupOpenSSLCABundlePath(sslCtx)) {
                         SSL_CTX_set_default_verify_paths(sslCtx);
                     }
