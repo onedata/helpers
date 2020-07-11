@@ -818,6 +818,8 @@ void HTTPRequest::onHeadersComplete(
         m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
     }
     m_resultCode = msg->getStatusCode();
+
+    processHeaders(msg);
 }
 
 void HTTPRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {}
@@ -943,32 +945,10 @@ folly::Future<std::map<folly::fbstring, folly::fbstring>> HTTPHEAD::operator()(
         });
 }
 
-void HTTPHEAD::onHeadersComplete(
-    std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
+void HTTPHEAD::processHeaders(
+    const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept
 {
     std::map<folly::fbstring, folly::fbstring> res{};
-
-    // Ensure that the server allows reading byte ranges from resources
-    if (msg->getHeaders().getNumberOfValues("content-type") == 0u ||
-        msg->getHeaders().rawGet("accept-ranges") != "bytes") {
-        LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
-                   << msg->getPath();
-        m_resultPromise.setException(makePosixException(ENOTSUP));
-        return;
-    }
-
-    if (msg->getHeaders().getNumberOfValues("content-type") != 0u) {
-        res.emplace("content-type", msg->getHeaders().rawGet("content-type"));
-    }
-    if (msg->getHeaders().getNumberOfValues("last-modified") != 0u) {
-        res.emplace("last-modified", msg->getHeaders().rawGet("last-modified"));
-    }
-    if (msg->getHeaders().getNumberOfValues("content-length") != 0u) {
-        res.emplace(
-            "content-length", msg->getHeaders().rawGet("content-length"));
-    }
-
-    HTTPRequest::onHeadersComplete(std::move(msg));
 
     if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
         // The request is being redirected to another URL
@@ -979,10 +959,34 @@ void HTTPHEAD::onHeadersComplete(
 
     auto result = httpStatusToPosixError(m_resultCode);
 
-    if (result != 0)
+    if (result != 0) {
         m_resultPromise.setException(makePosixException(result));
-    else
+    }
+    else {
+        // Ensure that the server allows reading byte ranges from resources
+        if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0u ||
+            msg->getHeaders().rawGet("accept-ranges") != "bytes") {
+            LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
+                       << msg->getPath();
+            m_resultPromise.setException(makePosixException(ENOTSUP));
+            return;
+        }
+
+        if (msg->getHeaders().getNumberOfValues("content-type") != 0u) {
+            res.emplace(
+                "content-type", msg->getHeaders().rawGet("content-type"));
+        }
+        if (msg->getHeaders().getNumberOfValues("last-modified") != 0u) {
+            res.emplace(
+                "last-modified", msg->getHeaders().rawGet("last-modified"));
+        }
+        if (msg->getHeaders().getNumberOfValues("content-length") != 0u) {
+            res.emplace(
+                "content-length", msg->getHeaders().rawGet("content-length"));
+        }
+
         m_resultPromise.setValue(std::move(res));
+    }
 }
 
 void HTTPHEAD::onEOM() noexcept {}

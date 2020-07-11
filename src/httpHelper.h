@@ -406,6 +406,9 @@ public:
 
     proxygen::HTTPMessage &request() { return m_request; }
 
+    virtual void processHeaders(
+        const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept {};
+
     /**
      * \defgroup proxygen::HTTPTransactionHandler methods
      * @{
@@ -487,10 +490,11 @@ public:
     folly::Future<std::map<folly::fbstring, folly::fbstring>> operator()(
         const folly::fbstring &resource);
 
-    void onHeadersComplete(
-        std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
     void onEOM() noexcept override;
     void onError(const proxygen::HTTPException &error) noexcept override;
+
+    void processHeaders(
+        const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept override;
 
 private:
     folly::Promise<std::map<folly::fbstring, folly::fbstring>> m_resultPromise;

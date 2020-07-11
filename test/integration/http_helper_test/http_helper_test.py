@@ -55,7 +55,7 @@ def helper(server):
 
 @pytest.fixture
 def public_helper():
-    return HTTPHelperProxy("https://cxidb.org", "", "none")
+    return HTTPHelperProxy("https://packages.onedata.org", "", "none")
 
 
 def get_file_index(h):
@@ -108,24 +108,24 @@ def test_read_should_read_valid_data_with_absolute_url(server, file_id):
 
 
 def test_read_should_work_with_public_servers(public_helper):
-    size = public_helper.getattr('/data/79/PBCV.dat').st_size
+    size = public_helper.getattr('/apt/ubuntu/2002/dists/bionic/Release').st_size
 
-    data = public_helper.read('/data/79/PBCV.dat', 0, size)
+    data = public_helper.read('/apt/ubuntu/2002/dists/bionic/Release', 0, size)
 
     assert len(data) == size
 
 
 def test_read_should_work_with_public_servers_using_external_urls(helper):
-    size = helper.getattr('https://cxidb.org/data/79/PBCV.dat').st_size
+    size = helper.getattr('https://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release').st_size
 
-    data = helper.read('https://cxidb.org/data/79/PBCV.dat', 0, size)
+    data = helper.read('https://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release', 0, size)
 
     assert len(data) == size
 
 
 def test_read_should_work_with_public_servers_using_absolute_urls(public_helper):
-    size = public_helper.getattr('https://cxidb.org/data/79/PBCV.dat').st_size
+    size = public_helper.getattr('https://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release').st_size
 
-    data = public_helper.read('https://cxidb.org/data/79/PBCV.dat', 0, size)
+    data = public_helper.read('https://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release', 0, size)
 
     assert len(data) == size
