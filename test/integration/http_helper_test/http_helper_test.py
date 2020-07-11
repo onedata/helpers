@@ -107,6 +107,12 @@ def test_read_should_read_valid_data_with_absolute_url(server, file_id):
         assert file_data[0] == m.hexdigest()
 
 
+def test_read_should_return_errors(helper):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper.read('/not_existent', 0, 1024)
+    assert 'No such file or directory' in str(excinfo.value)
+
+
 def test_read_should_work_with_public_servers(public_helper):
     size = public_helper.getattr('/apt/ubuntu/2002/dists/bionic/Release').st_size
 
