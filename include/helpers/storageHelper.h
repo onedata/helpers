@@ -71,6 +71,7 @@ constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
 
 #if WITH_WEBDAV
 constexpr auto WEBDAV_HELPER_NAME = "webdav";
+constexpr auto HTTP_HELPER_NAME = "http";
 #endif
 
 #if WITH_XROOTD

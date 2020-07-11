@@ -57,7 +57,7 @@ constexpr auto kNSOnedata = "http://onedata.org/metadata";
 /**
  * HTTP Status Codes
  */
-enum HTTPStatus {
+enum class WebDAVStatus : uint16_t {
     Continue = 100,
     SwitchingProtocols = 101,
     Processing = 102,
@@ -125,9 +125,9 @@ using WebDAVSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
 /**
  * Handle 302 redirect by retrying the request.
  */
-class HTTPFoundException : public proxygen::HTTPException {
+class WebDAVFoundException : public proxygen::HTTPException {
 public:
-    HTTPFoundException(const std::string &locationHeader)
+    WebDAVFoundException(const std::string &locationHeader)
         : proxygen::HTTPException(proxygen::HTTPException::Direction::INGRESS,
               "302 redirect to " + locationHeader)
         , location{locationHeader}

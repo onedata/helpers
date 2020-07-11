@@ -1,53 +1,50 @@
 /**
- * @file webDAVHelperParams.cc
+ * @file httpHelperParams.cc
  * @author Bartek Kryza
- * @copyright (C) 2019 ACK CYFRONET AGH
+ * @copyright (C) 2020 ACK CYFRONET AGH
  * @copyright This software is released under the MIT license cited in
  * 'LICENSE.txt'
  */
 
-#include "webDAVHelperParams.h"
+#include "httpHelperParams.h"
 
 #include <Poco/Exception.h>
 
 namespace one {
 namespace helpers {
 
-std::shared_ptr<WebDAVHelperParams> WebDAVHelperParams::create(
+std::shared_ptr<HTTPHelperParams> HTTPHelperParams::create(
     const Params &parameters)
 {
-    auto result = std::make_shared<WebDAVHelperParams>();
+    auto result = std::make_shared<HTTPHelperParams>();
     result->initializeFromParams(parameters);
     return result;
 }
 
-void WebDAVHelperParams::initializeFromParams(const Params &parameters)
+void HTTPHelperParams::initializeFromParams(const Params &parameters)
 {
     StorageHelperParams::initializeFromParams(parameters);
 
     constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
     constexpr auto kDefaultConnectionPoolSize = 10u;
-    constexpr auto kDefaultMaximumUploadSize = 0u;
+    // constexpr auto kDefaultMaximumPoolSize = 0u;
     constexpr auto kDefaultAccessTokenTTL = 0u;
 
     const auto &endpoint = getParam(parameters, "endpoint");
     const auto &verifyServerCertificateStr =
         getParam(parameters, "verifyServerCertificate", "true");
     const auto &credentialsTypeStr =
-        getParam(parameters, "credentialsType", "basic");
-    const auto &credentials = getParam(parameters, "credentials", "");
+        getParam(parameters, "credentialsType", "none");
+    const auto &credentials =
+        getParam<std::string>(parameters, "credentials", "");
     auto authorizationHeader = getParam<std::string>(
         parameters, "authorizationHeader", kDefaultAuthorizationHeader);
     auto oauth2IdP = getParam<std::string>(parameters, "oauth2IdP", "");
     auto accessToken = getParam<std::string>(parameters, "accessToken", "");
     auto accessTokenTTL = getParam<uint64_t>(
         parameters, "accessTokenTTL", kDefaultAccessTokenTTL);
-    const auto &rangeWriteSupportStr =
-        getParam(parameters, "rangeWriteSupport", "none");
     const auto connectionPoolSize = getParam<uint32_t>(
         parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
-    const auto maximumUploadSize = getParam<size_t>(
-        parameters, "maximumUploadSize", kDefaultMaximumUploadSize);
     const auto fileMode = getParam(parameters, "fileMode", "0644");
     const auto dirMode = getParam(parameters, "dirMode", "0775");
 
@@ -57,8 +54,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     LOG_FCALL() << LOG_FARG(endpoint) << LOG_FARG(verifyServerCertificateStr)
                 << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
                 << LOG_FARG(authorizationHeader) << LOG_FARG(accessTokenTTL)
-                << LOG_FARG(rangeWriteSupportStr)
-                << LOG_FARG(connectionPoolSize) << LOG_FARG(maximumUploadSize);
+                << LOG_FARG(connectionPoolSize);
 
     Poco::URI endpointUrl;
 
@@ -90,12 +86,12 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     }
     catch (Poco::SyntaxException &e) {
         throw std::invalid_argument(
-            "Invalid WebDAV endpoint: " + endpoint.toStdString());
+            "Invalid HTTP endpoint: " + endpoint.toStdString());
     }
 
     if (endpointUrl.getHost().empty())
         throw std::invalid_argument(
-            "Invalid WebDAV endpoint - missing hostname: " +
+            "Invalid HTTP endpoint - missing hostname: " +
             endpoint.toStdString());
 
     if (endpointUrl.getScheme().empty()) {
@@ -112,8 +108,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     }
     else if (endpointUrl.getScheme() != "http" &&
         endpointUrl.getScheme() != "https") {
-        throw std::invalid_argument(
-            "Invalid WebDAV endpoint - invalid scheme: " +
+        throw std::invalid_argument("Invalid HTTP endpoint - invalid scheme: " +
             endpointUrl.getScheme());
     }
 
@@ -127,29 +122,18 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     if (verifyServerCertificateStr != "true")
         verifyServerCertificate = false;
 
-    WebDAVCredentialsType credentialsType;
+    HTTPCredentialsType credentialsType;
     if (credentialsTypeStr == "none")
-        credentialsType = WebDAVCredentialsType::NONE;
+        credentialsType = HTTPCredentialsType::NONE;
     else if (credentialsTypeStr == "basic")
-        credentialsType = WebDAVCredentialsType::BASIC;
+        credentialsType = HTTPCredentialsType::BASIC;
     else if (credentialsTypeStr == "token")
-        credentialsType = WebDAVCredentialsType::TOKEN;
+        credentialsType = HTTPCredentialsType::TOKEN;
     else if (credentialsTypeStr == "oauth2")
-        credentialsType = WebDAVCredentialsType::OAUTH2;
+        credentialsType = HTTPCredentialsType::OAUTH2;
     else
         throw std::invalid_argument(
             "Invalid credentials type: " + credentialsTypeStr.toStdString());
-
-    WebDAVRangeWriteSupport rangeWriteSupport;
-    if (rangeWriteSupportStr.empty() || rangeWriteSupportStr == "none")
-        rangeWriteSupport = WebDAVRangeWriteSupport::NONE;
-    else if (rangeWriteSupportStr == "sabredav")
-        rangeWriteSupport = WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE;
-    else if (rangeWriteSupportStr == "moddav")
-        rangeWriteSupport = WebDAVRangeWriteSupport::MODDAV_PUTRANGE;
-    else
-        throw std::invalid_argument("Invalid range write support specified: " +
-            rangeWriteSupportStr.toStdString());
 
     const auto testTokenRefreshMode =
         getParam(parameters, "testTokenRefreshMode", "false");
@@ -162,78 +146,66 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     m_oauth2IdP = oauth2IdP;
     m_accessToken = accessToken;
     m_accessTokenTTL = std::chrono::seconds{accessTokenTTL};
-    m_rangeWriteSupport = rangeWriteSupport;
     m_connectionPoolSize = connectionPoolSize;
-    m_maximumUploadSize = maximumUploadSize;
     m_createdOn = std::chrono::system_clock::now();
     m_testTokenRefreshMode = (testTokenRefreshMode == "true");
     m_fileMode = parsePosixPermissions(fileMode);
     m_dirMode = parsePosixPermissions(dirMode);
 }
 
-const Poco::URI &WebDAVHelperParams::endpoint() const { return m_endpoint; }
+const Poco::URI &HTTPHelperParams::endpoint() const { return m_endpoint; }
 
-bool WebDAVHelperParams::verifyServerCertificate() const
+bool HTTPHelperParams::verifyServerCertificate() const
 {
     return m_verifyServerCertificate;
 }
-WebDAVCredentialsType WebDAVHelperParams::credentialsType() const
+HTTPCredentialsType HTTPHelperParams::credentialsType() const
 {
     return m_credentialsType;
 }
 
-const folly::fbstring &WebDAVHelperParams::credentials() const
+const folly::fbstring &HTTPHelperParams::credentials() const
 {
     return m_credentials;
 }
 
-const folly::fbstring &WebDAVHelperParams::authorizationHeader() const
+const folly::fbstring &HTTPHelperParams::authorizationHeader() const
 {
     return m_authorizationHeader;
 }
 
-const folly::fbstring &WebDAVHelperParams::oauth2IdP() const
+const folly::fbstring &HTTPHelperParams::oauth2IdP() const
 {
     return m_oauth2IdP;
 }
 
-const folly::fbstring &WebDAVHelperParams::accessToken() const
+const folly::fbstring &HTTPHelperParams::accessToken() const
 {
     return m_accessToken;
 }
 
-std::chrono::seconds WebDAVHelperParams::accessTokenTTL() const
+std::chrono::seconds HTTPHelperParams::accessTokenTTL() const
 {
     return m_accessTokenTTL;
 }
 
-WebDAVRangeWriteSupport WebDAVHelperParams::rangeWriteSupport() const
-{
-    return m_rangeWriteSupport;
-}
-
-uint32_t WebDAVHelperParams::connectionPoolSize() const
+uint32_t HTTPHelperParams::connectionPoolSize() const
 {
     return m_connectionPoolSize;
 }
 
-size_t WebDAVHelperParams::maximumUploadSize() const
-{
-    return m_maximumUploadSize;
-}
-
-std::chrono::system_clock::time_point WebDAVHelperParams::createdOn() const
+std::chrono::system_clock::time_point HTTPHelperParams::createdOn() const
 {
     return m_createdOn;
 }
 
-bool WebDAVHelperParams::testTokenRefreshMode() const
+bool HTTPHelperParams::testTokenRefreshMode() const
 {
     return m_testTokenRefreshMode;
 }
 
-mode_t WebDAVHelperParams::fileMode() const { return m_fileMode; }
+mode_t HTTPHelperParams::fileMode() const { return m_fileMode; }
 
-mode_t WebDAVHelperParams::dirMode() const { return m_dirMode; }
+mode_t HTTPHelperParams::dirMode() const { return m_dirMode; }
 } // namespace helpers
 } // namespace one
