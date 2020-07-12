@@ -504,7 +504,18 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
     HTTPSession *httpSession{nullptr};
     decltype(m_idleSessionPool)::accessor ispAcc;
     m_idleSessionPool.find(ispAcc, key);
-    ispAcc->second.blockingRead(httpSession);
+    auto idleSessionAvailable = ispAcc->second.read(httpSession);
+
+    if (!idleSessionAvailable) {
+        LOG_DBG(1)
+            << "HTTP idle session connection pool empty - delaying request by "
+               "10ms. In case this message shows frequently, consider "
+               "increasing connectionPoolSize for the given storage.";
+        const auto kHTTPIdleSessionWaitDelay = 10ul;
+        return folly::makeFuture()
+            .delayed(std::chrono::milliseconds(kHTTPIdleSessionWaitDelay))
+            .then([this, key]() { return connect(key); });
+    }
 
     assert(httpSession != nullptr);
 
