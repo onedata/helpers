@@ -430,7 +430,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
 
                         if (headers.find("content-length") != headers.end()) {
                             try {
-                                attrs.st_size = std::stoi(
+                                attrs.st_size = std::stoll(
                                     headers["content-length"].toStdString());
                             }
                             catch (const std::invalid_argument &e) {
@@ -824,7 +824,7 @@ void HTTPRequest::onHeadersComplete(
         }
     }
     if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
-        LOG(ERROR) << "Received 302 redirect response to: "
+        LOG_DBG(2) << "Received 302 redirect response to: "
                    << msg->getHeaders().rawGet("Location");
         m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
     }
