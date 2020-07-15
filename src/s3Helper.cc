@@ -633,7 +633,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
         folly::fbstring name = fromEffectiveKey(object.GetKey().c_str());
 
-        if(name == "/")
+        if (name == "/")
             continue;
 
         if (name.front() != '/')

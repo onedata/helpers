@@ -317,11 +317,10 @@ def test_listobjects_should_not_return_root_dir(helper):
     test_dir = random_str()
     contents = []
 
-    helper.write('/dir1/file.txt', random_str(), 0)
-    helper.write('/dir2/file.txt', random_str(), 0)
-    helper.write('/file.txt', random_str(), 0)
+    helper.write('/{}/dir1/file.txt'.format(test_dir), random_str(), 0)
+    helper.write('/{}/dir2/file.txt'.format(test_dir), random_str(), 0)
+    helper.write('/{}/file.txt'.format(test_dir), random_str(), 0)
 
-    res = to_python_list(helper.listobjects('/', "", 100))
+    res = to_python_list(helper.listobjects('/{}'.format(test_dir), "", 100))
 
     assert len(res) == 3
-    assert set(res) == {'/dir1/file.txt', '/dir2/file.txt', '/file.txt'}
