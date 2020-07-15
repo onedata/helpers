@@ -193,7 +193,7 @@ def test_getattr_should_return_default_permissions(helper):
     dir_id = random_str()
     data = random_str()
     default_dir_mode = 0o775
-    default_file_mode = 0o644
+    default_file_mode = 0o664
     file_id = random_str()
     file_id2 = random_str()
 

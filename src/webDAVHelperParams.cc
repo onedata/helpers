@@ -48,7 +48,7 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
         parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
     const auto maximumUploadSize = getParam<size_t>(
         parameters, "maximumUploadSize", kDefaultMaximumUploadSize);
-    const auto fileMode = getParam(parameters, "fileMode", "0644");
+    const auto fileMode = getParam(parameters, "fileMode", "0664");
     const auto dirMode = getParam(parameters, "dirMode", "0775");
 
     if (authorizationHeader.empty())
