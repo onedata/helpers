@@ -633,7 +633,10 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
         folly::fbstring name = fromEffectiveKey(object.GetKey().c_str());
 
-        if (object.GetKey().front() != '/')
+        if(name == "/")
+            continue;
+
+        if (name.front() != '/')
             name = "/" + name;
 
         struct stat attr {

@@ -311,3 +311,17 @@ def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
 
     assert len(contents) == len(res)
     assert set(contents) == set(res)
+
+
+def test_listobjects_should_not_return_root_dir(helper):
+    test_dir = random_str()
+    contents = []
+
+    helper.write('/dir1/file.txt', random_str(), 0)
+    helper.write('/dir2/file.txt', random_str(), 0)
+    helper.write('/file.txt', random_str(), 0)
+
+    res = to_python_list(helper.listobjects('/', "", 100))
+
+    assert len(res) == 3
+    assert set(res) == {'/dir1/file.txt', '/dir2/file.txt', '/file.txt'}
