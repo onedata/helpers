@@ -62,7 +62,7 @@ public:
         const std::size_t kDefaultMaximumCanonicalObjectSize =
             64ul * 1024 * 1024;
 
-        const auto kDefaultFileMode = "0644";
+        const auto kDefaultFileMode = "0664";
         const auto kDefaultDirMode = "0775";
 
         const auto &scheme = getParam(parameters, "scheme", "https");
