@@ -104,11 +104,17 @@ endif(WITH_CEPH)
 
 # AWS SDK library
 if(WITH_S3)
-    find_library(AWS_SKD_CORE_LIBRARY aws-cpp-sdk-core HINTS /usr/lib/x86_64-linux-gnu)
-    find_library(AWS_SKD_S3_LIBRARY aws-cpp-sdk-s3 HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_COMMON_LIBRARY aws-c-common HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_CHECKSUMS_LIBRARY aws-checksums HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_EVENT_STREAM_LIBRARY aws-c-event-stream HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_CORE_LIBRARY aws-cpp-sdk-core HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_S3_LIBRARY aws-cpp-sdk-s3 HINTS /usr/lib/x86_64-linux-gnu)
     set(AWS_SDK_LIBRARIES
-        ${AWS_SKD_S3_LIBRARY}
-        ${AWS_SKD_CORE_LIBRARY}
+        ${AWS_SDK_C_COMMON_LIBRARY}
+        ${AWS_SDK_CHECKSUMS_LIBRARY}
+        ${AWS_SDK_C_EVENT_STREAM_LIBRARY}
+        ${AWS_SDK_S3_LIBRARY}
+        ${AWS_SDK_CORE_LIBRARY}
         ${CURL_LIBRARIES})
     add_definitions(-DWITH_S3=1)
     if(APPLE)
