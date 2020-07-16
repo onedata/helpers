@@ -184,7 +184,7 @@ def test_getattr_should_return_default_permissions(helper, file_id):
     data = random_str()
     offset = random_int()
     default_dir_mode = 0775
-    default_file_mode = 0644
+    default_file_mode = 0664
 
     try:
         helper.mkdir(dir_id, 0777)

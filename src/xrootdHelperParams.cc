@@ -31,7 +31,7 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
     const auto &credentials = getParam<folly::fbstring, folly::fbstring>(
         parameters, "credentials", "");
     const auto fileModeMask = getParam<folly::fbstring, folly::fbstring>(
-        parameters, "fileModeMask", "0644");
+        parameters, "fileModeMask", "0664");
     const auto dirModeMask = getParam<folly::fbstring, folly::fbstring>(
         parameters, "dirModeMask", "0775");
 

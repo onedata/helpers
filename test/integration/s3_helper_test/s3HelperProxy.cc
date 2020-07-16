@@ -83,7 +83,7 @@ public:
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
-                  std::move(secretKey), 2 * 1024 * 1024, 0644, 0775,
+                  std::move(secretKey), 2 * 1024 * 1024, 0664, 0775,
                   scheme == "https"),
               std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
