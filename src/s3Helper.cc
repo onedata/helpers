@@ -469,44 +469,71 @@ std::size_t S3Helper::modifyObject(
 
 void S3Helper::deleteObject(const folly::fbstring &key)
 {
-    using Aws::Client::AsyncCallerContext;
-    using Aws::S3::S3Client;
-    using Aws::S3::Model::DeleteObjectOutcome;
-    using Aws::S3::Model::DeleteObjectRequest;
-
-    LOG_FCALL() << LOG_FARG(key);
-
-    auto effectiveKey = toEffectiveKey(key);
-
-    DeleteObjectRequest request;
-    request.SetBucket(m_bucket.c_str());
-    request.SetKey(effectiveKey.toStdString());
-
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            folly::Promise<DeleteObjectOutcome> outcomePromise;
-            auto outcomeFuture = outcomePromise.getFuture();
-
-            m_client->DeleteObjectAsync(request,
-                [&](const S3Client * /*client*/,
-                    const DeleteObjectRequest & /*request*/,
-                    DeleteObjectOutcome deleteObjectOutcome,
-                    const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
-                    outcomePromise.setValue(std::move(deleteObjectOutcome));
-                },
-                nullptr);
-            return outcomeFuture.get();
-        },
-        std::bind(S3RetryCondition<DeleteObjectOutcome>, std::placeholders::_1,
-            "DeleteObject"));
-
-    throwOnError("DeleteObject", outcome);
+    deleteObjects({key});
 }
 
-void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> & /*keys*/)
+void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 {
-    throw std::system_error{
-        std::make_error_code(std::errc::operation_not_supported)};
+    using Aws::Vector;
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::Delete;
+    using Aws::S3::Model::DeleteObjectsOutcome;
+    using Aws::S3::Model::DeleteObjectsRequest;
+    using Aws::S3::Model::ObjectIdentifier;
+
+    LOG_FCALL() << LOG_FARGV(keys);
+
+    LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
+
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
+        Vector<ObjectIdentifier> keyBatch;
+        keyBatch.reserve(MAX_DELETE_OBJECTS);
+
+        const std::size_t batchSize =
+            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
+
+        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
+            const auto effectiveKey = toEffectiveKey(key).toStdString();
+
+            ObjectIdentifier oi{};
+            oi.SetKey(key.toStdString());
+            keyBatch.emplace_back(std::move(oi));
+        }
+
+        Delete del;
+        del.SetObjects(std::move(keyBatch));
+
+        DeleteObjectsRequest request;
+        request.SetBucket(m_bucket.toStdString());
+        request.SetDelete(del);
+
+        auto outcome = retry(
+            [&, request = std::move(request)]() {
+                folly::Promise<DeleteObjectsOutcome> outcomePromise;
+                auto outcomeFuture = outcomePromise.getFuture();
+
+                m_client->DeleteObjectsAsync(request,
+                    [&](const S3Client * /*client*/,
+                        const DeleteObjectsRequest & /*request*/,
+                        DeleteObjectsOutcome deleteObjectsOutcome,
+                        const std::shared_ptr<const AsyncCallerContext>
+                            & /*ctx*/) {
+                        outcomePromise.setValue(
+                            std::move(deleteObjectsOutcome));
+                    },
+                    nullptr);
+
+                return outcomeFuture.get();
+            },
+            std::bind(S3RetryCondition<DeleteObjectsOutcome>,
+                std::placeholders::_1, "DeleteObjects"));
+
+        throwOnError("DeleteObjects", outcome);
+    }
+
+    LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
 struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
