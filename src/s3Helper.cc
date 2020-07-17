@@ -628,12 +628,15 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
     // Add regular objects as file entries
     for (auto &object : outcome.GetResult().GetContents()) {
-        if (object.GetKey().empty())
+        if (object.GetKey().empty() || object.GetKey() == "/")
             continue;
 
         folly::fbstring name = fromEffectiveKey(object.GetKey().c_str());
 
-        if (object.GetKey().front() != '/')
+        if (name == "/")
+            continue;
+
+        if (name.front() != '/')
             name = "/" + name;
 
         struct stat attr {
