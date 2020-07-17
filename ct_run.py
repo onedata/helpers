@@ -44,6 +44,13 @@ parser.add_argument(
     dest='valgrind')
 
 parser.add_argument(
+    '--callgrind',
+    action='store_true',
+    default=False,
+    help='run tests under Valgrind callgrind tool',
+    dest='callgrind')
+
+parser.add_argument(
     '--image', '-i',
     action='store',
     default='onedata/builder:2002-3',
@@ -104,6 +111,10 @@ elif {valgrind}:
             + ['--show-leak-kinds=definite'] \\
             + ['--leak-check=full'] \\
             + ['py.test'] + {args} + ['{test_dirs}']
+elif {callgrind}:
+    command = ['valgrind'] \\
+            + ['--tool=callgrind'] \\
+            + ['py.test'] + {args} + ['{test_dirs}']
 else:
     command = ['py.test'] + {args} + ['{test_dirs}']
 
@@ -118,6 +129,7 @@ command = command.format(
     shed_privileges=(platform.system() == 'Linux'),
     gdb=args.gdb,
     valgrind=args.valgrind,
+    callgrind=args.callgrind,
     suite=(args.suites[0] if args.valgrind else "', '".join(test_dirs)))
 
 ret = docker.run(tty=True,
