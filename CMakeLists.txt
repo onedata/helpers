@@ -82,9 +82,12 @@ add_definitions(-DASIO_STANDALONE)
 # Setup cppmetrics
 set(CPPMETRICS_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/cppmetrics)
 
-# Setup spdlog
-add_definitions(-DFMT_HEADER_ONLY=1)
-set(SPDLOG_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/spdlog)
+# Setup spdlog and fmt
+find_library(FMT_LIBRARY NAMES libfmt.a fmt REQUIRED)
+find_library(SPDLOG_LIBRARY NAMES libspdlog.a spdlog REQUIRED)
+list(APPEND HELPERS_LIBRARIES ${FMT_LIBRARY})
+list(APPEND HELPERS_LIBRARIES ${SPDLOG_LIBRARY})
+add_definitions(-DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL)
 
 # Utility libs
 find_library(LTDL_LIBRARY ltdl)
