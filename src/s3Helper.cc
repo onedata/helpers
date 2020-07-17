@@ -265,7 +265,7 @@ folly::IOBufQueue S3Helper::getObject(
             auto outcomeFuture = outcomePromise.getFuture();
 
             m_client->GetObjectAsync(request,
-                [&](const S3Client * /*client*/,
+                [&outcomePromise](const S3Client * /*client*/,
                     const GetObjectRequest & /*request*/,
                     GetObjectOutcome getObjectOutcome,
                     const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
@@ -368,13 +368,15 @@ std::size_t S3Helper::putObject(
             auto outcomeFuture = outcomePromise.getFuture();
 
             m_client->PutObjectAsync(request,
-                [&](const S3Client * /*client*/,
+                [&outcomePromise](const S3Client * /*client*/,
                     const PutObjectRequest & /*request*/,
                     PutObjectOutcome putObjectOutcome,
                     const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
                     outcomePromise.setValue(std::move(putObjectOutcome));
                 },
                 nullptr);
+
+            // NOLINTNEXTLINE
             return outcomeFuture.get();
         },
         std::bind(S3RetryCondition<PutObjectOutcome>, std::placeholders::_1,
@@ -515,7 +517,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
                 auto outcomeFuture = outcomePromise.getFuture();
 
                 m_client->DeleteObjectsAsync(request,
-                    [&](const S3Client * /*client*/,
+                    [&outcomePromise](const S3Client * /*client*/,
                         const DeleteObjectsRequest & /*request*/,
                         DeleteObjectsOutcome deleteObjectsOutcome,
                         const std::shared_ptr<const AsyncCallerContext>
@@ -590,7 +592,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
             auto outcomeFuture = outcomePromise.getFuture();
 
             m_client->ListObjectsAsync(request,
-                [&](const S3Client * /*client*/,
+                [&outcomePromise](const S3Client * /*client*/,
                     const ListObjectsRequest & /*request*/,
                     ListObjectsOutcome listObjectsOutcome,
                     const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
@@ -708,7 +710,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
             auto outcomeFuture = outcomePromise.getFuture();
 
             m_client->ListObjectsAsync(request,
-                [&](const S3Client * /*client*/,
+                [&outcomePromise](const S3Client * /*client*/,
                     const ListObjectsRequest & /*request*/,
                     ListObjectsOutcome listObjectsOutcome,
                     const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
