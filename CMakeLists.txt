@@ -82,9 +82,12 @@ add_definitions(-DASIO_STANDALONE)
 # Setup cppmetrics
 set(CPPMETRICS_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/cppmetrics)
 
-# Setup spdlog
-add_definitions(-DFMT_HEADER_ONLY=1)
-set(SPDLOG_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/deps/spdlog)
+# Setup spdlog and fmt
+find_library(FMT_LIBRARY NAMES libfmt.a fmt REQUIRED)
+find_library(SPDLOG_LIBRARY NAMES libspdlog.a spdlog REQUIRED)
+list(APPEND HELPERS_LIBRARIES ${FMT_LIBRARY})
+list(APPEND HELPERS_LIBRARIES ${SPDLOG_LIBRARY})
+add_definitions(-DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL)
 
 # Utility libs
 find_library(LTDL_LIBRARY ltdl)
@@ -104,11 +107,17 @@ endif(WITH_CEPH)
 
 # AWS SDK library
 if(WITH_S3)
-    find_library(AWS_SKD_CORE_LIBRARY aws-cpp-sdk-core HINTS /usr/lib/x86_64-linux-gnu)
-    find_library(AWS_SKD_S3_LIBRARY aws-cpp-sdk-s3 HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_COMMON_LIBRARY aws-c-common HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_CHECKSUMS_LIBRARY aws-checksums HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_EVENT_STREAM_LIBRARY aws-c-event-stream HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_CORE_LIBRARY aws-cpp-sdk-core HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_S3_LIBRARY aws-cpp-sdk-s3 HINTS /usr/lib/x86_64-linux-gnu)
     set(AWS_SDK_LIBRARIES
-        ${AWS_SKD_S3_LIBRARY}
-        ${AWS_SKD_CORE_LIBRARY}
+        ${AWS_SDK_C_COMMON_LIBRARY}
+        ${AWS_SDK_CHECKSUMS_LIBRARY}
+        ${AWS_SDK_C_EVENT_STREAM_LIBRARY}
+        ${AWS_SDK_S3_LIBRARY}
+        ${AWS_SDK_CORE_LIBRARY}
         ${CURL_LIBRARIES})
     add_definitions(-DWITH_S3=1)
     if(APPLE)

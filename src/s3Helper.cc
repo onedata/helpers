@@ -215,6 +215,15 @@ folly::fbstring S3Helper::fromEffectiveKey(const folly::fbstring &key) const
 folly::IOBufQueue S3Helper::getObject(
     const folly::fbstring &key, const off_t offset, const std::size_t size)
 {
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::GetObjectOutcome;
+    using Aws::S3::Model::GetObjectRequest;
+    using Aws::Utils::Threading::Semaphore;
+    using one::logging::log_timer;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
@@ -222,10 +231,6 @@ folly::IOBufQueue S3Helper::getObject(
         return buf;
 
     auto effectiveKey = toEffectiveKey(key);
-
-    using one::logging::log_timer;
-    using one::logging::csv::log;
-    using one::logging::csv::read_write_perf;
 
     log_timer<> logTimer;
 
@@ -256,7 +261,18 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
-            return m_client->GetObject(request);
+            folly::Promise<GetObjectOutcome> outcomePromise;
+            auto outcomeFuture = outcomePromise.getFuture();
+
+            m_client->GetObjectAsync(request,
+                [&outcomePromise](const S3Client * /*client*/,
+                    const GetObjectRequest & /*request*/,
+                    GetObjectOutcome getObjectOutcome,
+                    const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                    outcomePromise.setValue(std::move(getObjectOutcome));
+                },
+                nullptr);
+            return outcomeFuture.get();
         },
         std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
             std::placeholders::_1, "GetObject"));
@@ -302,6 +318,15 @@ folly::IOBufQueue S3Helper::getObject(
 std::size_t S3Helper::putObject(
     const folly::fbstring &key, folly::IOBufQueue buf, const std::size_t offset)
 {
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::PutObjectOutcome;
+    using Aws::S3::Model::PutObjectRequest;
+    using Aws::Utils::Threading::Semaphore;
+    using one::logging::log_timer;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength());
 
     assert(offset == 0); // NOLINT
@@ -313,20 +338,12 @@ std::size_t S3Helper::putObject(
         iobuf->unshare();
         iobuf->coalesce();
     }
+    auto size = iobuf->length();
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.s3.write");
 
-    using one::logging::log_timer;
-    using one::logging::csv::log;
-    using one::logging::csv::read_write_perf;
-
     log_timer<> logTimer;
 
-    Aws::S3::Model::PutObjectRequest request;
-    auto size = iobuf->length();
-    request.SetBucket(m_bucket.c_str());
-    request.SetKey(effectiveKey.c_str());
-    request.SetContentLength(size);
     auto stream = std::make_shared<std::stringstream>();
 #if !defined(__APPLE__)
     stream->rdbuf()->pubsetbuf(
@@ -336,6 +353,10 @@ std::size_t S3Helper::putObject(
                                reinterpret_cast<char *>(iobuf->writableData())),
         size);
 #endif
+    PutObjectRequest request;
+    request.SetBucket(m_bucket.toStdString());
+    request.SetKey(effectiveKey.toStdString());
+    request.SetContentLength(size);
     request.SetBody(stream);
 
     LOG_DBG(2) << "Attempting to write object " << effectiveKey << " of size "
@@ -343,10 +364,23 @@ std::size_t S3Helper::putObject(
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
-            return m_client->PutObject(request);
+            folly::Promise<PutObjectOutcome> outcomePromise;
+            auto outcomeFuture = outcomePromise.getFuture();
+
+            m_client->PutObjectAsync(request,
+                [&outcomePromise](const S3Client * /*client*/,
+                    const PutObjectRequest & /*request*/,
+                    PutObjectOutcome putObjectOutcome,
+                    const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                    outcomePromise.setValue(std::move(putObjectOutcome));
+                },
+                nullptr);
+
+            // NOLINTNEXTLINE
+            return outcomeFuture.get();
         },
-        std::bind(S3RetryCondition<Aws::S3::Model::PutObjectOutcome>,
-            std::placeholders::_1, "PutObject"));
+        std::bind(S3RetryCondition<PutObjectOutcome>, std::placeholders::_1,
+            "PutObject"));
 
     ONE_METRIC_TIMERCTX_STOP(timer, size);
 
@@ -437,32 +471,80 @@ std::size_t S3Helper::modifyObject(
 
 void S3Helper::deleteObject(const folly::fbstring &key)
 {
-    LOG_FCALL() << LOG_FARG(key);
-
-    auto effectiveKey = toEffectiveKey(key);
-
-    Aws::S3::Model::DeleteObjectRequest request;
-    request.SetBucket(m_bucket.c_str());
-    request.SetKey(effectiveKey.toStdString());
-
-    auto outcome = retry(
-        [&, request = std::move(request)]() {
-            return m_client->DeleteObject(request);
-        },
-        std::bind(S3RetryCondition<Aws::S3::Model::DeleteObjectOutcome>,
-            std::placeholders::_1, "DeleteObject"));
-
-    throwOnError("DeleteObject", outcome);
+    deleteObjects({key});
 }
 
-void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> & /*keys*/)
+void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 {
-    throw std::system_error{
-        std::make_error_code(std::errc::operation_not_supported)};
+    using Aws::Vector;
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::Delete;
+    using Aws::S3::Model::DeleteObjectsOutcome;
+    using Aws::S3::Model::DeleteObjectsRequest;
+    using Aws::S3::Model::ObjectIdentifier;
+
+    LOG_FCALL() << LOG_FARGV(keys);
+
+    LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
+
+    for (auto offset = 0ul; offset < keys.size();
+         offset += MAX_DELETE_OBJECTS) {
+        Vector<ObjectIdentifier> keyBatch;
+        keyBatch.reserve(MAX_DELETE_OBJECTS);
+
+        const std::size_t batchSize =
+            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
+
+        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
+            const auto effectiveKey = toEffectiveKey(key).toStdString();
+
+            ObjectIdentifier oi{};
+            oi.SetKey(key.toStdString());
+            keyBatch.emplace_back(std::move(oi));
+        }
+
+        Delete del;
+        del.SetObjects(std::move(keyBatch));
+
+        DeleteObjectsRequest request;
+        request.SetBucket(m_bucket.toStdString());
+        request.SetDelete(del);
+
+        auto outcome = retry(
+            [&, request = std::move(request)]() {
+                folly::Promise<DeleteObjectsOutcome> outcomePromise;
+                auto outcomeFuture = outcomePromise.getFuture();
+
+                m_client->DeleteObjectsAsync(request,
+                    [&outcomePromise](const S3Client * /*client*/,
+                        const DeleteObjectsRequest & /*request*/,
+                        DeleteObjectsOutcome deleteObjectsOutcome,
+                        const std::shared_ptr<const AsyncCallerContext>
+                            & /*ctx*/) {
+                        outcomePromise.setValue(
+                            std::move(deleteObjectsOutcome));
+                    },
+                    nullptr);
+
+                return outcomeFuture.get();
+            },
+            std::bind(S3RetryCondition<DeleteObjectsOutcome>,
+                std::placeholders::_1, "DeleteObjects"));
+
+        throwOnError("DeleteObjects", outcome);
+    }
+
+    LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
 struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::ListObjectsOutcome;
+    using Aws::S3::Model::ListObjectsRequest;
+
     LOG_FCALL() << LOG_FARG(key);
 
     auto effectiveKey = toEffectiveKey(key);
@@ -495,7 +577,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     if (normalizedKey == "/")
         normalizedKey = "";
 
-    Aws::S3::Model::ListObjectsRequest request;
+    ListObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
     request.SetPrefix(normalizedKey.c_str());
     request.SetMaxKeys(1);
@@ -506,10 +588,21 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
-            return m_client->ListObjects(request);
+            folly::Promise<ListObjectsOutcome> outcomePromise;
+            auto outcomeFuture = outcomePromise.getFuture();
+
+            m_client->ListObjectsAsync(request,
+                [&outcomePromise](const S3Client * /*client*/,
+                    const ListObjectsRequest & /*request*/,
+                    ListObjectsOutcome listObjectsOutcome,
+                    const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                    outcomePromise.setValue(std::move(listObjectsOutcome));
+                },
+                nullptr);
+            return outcomeFuture.get();
         },
-        std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
-            std::placeholders::_1, "ListObjects"));
+        std::bind(S3RetryCondition<ListObjectsOutcome>, std::placeholders::_1,
+            "ListObjects"));
 
     auto code = getReturnCode(outcome);
 
@@ -579,6 +672,11 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     const folly::fbstring &marker, const off_t /*offset*/, const size_t size)
 {
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::ListObjectsOutcome;
+    using Aws::S3::Model::ListObjectsRequest;
+
     LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(size);
 
     auto effectivePrefix = toEffectiveKey(prefix);
@@ -596,7 +694,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     if (!normalizedMarker.empty() && normalizedMarker.front() == '/')
         normalizedMarker.erase(0, 1);
 
-    Aws::S3::Model::ListObjectsRequest request;
+    ListObjectsRequest request;
     request.SetBucket(m_bucket.c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
@@ -608,10 +706,21 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
-            return m_client->ListObjects(request);
+            folly::Promise<ListObjectsOutcome> outcomePromise;
+            auto outcomeFuture = outcomePromise.getFuture();
+
+            m_client->ListObjectsAsync(request,
+                [&outcomePromise](const S3Client * /*client*/,
+                    const ListObjectsRequest & /*request*/,
+                    ListObjectsOutcome listObjectsOutcome,
+                    const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                    outcomePromise.setValue(std::move(listObjectsOutcome));
+                },
+                nullptr);
+            return outcomeFuture.get();
         },
-        std::bind(S3RetryCondition<Aws::S3::Model::ListObjectsOutcome>,
-            std::placeholders::_1, "ListObjects"));
+        std::bind(S3RetryCondition<ListObjectsOutcome>, std::placeholders::_1,
+            "ListObjects"));
 
     auto code = getReturnCode(outcome);
 
