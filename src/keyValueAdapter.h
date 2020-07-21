@@ -143,6 +143,13 @@ public:
         const folly::fbstring &prefix, const folly::fbstring &marker,
         const off_t offset, const size_t count) override;
 
+    virtual bool isObjectStorage() const noexcept override { return true; }
+
+    virtual std::size_t blockSize() const noexcept override
+    {
+        return m_blockSize;
+    }
+
     const Timeout &timeout() override;
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
