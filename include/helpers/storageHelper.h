@@ -642,6 +642,10 @@ public:
 
     virtual const Timeout &timeout() { return params().get()->timeout(); }
 
+    virtual std::size_t blockSize() const noexcept { return 0; }
+
+    virtual bool isObjectStorage() const noexcept { return false; }
+
     virtual std::shared_ptr<folly::Executor> executor() { return {}; };
 
 protected:
