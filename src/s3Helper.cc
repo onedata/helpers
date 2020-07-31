@@ -140,16 +140,23 @@ S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
             '/', ++pathComponents.begin(), pathComponents.end(), m_prefix);
     }
 
-    Aws::Auth::AWSCredentials credentials{accessKey.c_str(), secretKey.c_str()};
-
     Aws::Client::ClientConfiguration configuration;
     configuration.region = getRegion(hostname).c_str();
     configuration.endpointOverride = hostname.c_str();
     if (!useHttps)
         configuration.scheme = Aws::Http::Scheme::HTTP;
 
-    m_client = std::make_unique<Aws::S3::S3Client>(credentials, configuration,
-        Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+    if (accessKey.empty() && secretKey.empty()) {
+        m_client = std::make_unique<Aws::S3::S3Client>(configuration,
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+    }
+    else {
+        Aws::Auth::AWSCredentials credentials{
+            accessKey.c_str(), secretKey.c_str()};
+        m_client = std::make_unique<Aws::S3::S3Client>(credentials,
+            configuration,
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
+    }
 }
 
 folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
