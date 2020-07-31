@@ -68,8 +68,10 @@ public:
         const auto &scheme = getParam(parameters, "scheme", "https");
         const auto &hostname = getParam(parameters, "hostname");
         const auto &bucketName = getParam(parameters, "bucketName");
-        const auto &accessKey = getParam(parameters, "accessKey", "");
-        const auto &secretKey = getParam(parameters, "secretKey", "");
+        const auto &accessKey =
+            getParam<std::string>(parameters, "accessKey", "");
+        const auto &secretKey =
+            getParam<std::string>(parameters, "secretKey", "");
         const auto version = getParam<int>(parameters, "signatureVersion", 4);
         const auto maximumCanonicalObjectSize = getParam<size_t>(parameters,
             "maximumCanonicalObjectSize", kDefaultMaximumCanonicalObjectSize);
