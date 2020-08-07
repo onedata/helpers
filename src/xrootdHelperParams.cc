@@ -25,7 +25,7 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
 {
     StorageHelperParams::initializeFromParams(parameters);
 
-    const auto &url = getParam(parameters, "url");
+    auto url = getParam(parameters, "url");
     const auto &credentialsTypeStr =
         getParam(parameters, "credentialsType", "none");
     const auto &credentials = getParam<folly::fbstring, folly::fbstring>(
@@ -41,6 +41,12 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
     constexpr auto kHTTPDefaultPort = 80;
     constexpr auto kHTTPSDefaultPort = 443;
     constexpr auto kXRootDDefaultPort = 1094;
+
+    if (url.empty())
+        throw std::invalid_argument("XRootD endpoint cannot be empty");
+
+    if (url.back() != '/')
+        url += '/';
 
     XrdCl::URL endpointUrl{url.toStdString()};
 
