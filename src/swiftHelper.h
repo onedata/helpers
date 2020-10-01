@@ -87,7 +87,7 @@ public:
         const folly::fbstring &tenantName, const folly::fbstring &userName,
         const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT);
 
-    folly::fbstring name() const override { return S3_HELPER_NAME; };
+    folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
 
     bool supportsBatchDelete() const override { return true; }
 
