@@ -415,8 +415,10 @@ folly::Future<folly::Unit> XRootDFileHandle::fsync(
 const Timeout &XRootDFileHandle::timeout() { return m_helper->timeout(); }
 
 XRootDHelper::XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
-    std::shared_ptr<folly::IOExecutor> executor)
-    : m_executor{std::move(executor)}
+    std::shared_ptr<folly::IOExecutor> executor,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_executor{std::move(executor)}
     , m_fs{params->url(), true}
 {
     invalidateParams()->setValue(std::move(params));

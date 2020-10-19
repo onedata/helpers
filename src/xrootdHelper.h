@@ -79,7 +79,8 @@ public:
      * operations.
      */
     XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
-        std::shared_ptr<folly::IOExecutor> executor);
+        std::shared_ptr<folly::IOExecutor> executor,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     /**
      * Destructor.
@@ -208,10 +209,12 @@ public:
         return {"url", "timeout", "credentialsType", "credentials"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
     {
         return std::make_shared<XRootDHelper>(
-            XRootDHelperParams::create(parameters), m_executor);
+            XRootDHelperParams::create(parameters), m_executor,
+            executionContext);
     }
 
 private:

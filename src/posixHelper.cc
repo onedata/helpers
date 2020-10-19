@@ -194,7 +194,8 @@ PosixFileHandle::~PosixFileHandle()
 
     if (m_needsRelease.exchange(false)) {
         UserCtxSetter userCTX{m_uid, m_gid};
-        if (!userCTX.valid()) {
+        if ((helper()->executionContext() == ExecutionContext::ONEPROVIDER) &&
+            !userCTX.valid()) {
             LOG(WARNING) << "Failed to release file " << m_fh
                          << ": failed to set user context";
             return;
@@ -218,7 +219,9 @@ std::unique_ptr<UserCtxSetter> PosixFileHandle::OpExec::startDrain()
     if (auto handle = m_handle.lock()) {
         auto userCtx =
             std::make_unique<UserCtxSetter>(handle->m_uid, handle->m_gid);
-        m_validCtx = userCtx->valid();
+        m_validCtx = (handle->helper()->executionContext() ==
+                         ExecutionContext::ONECLIENT) ||
+            userCtx->valid();
         return userCtx;
     }
 
@@ -444,8 +447,10 @@ folly::Future<folly::Unit> PosixFileHandle::fsync(bool /*isDataSync*/)
 }
 
 PosixHelper::PosixHelper(std::shared_ptr<PosixHelperParams> params,
-    std::shared_ptr<folly::Executor> executor)
-    : m_executor{std::move(executor)}
+    std::shared_ptr<folly::Executor> executor,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_executor{std::move(executor)}
 {
     LOG_FCALL();
 
@@ -826,7 +831,8 @@ folly::Future<FileHandlePtr> PosixHelper::open(const folly::fbstring &fileId,
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.open");
 
             UserCtxSetter userCTX{uid, gid};
-            if (!userCTX.valid())
+            if ((self->executionContext() == ExecutionContext::ONEPROVIDER) &&
+                !userCTX.valid())
                 return makeFuturePosixException<FileHandlePtr>(EDOM);
 
             int res = retry(

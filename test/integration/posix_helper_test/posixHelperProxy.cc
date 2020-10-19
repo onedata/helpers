@@ -59,7 +59,8 @@ public:
 
         m_helper = std::make_shared<one::helpers::PosixHelper>(
             PosixHelperParams::create(params),
-            std::make_shared<one::AsioExecutor>(m_service));
+            std::make_shared<one::AsioExecutor>(m_service),
+            ExecutionContext::ONECLIENT);
 
         for (int i = 0; i < POSIX_HELPER_WORKER_THREADS; i++) {
             m_workers.push_back(std::thread([=]() { m_service.run(); }));

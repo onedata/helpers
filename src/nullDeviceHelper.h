@@ -172,7 +172,8 @@ public:
         std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
         double simulatedFilesystemGrowSpeed,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; };
 
@@ -369,8 +370,9 @@ public:
     static std::vector<std::pair<int64_t, int64_t>>
     parseSimulatedFilesystemParameters(const std::string &params);
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         const auto latencyMin = getParam<int>(parameters, "latencyMin", 0.0);
         const auto latencyMax = getParam<int>(parameters, "latencyMax", 0.0);
@@ -394,7 +396,8 @@ public:
         return std::make_shared<NullDeviceHelper>(latencyMin, latencyMax,
             timeoutProbability, filter, simulatedFilesystemParametersParsed,
             simulatedFilesystemGrowSpeed,
-            std::make_shared<AsioExecutor>(m_service), std::move(timeout));
+            std::make_shared<AsioExecutor>(m_service), std::move(timeout),
+            executionContext);
     }
 
 private:

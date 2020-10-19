@@ -249,7 +249,8 @@ public:
      * operations.
      */
     HTTPHelper(std::shared_ptr<HTTPHelperParams>,
-        std::shared_ptr<folly::IOExecutor> executor);
+        std::shared_ptr<folly::IOExecutor> executor,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     /**
      * Destructor.
@@ -560,10 +561,11 @@ public:
             "timeout", "credentialsType", "credentials"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
     {
         return std::make_shared<HTTPHelper>(
-            HTTPHelperParams::create(parameters), m_executor);
+            HTTPHelperParams::create(parameters), m_executor, executionContext);
     }
 
 private:

@@ -71,7 +71,8 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
     asio::io_service &nullDeviceService,
     communication::Communicator &communicator,
-    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits)
+    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
+    ExecutionContext executionContext)
     :
 #if WITH_CEPH
     m_cephService{cephService}
@@ -106,6 +107,7 @@ StorageHelperCreator::StorageHelperCreator(
     , m_bufferMemoryLimitGuard{std::make_shared<
           buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
     , m_communicator{communicator}
+    , m_executionContext{executionContext}
 {
 }
 #else
@@ -131,7 +133,7 @@ StorageHelperCreator::StorageHelperCreator(
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
     asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
-    buffering::BufferLimits bufferLimits)
+    buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
     :
 #if WITH_CEPH
     m_cephService{cephService}
@@ -163,9 +165,9 @@ StorageHelperCreator::StorageHelperCreator(
     m_nullDeviceService{nullDeviceService}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
     , m_bufferLimits{bufferLimits}
-    , m_bufferMemoryLimitGuard{
-          std::make_shared<buffering::BufferAgentsMemoryLimitGuard>(
-              bufferLimits)}
+    , m_bufferMemoryLimitGuard{std::make_shared<
+          buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
+    , m_executionContext{executionContext}
 {
 }
 #endif
@@ -184,66 +186,71 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     if (name == POSIX_HELPER_NAME) {
         helper =
             PosixHelperFactory{m_dioService}.createStorageHelperWithOverride(
-                args, overrideParams);
+                args, overrideParams, m_executionContext);
     }
 
 #if WITH_CEPH
     if (name == CEPH_HELPER_NAME)
         helper =
             CephHelperFactory{m_cephService}.createStorageHelperWithOverride(
-                args, overrideParams);
+                args, overrideParams, m_executionContext);
 
     if (name == CEPHRADOS_HELPER_NAME)
         helper = CephRadosHelperFactory{m_cephRadosService}
-                     .createStorageHelperWithOverride(args, overrideParams);
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
 #endif
 
 #ifdef BUILD_PROXY_IO
     if (name == PROXY_HELPER_NAME)
         helper =
             ProxyHelperFactory{m_communicator}.createStorageHelperWithOverride(
-                args, overrideParams);
+                args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_S3
     if (name == S3_HELPER_NAME)
         helper = S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
-            args, overrideParams);
+            args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_SWIFT
     if (name == SWIFT_HELPER_NAME)
         helper =
             SwiftHelperFactory{m_swiftService}.createStorageHelperWithOverride(
-                args, overrideParams);
+                args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_GLUSTERFS
     if (name == GLUSTERFS_HELPER_NAME)
         helper = GlusterFSHelperFactory{m_glusterfsService}
-                     .createStorageHelperWithOverride(args, overrideParams);
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_WEBDAV
     if (name == WEBDAV_HELPER_NAME)
         helper = WebDAVHelperFactory{m_webDAVExecutor}
-                     .createStorageHelperWithOverride(args, overrideParams);
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
 
     if (name == HTTP_HELPER_NAME)
         helper =
             HTTPHelperFactory{m_webDAVExecutor}.createStorageHelperWithOverride(
-                args, overrideParams);
+                args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_XROOTD
     if (name == XROOTD_HELPER_NAME)
         helper = XRootDHelperFactory{m_xrootdExecutor}
-                     .createStorageHelperWithOverride(args, overrideParams);
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)
         helper = NullDeviceHelperFactory{m_nullDeviceService}
-                     .createStorageHelperWithOverride(args, overrideParams);
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
 
     if (!helper) {
         LOG(ERROR) << "Invalid storage helper name: " << name.toStdString();

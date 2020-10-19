@@ -228,8 +228,10 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
 const Timeout &KeyValueFileHandle::timeout() { return m_helper->timeout(); }
 
 KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
-    std::shared_ptr<folly::Executor> executor, std::size_t blockSize)
-    : m_helper{std::move(helper)}
+    std::shared_ptr<folly::Executor> executor, std::size_t blockSize,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_helper{std::move(helper)}
     , m_executor{std::move(executor)}
     , m_locks{std::make_shared<Locks>()}
     , m_blockSize{blockSize}

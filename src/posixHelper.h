@@ -184,7 +184,8 @@ public:
      * @param executor Executor for driving async file operations.
      */
     PosixHelper(std::shared_ptr<PosixHelperParams> params,
-        std::shared_ptr<folly::Executor> executor);
+        std::shared_ptr<folly::Executor> executor,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     folly::fbstring name() const { return POSIX_HELPER_NAME; };
 
@@ -291,12 +292,13 @@ public:
         return {"mountPoint", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         return std::make_shared<PosixHelper>(
             PosixHelperParams::create(parameters),
-            std::make_shared<AsioExecutor>(m_service));
+            std::make_shared<AsioExecutor>(m_service), executionContext);
     }
 
 private:

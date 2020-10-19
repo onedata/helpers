@@ -175,6 +175,11 @@ struct FlagHash {
     }
 };
 
+/**
+ * Determine whether helper is executed within Oneclient or Oneprovider process.
+ */
+enum class ExecutionContext { ONEPROVIDER, ONECLIENT };
+
 class FileHandle;
 class StorageHelper;
 class StorageHelperParams;
@@ -301,7 +306,8 @@ public:
      * @param parameters Parameters for helper creation.
      * @returns A new instance of @c StorageHelper .
      */
-    virtual StorageHelperPtr createStorageHelper(const Params &parameters) = 0;
+    virtual StorageHelperPtr createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER) = 0;
 
     /**
      * Returns a list of helper specific parameters which can be overriden on
@@ -319,8 +325,9 @@ public:
      * @param overrideParameters Client specific parameters, which can override
      *        the common values, if allowed by helper
      */
-    StorageHelperPtr createStorageHelperWithOverride(
-        Params parameters, const Params &overrideParameters)
+    StorageHelperPtr createStorageHelperWithOverride(Params parameters,
+        const Params &overrideParameters,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
     {
         LOG_FCALL() << LOG_FARGM(overrideParameters);
 
@@ -340,7 +347,7 @@ public:
                              << parameterName << " cannot be overriden";
         }
 
-        return createStorageHelper(parameters);
+        return createStorageHelper(parameters, executionContext);
     }
 };
 
@@ -460,8 +467,10 @@ public:
     using StorageHelperParamsPromise =
         folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
 
-    StorageHelper()
+    StorageHelper(
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
         : m_params{std::make_shared<StorageHelperParamsPromise>()}
+        , m_executionContext{executionContext}
     {
     }
 
@@ -648,6 +657,8 @@ public:
 
     virtual std::shared_ptr<folly::Executor> executor() { return {}; };
 
+    ExecutionContext executionContext() const { return m_executionContext; }
+
 protected:
     std::shared_ptr<StorageHelperParamsPromise> invalidateParams()
     {
@@ -662,6 +673,7 @@ private:
     // existing handles and parallel read/write operations.
     std::shared_ptr<StorageHelperParamsPromise> m_params;
     mutable std::mutex m_paramsMutex;
+    const ExecutionContext m_executionContext;
 };
 
 } // namespace helpers

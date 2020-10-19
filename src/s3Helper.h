@@ -52,8 +52,9 @@ public:
         return {"scheme", "hostname", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         // Default value for maximum object size on S3 storages
         // with canonical paths which will support modification of
@@ -95,7 +96,8 @@ public:
                 secretKey, maximumCanonicalObjectSize,
                 parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
                 scheme == "https", std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize);
+            std::make_shared<AsioExecutor>(m_service), blockSize,
+            executionContext);
     }
 
 private:

@@ -72,7 +72,8 @@ public:
     CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     /**
      * Destructor.
@@ -187,8 +188,9 @@ public:
         return {"monitorHostname", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         const auto &clusterName = getParam(parameters, "clusterName");
         const auto &monHost = getParam(parameters, "monitorHostname");
@@ -204,7 +206,7 @@ public:
 
         return std::make_shared<CephHelper>(clusterName, monHost, poolName,
             userName, key, std::make_shared<AsioExecutor>(m_service),
-            std::move(timeout));
+            std::move(timeout), executionContext);
     }
 
 private:

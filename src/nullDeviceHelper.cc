@@ -289,8 +289,10 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     const double timeoutProbability, const folly::fbstring &filter,
     std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
     double simulatedFilesystemGrowSpeed,
-    std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : m_latencyGenerator{std::bind(
+    std::shared_ptr<folly::Executor> executor, Timeout timeout,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_latencyGenerator{std::bind(
           std::uniform_int_distribution<>(latencyMin, latencyMax),
           std::default_random_engine(std::random_device{}()))}
     , m_timeoutGenerator{std::bind(std::uniform_real_distribution<>(0.0, 1.0),

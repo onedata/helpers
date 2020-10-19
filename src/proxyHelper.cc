@@ -108,8 +108,10 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
 }
 
 ProxyHelper::ProxyHelper(folly::fbstring storageId,
-    communication::Communicator &communicator, Timeout timeout)
-    : m_storageId{std::move(storageId)}
+    communication::Communicator &communicator, Timeout timeout,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_storageId{std::move(storageId)}
     , m_communicator{communicator}
     , m_timeout{timeout}
 {
