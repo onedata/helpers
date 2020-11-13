@@ -43,7 +43,7 @@ def cp(endpoint):
         'multiple_large_messages': {
             'description': 'Sends multiple large messages using connection '
                            'pool.',
-            'parameters': [Parameter.msg_num(10000),
+            'parameters': [Parameter.msg_num(1000),
                            Parameter.msg_size(1, 'MB')]
         }
     })
