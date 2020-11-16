@@ -43,7 +43,7 @@ def cp(endpoint):
         'multiple_large_messages': {
             'description': 'Sends multiple large messages using connection '
                            'pool.',
-            'parameters': [Parameter.msg_num(10000),
+            'parameters': [Parameter.msg_num(1000),
                            Parameter.msg_size(1, 'MB')]
         }
     })
@@ -74,7 +74,7 @@ def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
         'multiple_small_messages': {
             'description': 'Receives multiple small messages using '
                            'connection pool.',
-            'parameters': [Parameter.msg_num(10000)]
+            'parameters': [Parameter.msg_num(2500)]
         },
         'multiple_large_messages': {
             'description': 'Receives multiple large messages using '
