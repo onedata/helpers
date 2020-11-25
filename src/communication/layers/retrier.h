@@ -66,7 +66,7 @@ void Retrier<LowerLayer>::send(
             if (!ec)
                 LOG_DBG(3) << "Sending message succeeded";
             else
-                LOG(WARNING) << "Sending message failed: " << ec.message();
+                LOG_DBG(2) << "Sending message failed: " << ec.message();
 
             callback(ec);
         }
