@@ -57,8 +57,25 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
         client->group(m_executor);
         client->pipelineFactory(m_pipelineFactory);
         client->sslContext(createSSLContext());
+        client->setEOFCallback([this]() {
+            // Report to upper layers that all connections have been lost
+            LOG_DBG(3) << "Entered EOF callback...";
+            if (m_connected &&
+                std::all_of(m_connections.begin(), m_connections.end(),
+                    [](auto &c) { return !c->connected(); })) {
+                LOG_DBG(2) << "Calling connection lost callback...";
+                m_onConnectionLostCallback();
+            }
+        });
         m_connections.emplace_back(std::move(client));
     }
+}
+
+bool ConnectionPool::isConnected()
+{
+    return m_connected &&
+        std::all_of(m_connections.begin(), m_connections.end(),
+            [](auto &c) { return c->connected() && c->handshakeDone(); });
 }
 
 bool ConnectionPool::setupOpenSSLCABundlePath(SSL_CTX *ctx)
@@ -228,12 +245,18 @@ void ConnectionPool::send(
             // If the client connection failed, try to reconnect
             // asynchronously
             if (!client->connected() && m_connected) {
-                client->connect(m_host, m_port)
+                client->connect(m_host, m_port, 1)
                     .then(m_executor.get(),
                         [this, client, executor = m_executor]() {
-                            if (m_connected)
+                            if (m_connected) {
                                 // NOLINTNEXTLINE
                                 m_idleConnections.emplace(client);
+                                if (m_connected &&
+                                    std::all_of(m_connections.begin(),
+                                        m_connections.end(),
+                                        [](auto &c) { return c->connected(); }))
+                                    m_onReconnectCallback();
+                            }
                             else
                                 client->getPipeline()->close();
                         });
@@ -323,6 +346,18 @@ folly::Future<folly::Unit> ConnectionPool::close()
             m_connections.clear();
             return folly::Future<folly::Unit>{};
         });
+}
+
+void ConnectionPool::setOnConnectionLostCallback(
+    std::function<void()> onConnectionLostCallback)
+{
+    m_onConnectionLostCallback = std::move(onConnectionLostCallback);
+}
+
+void ConnectionPool::setOnReconnectCallback(
+    std::function<void()> onReconnectCallback)
+{
+    m_onReconnectCallback = std::move(onReconnectCallback);
 }
 
 } // namespace communication

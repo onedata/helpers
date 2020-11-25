@@ -81,6 +81,12 @@ public:
     void connect();
 
     /**
+     * Checks if the connection to Oneprovider is functional
+     * and that handshake has been successfully completed.
+     */
+    bool isConnected();
+
+    /**
      * Sets handshake-related functions.
      * The handshake functions are passed down to connections and used on
      * initialization of each TCP connection.
@@ -141,6 +147,11 @@ public:
 
     std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
+    void setOnConnectionLostCallback(
+        std::function<void()> onConnectionLostCallback);
+
+    void setOnReconnectCallback(std::function<void()> onReconnectCallback);
+
 private:
     /**
      * Close connections and handler pipelines.
@@ -184,6 +195,9 @@ private:
 
     // Queue of pointers to currently idle connections from the fixed pool
     tbb::concurrent_bounded_queue<CLProtoClientBootstrap *> m_idleConnections{};
+
+    std::function<void()> m_onConnectionLostCallback;
+    std::function<void()> m_onReconnectCallback;
 };
 
 } // namespace communication

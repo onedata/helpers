@@ -50,6 +50,8 @@ public:
 
     bool connected();
 
+    bool handshakeDone();
+
     void setEOFCallback(std::function<void(void)> eofCallback);
 
     uint32_t connectionId() const;
@@ -60,6 +62,7 @@ private:
     const uint32_t m_connectionId;
     const bool m_performCLProtoUpgrade;
     const bool m_performCLProtoHandshake;
+    bool m_handshakeDone{false};
 
     std::function<void(void)> m_eofCallback;
 };
