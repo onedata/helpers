@@ -75,7 +75,10 @@ bool ConnectionPool::isConnected()
 {
     return m_connected &&
         std::all_of(m_connections.begin(), m_connections.end(),
-            [](auto &c) { return c->connected() && c->handshakeDone(); });
+            [performCLProtoHandshake = m_clprotoHandshake](auto &c) {
+                return c->connected() &&
+                    (c->handshakeDone() || !performCLProtoHandshake);
+            });
 }
 
 bool ConnectionPool::setupOpenSSLCABundlePath(SSL_CTX *ctx)
