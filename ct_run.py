@@ -132,20 +132,23 @@ command = command.format(
     callgrind=args.callgrind,
     suite=(args.suites[0] if args.valgrind else "', '".join(test_dirs)))
 
-ret = docker.run(tty=True,
-                 rm=True,
-                 interactive=True,
-                 workdir=script_dir,
-                 reflect=[(script_dir, 'rw'),
-                          ('/var/run/docker.sock', 'rw')],
-                 image=args.image,
-                 envs={'BASE_TEST_DIR': base_test_dir},
-                 run_params=['--privileged'] if (args.gdb or args.valgrind) else [],
-                 command=['python', '-c', command])
+docker.run(tty=True,
+           rm=True,
+           interactive=True,
+           workdir=script_dir,
+           reflect=[(script_dir, 'rw'),
+                    ('/var/run/docker.sock', 'rw')],
+           image=args.image,
+           envs={'BASE_TEST_DIR': base_test_dir},
+           run_params=['--privileged'] if (args.gdb or args.valgrind) else [],
+           command=['python', '-c', command])
 
-# If test suite succeeded and Valgrind was enabled, parse the memcheck report
+# If exit code != 0 then bamboo always fails build.
+# If it is 0 then result is based on test report.
+ret = 0
+# If Valgrind was enabled, parse the memcheck report
 # and return error if any errors were identified
-if ret == 0 and args.valgrind:
+if args.valgrind:
     ret = parse_valgrind_log_error_count("valgrind-"+args.suites[0]+".txt")
 
 sys.exit(ret)
