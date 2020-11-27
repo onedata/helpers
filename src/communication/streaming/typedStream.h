@@ -43,7 +43,7 @@ using BufferMutexType = std::shared_timed_mutex;
 struct StreamLess {
     bool operator()(const ClientMessagePtr &a, const ClientMessagePtr &b) const
     {
-        return a->message_stream().sequence_number() <
+        return a->message_stream().sequence_number() >
             b->message_stream().sequence_number();
     }
 };
@@ -170,15 +170,22 @@ template <class Communicator> void TypedStream<Communicator>::reset()
 {
     LOG_FCALL();
 
+    LOG_DBG(3) << "Renumbering stream message " << m_streamId
+               << " sequence numbers from 0";
+
     std::lock_guard<BufferMutexType> lock{m_bufferMutex};
     m_sequenceId = 0;
     std::vector<ClientMessagePtr> processed;
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
+        LOG_DBG(3) << "Resetting stream message sequence number to: "
+                   << m_sequenceId;
         it->mutable_message_stream()->set_sequence_number(m_sequenceId++);
         processed.emplace_back(std::move(it));
     }
-    for (auto &msgStream : processed)
-        saveAndPass(std::move(msgStream));
+    for (auto &msgStream : processed) {
+        auto msgCopy = std::make_unique<clproto::ClientMessage>(*msgStream);
+        m_buffer.emplace(std::move(msgStream));
+    }
 }
 
 template <class Communicator>
@@ -202,6 +209,11 @@ void TypedStream<Communicator>::handleMessageRequest(
 {
     LOG_FCALL();
 
+    LOG_DBG(3) << "Oneprovider requested messages in stream: "
+               << msg.stream_id() << " in range: ("
+               << msg.lower_sequence_number() << ", "
+               << msg.upper_sequence_number() << ")";
+
     std::vector<ClientMessagePtr> processed;
     processed.reserve(
         msg.upper_sequence_number() - msg.lower_sequence_number() + 1);
@@ -210,21 +222,34 @@ void TypedStream<Communicator>::handleMessageRequest(
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
         if (it->message_stream().sequence_number() <=
             msg.upper_sequence_number()) {
+            LOG_DBG(3) << "Found requested message with sequence number: "
+                       << it->message_stream().sequence_number();
+
             processed.emplace_back(std::move(it));
         }
         else {
+            LOG_DBG(3) << "Putting back message with sequence number: "
+                       << it->message_stream().sequence_number();
+
             m_buffer.emplace(std::move(it));
             break;
         }
     }
 
-    for (auto &msgStream : processed) {
-        if (msgStream->message_stream().sequence_number() >=
+    for (auto &streamMessage : processed) {
+        if (streamMessage->message_stream().sequence_number() >=
             msg.lower_sequence_number()) {
-            saveAndPass(std::move(msgStream));
+            LOG_DBG(3) << "Sending requested stream " << msg.stream_id()
+                       << "  message "
+                       << streamMessage->message_stream().sequence_number();
+
+            saveAndPass(std::move(streamMessage));
         }
         else {
-            m_buffer.emplace(std::move(msgStream));
+            LOG_DBG(3) << "Putting back message: "
+                       << streamMessage->message_stream().sequence_number();
+
+            m_buffer.emplace(std::move(streamMessage));
         }
     }
 }
@@ -235,12 +260,21 @@ void TypedStream<Communicator>::handleMessageAcknowledgement(
 {
     LOG_FCALL();
 
+    LOG_DBG(3) << "Received message acknowledgement for stream id: "
+               << msg.stream_id()
+               << " sequence number: " << msg.sequence_number();
+
     std::shared_lock<BufferMutexType> lock{m_bufferMutex};
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
+        // Keep the message in the buffer if it's sequence number is larger than
+        // the acknowledgement number
         if (it->message_stream().sequence_number() > msg.sequence_number()) {
             m_buffer.emplace(std::move(it));
             break;
         }
+        LOG_DBG(3) << "Dropped acknowledged stream " << msg.stream_id()
+                   << " message with sequence number "
+                   << it->message_stream().sequence_number();
     }
 }
 

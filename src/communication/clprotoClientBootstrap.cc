@@ -29,8 +29,8 @@ namespace communication {
 /**
  * List of consecutive socket reconnection delays in milliseconds.
  */
-static const std::array<int, 13> CLIENT_RECONNECT_DELAYS{0, 100, 1000, 1000,
-    1000, 1000, 5000, 5000, 5000, 15'000, 15'000, 15'000, 60'000};
+static const std::array<int, 12> CLIENT_RECONNECT_DELAYS{
+    0, 10000, 10000, 10000, 10000, 10000, 10000, 30000, 30000, 30000, 60'000};
 
 static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 10;
 
@@ -65,7 +65,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
     if (reconnectAttempt == 0u) {
         LOG(INFO) << "Creating new connection with id " << connectionId()
-                  << "to " << host << ":" << port;
+                  << " to " << host << ":" << port;
     }
     else {
         LOG(INFO) << "Reconnecting connection with id " << connectionId()
@@ -77,11 +77,17 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
     return folly::via(executor)
         .then(executor,
-            [this, reconnectAttempt] {
+            [this, reconnectAttempt, reconnectDelay] {
+                LOG(INFO) << "Reconnect attempt " << reconnectAttempt << " in "
+                          << reconnectDelay << " [ms]";
+
+                m_handshakeDone = false;
+
                 // If this is a reconnect attempt and the pipeline still exists,
                 // close it first
-                if ((reconnectAttempt != 0u) && (getPipeline() != nullptr))
+                if ((reconnectAttempt != 0u) && (getPipeline() != nullptr)) {
                     return getPipeline()->close();
+                }
 
                 return folly::makeFuture();
             })
@@ -167,7 +173,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                 }
                                 pipeline->finalize();
                             })
-                        // If CLProto handshake is provider, perform handshake
+                        // If CLProto handshake is provided, perform handshake
                         // before handling any other requests
                         .then(executor,
                             [this, pipeline] {
@@ -179,7 +185,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                     auto handshake =
                                         handshakeHandler->getHandshake();
 
-                                    LOG_DBG(3)
+                                    LOG_DBG(2)
                                         << "Sending handshake message (length "
                                            "= "
                                         << handshake.size()
@@ -194,7 +200,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                         .then(executor,
                             [this, pipeline] {
                                 if (m_performCLProtoHandshake) {
-                                    LOG_DBG(3)
+                                    LOG_DBG(2)
                                         << "Handshake sent - waiting for reply";
 
                                     return pipeline
@@ -216,6 +222,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                     pipeline->remove<codec::
                                             CLProtoHandshakeResponseHandler>();
                                     pipeline->finalize();
+
+                                    m_handshakeDone = true;
                                 }
 
                                 LOG_DBG(1) << "CLProto connection with id "
@@ -223,7 +231,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                             })
                         .onError([pipeline, host, port](
                                      folly::exception_wrapper ew) {
-                            pipeline->finalize();
+                            if (pipeline != nullptr)
+                                pipeline->finalize();
                             LOG(ERROR) << "Connection refused by remote "
                                           "Oneprovider at "
                                        << host << ":" << port << ": "
@@ -257,6 +266,8 @@ bool CLProtoClientBootstrap::connected()
 
     return getPipeline()->getTransport()->good();
 }
+
+bool CLProtoClientBootstrap::handshakeDone() { return m_handshakeDone; }
 
 uint32_t CLProtoClientBootstrap::connectionId() const { return m_connectionId; }
 } // namespace communication

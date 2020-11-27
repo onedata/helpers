@@ -97,6 +97,8 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
 
     return m_communicator
         .communicate<messages::proxyio::RemoteWriteResult>(std::move(msg))
+        .within(m_timeout,
+            std::system_error{std::make_error_code(std::errc::timed_out)})
         .then([timer = std::move(timer)](
                   const messages::proxyio::RemoteWriteResult &result) mutable {
             ONE_METRIC_TIMERCTX_STOP(timer, result.wrote());
@@ -111,7 +113,11 @@ ProxyHelper::ProxyHelper(folly::fbstring storageId,
     , m_communicator{communicator}
     , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(m_storageId);
+    LOG_FCALL() << LOG_FARG(m_storageId)
+                << LOG_FARG(
+                       std::chrono::duration_cast<std::chrono::milliseconds>(
+                           timeout)
+                           .count());
 }
 
 folly::Future<FileHandlePtr> ProxyHelper::open(
