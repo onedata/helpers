@@ -47,8 +47,9 @@ public:
         return {"authUrl", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         const auto &authUrl = getParam(parameters, "authUrl");
         const auto &containerName = getParam(parameters, "containerName");
@@ -63,7 +64,8 @@ public:
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
                 userName, password, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize);
+            std::make_shared<AsioExecutor>(m_service), blockSize,
+            executionContext);
     }
 
 private:

@@ -130,7 +130,8 @@ public:
         asio::io_service &nullDeviceService,
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
-        buffering::BufferLimits bufferLimits = buffering::BufferLimits{});
+        buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #else
     StorageHelperCreator(
 #if WITH_CEPH
@@ -154,7 +155,8 @@ public:
 #endif
         asio::io_service &nullDeviceService,
         std::size_t bufferSchedulerWorkers = 1,
-        buffering::BufferLimits bufferLimits = buffering::BufferLimits{});
+        buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #endif
 
     ~StorageHelperCreator();
@@ -212,6 +214,8 @@ private:
 #ifdef BUILD_PROXY_IO
     communication::Communicator &m_communicator;
 #endif
+
+    ExecutionContext m_executionContext;
 };
 
 } // namespace helpers

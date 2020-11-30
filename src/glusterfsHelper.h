@@ -141,7 +141,8 @@ public:
         folly::fbstring volume, folly::fbstring transport,
         folly::fbstring xlatorOptions,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     folly::fbstring name() const { return GLUSTERFS_HELPER_NAME; };
 
@@ -270,8 +271,9 @@ public:
         return {"hostname", "port", "transport", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         const auto &mountPoint =
             getParam<std::string>(parameters, "mountPoint", "");
@@ -290,7 +292,8 @@ public:
 
         return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
             port, volume, transport, xlatorOptions,
-            std::make_shared<AsioExecutor>(m_service), std::move(timeout));
+            std::make_shared<AsioExecutor>(m_service), std::move(timeout),
+            executionContext);
     }
 
 private:

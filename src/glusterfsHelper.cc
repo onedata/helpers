@@ -345,8 +345,9 @@ GlusterFSHelper::GlusterFSHelper(const boost::filesystem::path &mountPoint,
     const uid_t uid, const gid_t gid, folly::fbstring hostname, int port,
     folly::fbstring volume, folly::fbstring transport,
     folly::fbstring xlatorOptions, std::shared_ptr<folly::Executor> executor,
-    Timeout timeout)
-    : m_mountPoint{mountPoint}
+    Timeout timeout, ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_mountPoint{mountPoint}
     , m_uid{uid}
     , m_gid{gid}
     , m_hostname{std::move(hostname)}

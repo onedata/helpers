@@ -48,8 +48,9 @@ public:
         return {"monitorHostname", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         const auto &clusterName = getParam(parameters, "clusterName");
         const auto &monHost = getParam(parameters, "monitorHostname");
@@ -64,7 +65,8 @@ public:
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
                 userName, key, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize);
+            std::make_shared<AsioExecutor>(m_service), blockSize,
+            executionContext);
     }
 
 private:

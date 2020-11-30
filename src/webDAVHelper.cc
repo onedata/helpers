@@ -399,8 +399,10 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
 const Timeout &WebDAVFileHandle::timeout() { return m_helper->timeout(); }
 
 WebDAVHelper::WebDAVHelper(std::shared_ptr<WebDAVHelperParams> params,
-    std::shared_ptr<folly::IOExecutor> executor)
-    : m_executor{std::move(executor)}
+    std::shared_ptr<folly::IOExecutor> executor,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_executor{std::move(executor)}
 {
     m_nsMap.declarePrefix("d", kNSDAV);
     m_nsMap.declarePrefix("o", kNSOnedata);

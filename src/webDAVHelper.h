@@ -253,7 +253,8 @@ public:
      * operations.
      */
     WebDAVHelper(std::shared_ptr<WebDAVHelperParams>,
-        std::shared_ptr<folly::IOExecutor> executor);
+        std::shared_ptr<folly::IOExecutor> executor,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     /**
      * Destructor.
@@ -811,10 +812,12 @@ public:
             "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters)
+    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
     {
         return std::make_shared<WebDAVHelper>(
-            WebDAVHelperParams::create(parameters), m_executor);
+            WebDAVHelperParams::create(parameters), m_executor,
+            executionContext);
     }
 
 private:

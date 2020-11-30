@@ -275,8 +275,10 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
 const Timeout &HTTPFileHandle::timeout() { return m_helper->timeout(); }
 
 HTTPHelper::HTTPHelper(std::shared_ptr<HTTPHelperParams> params,
-    std::shared_ptr<folly::IOExecutor> executor)
-    : m_executor{std::move(executor)}
+    std::shared_ptr<folly::IOExecutor> executor,
+    ExecutionContext executionContext)
+    : StorageHelper{executionContext}
+    , m_executor{std::move(executor)}
 {
     invalidateParams()->setValue(std::move(params));
 

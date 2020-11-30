@@ -105,7 +105,8 @@ public:
      */
     KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        std::size_t blockSize = DEFAULT_BLOCK_SIZE);
+        std::size_t blockSize = DEFAULT_BLOCK_SIZE,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     virtual folly::fbstring name() const override;
 
