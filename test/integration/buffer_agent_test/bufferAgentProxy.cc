@@ -73,7 +73,7 @@ public:
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
         buf.append(data);
-        return handle->write(offset, std::move(buf)).get();
+        return handle->write(offset, std::move(buf), {}).get();
     }
 
     std::string read(one::helpers::FileHandlePtr handle, int offset, int size)

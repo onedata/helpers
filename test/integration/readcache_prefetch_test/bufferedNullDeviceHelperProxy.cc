@@ -128,7 +128,7 @@ public:
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
         buf.append(data);
-        return handle->write(offset, std::move(buf)).get();
+        return handle->write(offset, std::move(buf), {}).get();
     }
 
     void mknod(std::string fileId, mode_t mode, std::vector<Flag> flags)

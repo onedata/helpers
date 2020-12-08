@@ -175,7 +175,7 @@ TEST_F(NullDeviceHelperTest, writeReturnsWrittenNumberOfBytes)
     writeBuf.append(stmp);
 
     auto bytesWritten =
-        handle->write(0, std::move(writeBuf)).getVia(m_executor.get());
+        handle->write(0, std::move(writeBuf), {}).getVia(m_executor.get());
 
     EXPECT_EQ(bytesWritten, size);
 }

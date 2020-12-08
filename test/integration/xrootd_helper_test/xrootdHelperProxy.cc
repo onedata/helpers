@@ -126,7 +126,7 @@ public:
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
-                    return handle->write(offset, std::move(buf))
+                    return handle->write(offset, std::move(buf), {})
                         .then([handle](std::size_t size) {
                             return handle->release().then(
                                 [handle, size]() { return size; });

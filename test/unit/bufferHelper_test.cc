@@ -25,8 +25,8 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        one::helpers::WriteCallback &&writeCb) override;
 
     const one::helpers::Timeout &timeout() override;
 
@@ -100,16 +100,19 @@ folly::Future<folly::IOBufQueue> FileHandle::read(
     return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
 }
 
-folly::Future<std::size_t> FileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+folly::Future<std::size_t> FileHandle::write(const off_t offset,
+    folly::IOBufQueue buf, one::helpers::WriteCallback &&writeCb)
 {
-    return folly::via(&m_executor, [this, size = buf.chainLength()] {
-        if (++m_simultaneous > 1)
-            m_wasSimultaneous = true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        --m_simultaneous;
-        return size;
-    });
+    return folly::via(&m_executor,
+        [this, size = buf.chainLength(), writeCb = std::move(writeCb)] {
+            if (++m_simultaneous > 1)
+                m_wasSimultaneous = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            --m_simultaneous;
+            if (writeCb)
+                writeCb(size);
+            return size;
+        });
 }
 
 const one::helpers::Timeout &FileHandle::timeout()
@@ -189,7 +192,7 @@ TEST_F(BufferHelperTest, shouldNotWriteSimultaneously)
         for (int j = 0; j < 1000; ++j) {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
             buf.allocate(1024 * 1024);
-            handle->write(j * 1024 * 1024, std::move(buf));
+            handle->write(j * 1024 * 1024, std::move(buf), {});
         }
     }
     handle->release().get();

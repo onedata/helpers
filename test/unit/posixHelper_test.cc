@@ -104,7 +104,7 @@ TEST_F(PosixHelperTest, shouldWriteBytes)
     writeBuf.append(stmp);
 
     auto bytes_written =
-        handle->write(5, std::move(writeBuf)).getVia(executor.get());
+        handle->write(5, std::move(writeBuf), {}).getVia(executor.get());
 
     EXPECT_EQ(3, bytes_written);
 
@@ -125,7 +125,7 @@ TEST_F(PosixHelperTest, shouldWrite10MBChunk)
     writeBuf.append(stmp);
 
     auto bytes_written =
-        handle->write(0, std::move(writeBuf)).getVia(executor.get());
+        handle->write(0, std::move(writeBuf), {}).getVia(executor.get());
 
     EXPECT_EQ(size, bytes_written);
 
