@@ -100,7 +100,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
 }
 
 folly::Future<std::size_t> CephFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
@@ -109,7 +109,7 @@ folly::Future<std::size_t> CephFileHandle::write(
     auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
 
     return helper->connect().then(
-        [this, buf = std::move(buf), offset, helper,
+        [this, buf = std::move(buf), offset, helper, writeCb = std::move(writeCb),
             s = std::weak_ptr<CephFileHandle>{shared_from_this()},
             timer = std::move(timer)]() mutable {
             auto self = s.lock();
@@ -132,8 +132,13 @@ folly::Future<std::size_t> CephFileHandle::write(
             libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
             auto ret = retry(
-                [&, data = std::move(data)]() {
-                    return rs.write(m_fileId.toStdString(), data, size, offset);
+                [&, writeCb = std::move(writeCb), data = std::move(data)]() {
+                    auto written =
+                        rs.write(m_fileId.toStdString(), data, size, offset);
+                    if (writeCb)
+                        writeCb(written);
+
+                    return written;
                 },
                 std::bind(CephRetryCondition, _1, "write"));
 

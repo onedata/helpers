@@ -123,7 +123,7 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 }
 
 folly::Future<std::size_t> KeyValueFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
@@ -131,7 +131,7 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
         return folly::makeFuture<std::size_t>(0);
 
     return folly::via(m_executor.get(),
-        [this, offset, locks = m_locks,
+        [this, offset, locks = m_locks, writeCb = std::move(writeCb),
             helper =
                 std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
             buf = std::move(buf), self = shared_from_this()]() mutable {
@@ -206,11 +206,14 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
             }
 
             return folly::collect(writeFutures)
-                .then([size, offset, fileId = m_fileId, timer](
-                          const std::vector<folly::Unit> & /*unused*/) {
+                .then([size, offset, fileId = m_fileId,
+                          writeCb = std::move(writeCb),
+                          timer](const std::vector<folly::Unit> & /*unused*/) {
                     log<read_write_perf>(fileId, "KeyValueFileHandle", "write",
                         offset, size, timer.stop());
 
+                    if (writeCb)
+                        writeCb(size);
                     return size;
                 })
                 .then([](folly::Try<std::size_t> t) {

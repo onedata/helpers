@@ -174,13 +174,19 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
 }
 
 folly::Future<std::size_t> NullDeviceFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
     auto timer =
         ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.write");
-    return opScheduler->schedule(
-        WriteOp{{}, offset, std::move(buf), std::move(timer)});
+    return opScheduler
+        ->schedule(WriteOp{{}, offset, std::move(buf), std::move(timer)})
+        .then([writeCb = std::move(writeCb)](std::size_t written) {
+            if (writeCb)
+                writeCb(written);
+            return written;
+        });
+    ;
 }
 
 void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const

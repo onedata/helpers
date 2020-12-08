@@ -61,21 +61,27 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
 }
 
 folly::Future<std::size_t> ProxyFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
     LOG_DBG(2) << "Attempting to write " << buf.chainLength()
                << " bytes to file " << m_fileId;
 
-    folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs;
-    buffs.emplace_back(std::make_pair(offset, std::move(buf)));
+    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>> buffs;
+    buffs.emplace_back(
+        std::make_tuple(offset, std::move(buf), std::move(writeCb)));
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-    return multiwrite(std::move(buffs));
+    return multiwrite(std::move(buffs))
+        .then([writeCb = std::move(writeCb)](std::size_t written) {
+            if (writeCb)
+                writeCb(written);
+            return written;
+        });
 }
 
 folly::Future<std::size_t> ProxyFileHandle::multiwrite(
-    folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs)
+    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>> buffs)
 {
     LOG_FCALL() << LOG_FARG(buffs.size());
 
@@ -84,12 +90,16 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
     LOG_DBG(2) << "Attempting multiwrite to file " << m_fileId << " from "
                << buffs.size() << " buffers";
 
+    folly::fbvector<std::pair<WriteCallback, std::size_t>> postCallbacks;
     folly::fbvector<std::pair<off_t, folly::fbstring>> stringBuffs;
     stringBuffs.reserve(buffs.size());
-    for (auto &elem : buffs) {
-        if (!elem.second.empty())
+    for (auto &buf : buffs) {
+        if (!std::get<1>(buf).empty()) {
+            postCallbacks.emplace_back(
+                std::move(std::get<2>(buf)), std::get<1>(buf).chainLength());
             stringBuffs.emplace_back(
-                elem.first, elem.second.move()->moveToFbString());
+                std::get<0>(buf), std::get<1>(buf).move()->moveToFbString());
+        }
     }
 
     messages::proxyio::RemoteWrite msg{
@@ -99,10 +109,17 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
         .communicate<messages::proxyio::RemoteWriteResult>(std::move(msg))
         .within(m_timeout,
             std::system_error{std::make_error_code(std::errc::timed_out)})
-        .then([timer = std::move(timer)](
+        .then([timer = std::move(timer),
+                  postCallbacks = std::move(postCallbacks)](
                   const messages::proxyio::RemoteWriteResult &result) mutable {
             ONE_METRIC_TIMERCTX_STOP(timer, result.wrote());
+
             LOG_DBG(2) << "Written " << result.wrote() << " bytes";
+
+            for (auto &cb : postCallbacks)
+                if (cb.first)
+                    cb.first(cb.second);
+
             return result.wrote();
         });
 }

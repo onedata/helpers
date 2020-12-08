@@ -142,12 +142,12 @@ public:
             [=] { return m_readCache->read(offset, size, continuousSize); });
     }
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        WriteCallback &&writeCb) override
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
-        return m_writeBuffer->write(offset, std::move(buf));
+        return m_writeBuffer->write(offset, std::move(buf), std::move(writeCb));
     }
 
     folly::Future<folly::Unit> fsync(bool isDataSync) override

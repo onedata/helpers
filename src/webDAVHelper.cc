@@ -276,9 +276,14 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
 }
 
 folly::Future<std::size_t> WebDAVFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
-    return write(offset, std::move(buf), kWebDAVRetryCount);
+    return write(offset, std::move(buf), kWebDAVRetryCount)
+        .then([writeCb = std::move(writeCb)](std::size_t written) {
+            if (writeCb)
+                writeCb(written);
+            return written;
+        });
 }
 
 folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,

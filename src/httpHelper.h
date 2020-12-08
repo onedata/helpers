@@ -522,8 +522,8 @@ public:
         const std::size_t size, const int retryCount,
         const Poco::URI &redirectURL = {});
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override
+    folly::Future<std::size_t> write(const off_t /*offset*/,
+        folly::IOBufQueue /*buf*/, WriteCallback && /*writeCb*/) override
     {
         throw std::system_error{
             std::make_error_code(std::errc::function_not_supported)};

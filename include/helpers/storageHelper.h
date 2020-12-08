@@ -188,6 +188,7 @@ using Params = std::unordered_map<folly::fbstring, folly::fbstring>;
 using StorageHelperPtr = std::shared_ptr<StorageHelper>;
 using FileHandlePtr = std::shared_ptr<FileHandle>;
 using Timeout = std::chrono::milliseconds;
+using WriteCallback = std::function<void(std::size_t)>;
 
 template <class... T>
 using GeneralCallback = std::function<void(T..., std::error_code)>;
@@ -391,10 +392,11 @@ public:
     }
 
     virtual folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) = 0;
+        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
 
-    virtual folly::Future<std::size_t> multiwrite(
-        folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs);
+    virtual folly::Future<std::size_t> multiwrite(folly::fbvector<
+        std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
+            buffs);
 
     virtual folly::Future<folly::Unit> release() { return folly::makeFuture(); }
 

@@ -777,7 +777,7 @@ public:
         const Poco::URI &redirectURL = {});
 
     folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
+        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) override;
 
     folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
         const int retryCount, const Poco::URI &redirectURL = {});
