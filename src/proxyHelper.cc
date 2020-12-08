@@ -72,12 +72,7 @@ folly::Future<std::size_t> ProxyFileHandle::write(
     buffs.emplace_back(
         std::make_tuple(offset, std::move(buf), std::move(writeCb)));
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-    return multiwrite(std::move(buffs))
-        .then([writeCb = std::move(writeCb)](std::size_t written) {
-            if (writeCb)
-                writeCb(written);
-            return written;
-        });
+    return multiwrite(std::move(buffs));
 }
 
 folly::Future<std::size_t> ProxyFileHandle::multiwrite(
