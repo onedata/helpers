@@ -46,8 +46,8 @@ public:
     folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
         WriteCallback &&writeCb) override;
 
-    folly::Future<std::size_t> multiwrite(folly::fbvector<
-        std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
+    folly::Future<std::size_t> multiwrite(
+        folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
             buffs) override;
 
     const Timeout &timeout() override { return m_timeout; }

@@ -109,7 +109,8 @@ folly::Future<std::size_t> CephFileHandle::write(
     auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
 
     return helper->connect().then(
-        [this, buf = std::move(buf), offset, helper, writeCb = std::move(writeCb),
+        [this, buf = std::move(buf), offset, helper,
+            writeCb = std::move(writeCb),
             s = std::weak_ptr<CephFileHandle>{shared_from_this()},
             timer = std::move(timer)]() mutable {
             auto self = s.lock();

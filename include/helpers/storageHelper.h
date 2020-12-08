@@ -394,8 +394,8 @@ public:
     virtual folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
 
-    virtual folly::Future<std::size_t> multiwrite(folly::fbvector<
-        std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
+    virtual folly::Future<std::size_t> multiwrite(
+        folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
             buffs);
 
     virtual folly::Future<folly::Unit> release() { return folly::makeFuture(); }

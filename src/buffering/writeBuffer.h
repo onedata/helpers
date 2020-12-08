@@ -276,7 +276,8 @@ private:
 
     std::size_t m_bufferedSize = 0;
     off_t m_nextOffset = 0;
-    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>> m_buffers;
+    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
+        m_buffers;
     std::atomic<std::size_t> m_bps{0};
 
     FiberMutex m_mutex;

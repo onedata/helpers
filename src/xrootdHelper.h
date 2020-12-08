@@ -45,8 +45,8 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size, const int retryCount);
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) override;
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        WriteCallback &&writeCb) override;
 
     folly::Future<std::size_t> write(
         const off_t offset, folly::IOBufQueue buf, const int retryCount);
