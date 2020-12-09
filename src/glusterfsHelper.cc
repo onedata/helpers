@@ -254,8 +254,6 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
             [&]() {
                 auto written =
                     glfs_pwritev(glfsFd.get(), iov.data(), iov_size, offset, 0);
-                if (writeCb)
-                    writeCb(written);
                 return written;
             },
             std::bind(GlusterFSRetryCondition, std::placeholders::_1,
@@ -267,6 +265,9 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.glusterfs.errors.write");
             return makeFuturePosixException<std::size_t>(errno);
         }
+
+        if (writeCb)
+            writeCb(res);
 
         LOG_DBG(2) << "Written " << res << " bytes to file " << fileId;
 

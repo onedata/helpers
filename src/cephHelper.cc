@@ -133,12 +133,9 @@ folly::Future<std::size_t> CephFileHandle::write(
             libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
             auto ret = retry(
-                [&, writeCb = std::move(writeCb), data = std::move(data)]() {
+                [&, data = std::move(data)]() {
                     auto written =
                         rs.write(m_fileId.toStdString(), data, size, offset);
-                    if (writeCb)
-                        writeCb(written);
-
                     return written;
                 },
                 std::bind(CephRetryCondition, _1, "write"));
@@ -149,6 +146,9 @@ folly::Future<std::size_t> CephFileHandle::write(
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.write");
                 return makeFuturePosixException<std::size_t>(ret);
             }
+
+            if (writeCb)
+                writeCb(ret);
 
             LOG_DBG(2) << "Written " << ret << " bytes at offset " << offset
                        << " to file " << m_fileId;
