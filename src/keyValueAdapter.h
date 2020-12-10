@@ -59,8 +59,8 @@ public:
     virtual folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    virtual folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
+    virtual folly::Future<std::size_t> write(const off_t offset,
+        folly::IOBufQueue buf, WriteCallback &&writeCb) override;
 
     const Timeout &timeout() override;
 

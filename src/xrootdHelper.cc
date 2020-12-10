@@ -233,7 +233,7 @@ folly::Future<folly::IOBufQueue> XRootDFileHandle::read(
 }
 
 folly::Future<std::size_t> XRootDFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
     if (iobuf->isChained()) {
@@ -244,7 +244,12 @@ folly::Future<std::size_t> XRootDFileHandle::write(
     folly::IOBufQueue queue{folly::IOBufQueue::cacheChainLength()};
     queue.append(iobuf->cloneOne());
 
-    return write(offset, std::move(queue), kXRootDRetryCount);
+    return write(offset, std::move(queue), kXRootDRetryCount)
+        .then([writeCb = std::move(writeCb)](std::size_t written) {
+            if (writeCb)
+                writeCb(written);
+            return written;
+        });
 }
 
 folly::Future<std::size_t> XRootDFileHandle::write(

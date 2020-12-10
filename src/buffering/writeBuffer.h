@@ -74,7 +74,8 @@ public:
         m_cancelFlushSchedule();
     }
 
-    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf)
+    folly::Future<std::size_t> write(
+        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
@@ -91,10 +92,15 @@ public:
 
         const std::size_t size = buf.chainLength();
 
+        // If the new data block is not a continuation of the last block in the
+        // buffer queue, add it separatel, otherwise append the data to the
+        // last block in the queue
         if (m_buffers.empty() || m_nextOffset != offset)
-            m_buffers.emplace_back(offset, std::move(buf));
+            m_buffers.emplace_back(offset, std::move(buf), std::move(writeCb));
         else
-            m_buffers.back().second.append(std::move(buf));
+            // This assumes that the consecutive blocks are on the same storage
+            // and so the write callback can be reused
+            std::get<1>(m_buffers.back()).append(std::move(buf));
 
         m_bufferedSize += size;
         m_nextOffset = offset + size;
@@ -173,6 +179,7 @@ private:
                           buffers = std::move(buffers)]() mutable {
                     if (auto self = s.lock())
                         return self->m_handle.multiwrite(std::move(buffers));
+
                     return folly::makeFuture<std::size_t>(std::system_error{
                         std::make_error_code(std::errc::owner_dead)});
                 })
@@ -269,7 +276,8 @@ private:
 
     std::size_t m_bufferedSize = 0;
     off_t m_nextOffset = 0;
-    folly::fbvector<std::pair<off_t, folly::IOBufQueue>> m_buffers;
+    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
+        m_buffers;
     std::atomic<std::size_t> m_bps{0};
 
     FiberMutex m_mutex;

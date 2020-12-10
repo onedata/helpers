@@ -211,7 +211,7 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 }
 
 folly::Future<std::size_t> GlusterFSFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
@@ -220,6 +220,7 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
 
     return helper->connect().then([offset, buf = std::move(buf),
+                                      writeCb = std::move(writeCb),
                                       glfsFd = m_glfsFd, uid = m_uid,
                                       fileId = m_fileId,
                                       timer = std::move(timer), gid = m_gid,
@@ -251,8 +252,9 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
 
         auto res = retry(
             [&]() {
-                return glfs_pwritev(
-                    glfsFd.get(), iov.data(), iov_size, offset, 0);
+                auto written =
+                    glfs_pwritev(glfsFd.get(), iov.data(), iov_size, offset, 0);
+                return written;
             },
             std::bind(GlusterFSRetryCondition, std::placeholders::_1,
                 "glfs_pwritev"));
@@ -263,6 +265,9 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.glusterfs.errors.write");
             return makeFuturePosixException<std::size_t>(errno);
         }
+
+        if (writeCb)
+            writeCb(res);
 
         LOG_DBG(2) << "Written " << res << " bytes to file " << fileId;
 

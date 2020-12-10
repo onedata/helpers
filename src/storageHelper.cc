@@ -147,7 +147,7 @@ folly::Future<folly::Unit> FileHandle::refreshHelperParams(
 }
 
 folly::Future<std::size_t> FileHandle::multiwrite(
-    folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs)
+    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>> buffs)
 {
     LOG_FCALL();
 
@@ -157,7 +157,7 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     for (auto &buf : buffs) {
-        auto size = buf.second.chainLength();
+        auto size = std::get<1>(buf).chainLength();
         const auto shouldHaveWrittenAfter = shouldHaveWrittenSoFar + size;
 
         // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
@@ -173,9 +173,10 @@ folly::Future<std::size_t> FileHandle::multiwrite(
                 using one::logging::csv::read_write_perf;
 
                 log_timer<> timer;
-                auto offset = buf.first;
+                auto offset = std::get<0>(buf);
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-                return write(offset, std::move(buf.second))
+                return write(offset, std::move(std::get<1>(buf)),
+                    std::move(std::get<2>(buf)))
                     .then([wroteSoFar, offset, size, timer, fileId = m_fileId](
                               const std::size_t wrote) mutable {
                         log<read_write_perf>(fileId, "FileHandle", "write",

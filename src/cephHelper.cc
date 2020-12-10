@@ -100,7 +100,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
 }
 
 folly::Future<std::size_t> CephFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
@@ -110,6 +110,7 @@ folly::Future<std::size_t> CephFileHandle::write(
 
     return helper->connect().then(
         [this, buf = std::move(buf), offset, helper,
+            writeCb = std::move(writeCb),
             s = std::weak_ptr<CephFileHandle>{shared_from_this()},
             timer = std::move(timer)]() mutable {
             auto self = s.lock();
@@ -133,7 +134,9 @@ folly::Future<std::size_t> CephFileHandle::write(
 
             auto ret = retry(
                 [&, data = std::move(data)]() {
-                    return rs.write(m_fileId.toStdString(), data, size, offset);
+                    auto written =
+                        rs.write(m_fileId.toStdString(), data, size, offset);
+                    return written;
                 },
                 std::bind(CephRetryCondition, _1, "write"));
 
@@ -143,6 +146,9 @@ folly::Future<std::size_t> CephFileHandle::write(
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.write");
                 return makeFuturePosixException<std::size_t>(ret);
             }
+
+            if (writeCb)
+                writeCb(ret);
 
             LOG_DBG(2) << "Written " << ret << " bytes at offset " << offset
                        << " to file " << m_fileId;

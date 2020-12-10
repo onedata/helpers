@@ -110,7 +110,7 @@ public:
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
-                    return handle->write(offset, std::move(buf)).get();
+                    return handle->write(offset, std::move(buf), {}).get();
                 })
                 .get();
         };
