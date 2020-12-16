@@ -25,7 +25,6 @@
 #include <Poco/URI.h>
 #include <Poco/XML/XMLWriter.h>
 #include <folly/Executor.h>
-#include <folly/MPMCQueue.h>
 #include <folly/ThreadLocal.h>
 #include <folly/executors/GlobalExecutor.h>
 #include <folly/executors/IOExecutor.h>
@@ -37,6 +36,7 @@
 #include <proxygen/lib/http/session/HTTPUpstreamSession.h>
 #include <proxygen/lib/utils/Base64.h>
 #include <proxygen/lib/utils/URL.h>
+#include <tbb/concurrent_priority_queue.h>
 
 namespace pxml = Poco::XML;
 
@@ -117,6 +117,7 @@ class HTTPHelper;
 class HTTPSession;
 
 using HTTPSessionPtr = std::unique_ptr<HTTPSession>;
+// Session key <host, port, isExternal, isHttps>
 using HTTPSessionPoolKey = std::tuple<folly::fbstring, uint16_t, bool, bool>;
 
 /**
@@ -156,11 +157,13 @@ struct HTTPSession : public proxygen::HTTPSession::InfoCallback,
     folly::EventBase *evb{nullptr};
     std::unique_ptr<proxygen::HTTPConnector> connector;
 
+    // Shared promise ensuring that only one connection per session is initiated
+    // at the same time
     std::unique_ptr<folly::SharedPromise<folly::Unit>> connectionPromise;
 
-    std::string host;
-
+    // Session key allowing connections to multiple hosts
     HTTPSessionPoolKey key;
+    folly::SocketAddress address;
 
     // Set to true when server returned 'Connection: close' header in response
     // to a request
@@ -195,6 +198,7 @@ struct HTTPSession : public proxygen::HTTPSession::InfoCallback,
     void onIngressEOF() override
     {
         LOG_DBG(4) << "Ingress EOF - restarting HTTP session";
+
         sessionValid = false;
     }
     void onRead(const proxygen::HTTPSession &, size_t bytesRead) override {}
@@ -234,6 +238,18 @@ struct HTTPSession : public proxygen::HTTPSession::InfoCallback,
     void onEgressBuffered(const proxygen::HTTPSession &) override {}
     void onEgressBufferCleared(const proxygen::HTTPSession &) override {}
     /**@}*/
+};
+
+/**
+ * Sort functor which ensures that the idle connection queue keeps
+ * active free connections at the head of the queue, to minimize
+ * number of concurrent active connections.
+ */
+struct HTTPSessionPriorityCompare {
+    bool operator()(const HTTPSession *a, const HTTPSession *b) const
+    {
+        return a->sessionValid < b->sessionValid;
+    }
 };
 
 /**
@@ -305,8 +321,9 @@ public:
     void releaseSession(HTTPSession *session)
     {
         decltype(m_idleSessionPool)::accessor ispAcc;
-        if (m_idleSessionPool.find(ispAcc, session->key))
-            ispAcc->second.write(std::move(session));
+        if (m_idleSessionPool.find(ispAcc, session->key)) {
+            ispAcc->second.emplace(std::move(session));
+        }
     };
 
     bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
@@ -322,8 +339,6 @@ public:
 private:
     void initializeSessionPool(const HTTPSessionPoolKey &key)
     {
-        constexpr auto kHTTPSessionPoolSize = 1024u;
-
         // Initialize HTTP session pool with connection to the
         // main host:port as defined in the helper parameters
         // Since some requests may create redirects, these will
@@ -340,14 +355,13 @@ private:
         spAcc->second = folly::fbvector<HTTPSessionPtr>();
 
         m_idleSessionPool.insert(ispAcc, key);
-        ispAcc->second = folly::MPMCQueue<HTTPSession *, std::atomic, true>(
-            kHTTPSessionPoolSize);
 
         for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
             auto httpSession = std::make_unique<HTTPSession>();
             httpSession->helper = this;
             httpSession->key = key;
-            ispAcc->second.write(httpSession.get());
+            httpSession->address = folly::SocketAddress{};
+            ispAcc->second.emplace(httpSession.get());
             spAcc->second.emplace_back(std::move(httpSession));
         }
     }
@@ -366,7 +380,8 @@ private:
     std::shared_ptr<folly::IOExecutor> m_executor;
 
     tbb::concurrent_hash_map<HTTPSessionPoolKey,
-        folly::MPMCQueue<HTTPSession *, std::atomic, true>,
+        tbb::concurrent_priority_queue<HTTPSession *,
+            HTTPSessionPriorityCompare>,
         HTTPSessionPoolKeyCompare>
         m_idleSessionPool;
     tbb::concurrent_hash_map<HTTPSessionPoolKey,
