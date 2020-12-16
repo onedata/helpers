@@ -122,9 +122,9 @@ def test_read_should_work_with_public_servers(public_helper):
 
 
 def test_read_should_work_with_public_servers_using_external_urls(helper):
-    size = helper.getattr('https://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release').st_size
+    size = helper.getattr('http://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release').st_size
 
-    data = helper.read('https://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release', 0, size)
+    data = helper.read('http://packages.onedata.org/apt/ubuntu/2002/dists/bionic/Release', 0, size)
 
     assert len(data) == size
 
