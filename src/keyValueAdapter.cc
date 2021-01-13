@@ -279,27 +279,19 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
             });
     }
 
-    auto batchIndex = 0ul;
-    do {
-        folly::fbvector<folly::Future<folly::Unit>> futs;
-        futs.reserve(MAX_ASYNC_DELETE_OBJECTS);
+    auto futs = folly::window(keysToDelete,
+        [helper = m_helper](const auto &keyToDelete) {
+            helper->deleteObject(keyToDelete);
+            return folly::makeFuture();
+        },
+        MAX_ASYNC_DELETE_OBJECTS);
 
-        for (auto i = batchIndex;
-             i < std::min(batchIndex + MAX_ASYNC_DELETE_OBJECTS,
-                     keysToDelete.size());
-             i++) {
-            futs.emplace_back(folly::via(m_executor.get(),
-                [keyToDelete = keysToDelete.at(i), helper = m_helper] {
-                    helper->deleteObject(keyToDelete);
-                }));
-        }
-
-        folly::collectAll(futs.begin(), futs.end()).get();
-
-        batchIndex += MAX_ASYNC_DELETE_OBJECTS;
-    } while (batchIndex < MAX_ASYNC_DELETE_OBJECTS);
-
-    return folly::makeFuture();
+    return folly::collectAll(futs.begin(), futs.end())
+        .then([](const std::vector<folly::Try<folly::Unit>> &res) {
+            std::for_each(res.begin(), res.end(),
+                [](const auto &v) { v.throwIfFailed(); });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
@@ -434,35 +426,27 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
         })
         .then([keysToDelete = std::move(keysToDelete), helper = m_helper,
                   executor = m_executor]() {
-            if (!keysToDelete.empty()) {
-                if (helper->supportsBatchDelete()) {
-                    helper->deleteObjects(keysToDelete);
-                }
-                else {
-                    auto batchIndex = 0ul;
-                    do {
-                        folly::fbvector<folly::Future<folly::Unit>> futs;
-                        futs.reserve(MAX_ASYNC_DELETE_OBJECTS);
+            if (keysToDelete.empty())
+                return folly::makeFuture();
 
-                        for (auto i = batchIndex;
-                             i < std::min(batchIndex + MAX_ASYNC_DELETE_OBJECTS,
-                                     keysToDelete.size());
-                             i++) {
-                            futs.emplace_back(folly::via(executor.get(),
-                                [keyToDelete = keysToDelete.at(i), helper] {
-                                    helper->deleteObject(keyToDelete);
-                                    return folly::makeFuture();
-                                }));
-                        }
-
-                        folly::collectAll(futs.begin(), futs.end()).get();
-
-                        batchIndex += MAX_ASYNC_DELETE_OBJECTS;
-                    } while (batchIndex < MAX_ASYNC_DELETE_OBJECTS);
-                }
+            if (helper->supportsBatchDelete()) {
+                helper->deleteObjects(keysToDelete);
+                return folly::makeFuture();
             }
 
-            return folly::makeFuture();
+            auto futs = folly::window(keysToDelete,
+                [helper](const auto &keyToDelete) {
+                    helper->deleteObject(keyToDelete);
+                    return folly::makeFuture();
+                },
+                MAX_ASYNC_DELETE_OBJECTS);
+
+            return folly::collectAll(futs.begin(), futs.end())
+                .then([](const std::vector<folly::Try<folly::Unit>> &res) {
+                    std::for_each(res.begin(), res.end(),
+                        [](const auto &v) { v.throwIfFailed(); });
+                    return folly::makeFuture();
+                });
         });
 }
 
