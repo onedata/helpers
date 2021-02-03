@@ -49,9 +49,9 @@ std::string HandshakeErrorCategory::message(int ev) const
     }
 }
 
-std::error_code makeErrorCode(ErrorCode e)
+std::error_code make_error_code(ErrorCode e)
 {
-    static HandshakeErrorCategory errorCategory{};
+    const static HandshakeErrorCategory errorCategory{};
     return {static_cast<int>(e), errorCategory};
 }
 

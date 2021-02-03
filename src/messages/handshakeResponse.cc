@@ -31,7 +31,7 @@ bool HandshakeResponse::isMacaroonError() const
 
 std::error_code HandshakeResponse::status() const
 {
-    return errors::handshake::makeErrorCode(m_status);
+    return errors::handshake::make_error_code(m_status);
 }
 
 std::string HandshakeResponse::toString() const
