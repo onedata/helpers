@@ -64,7 +64,8 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
                 std::all_of(m_connections.begin(), m_connections.end(),
                     [](auto &c) { return !c->connected(); })) {
                 LOG_DBG(2) << "Calling connection lost callback...";
-                m_onConnectionLostCallback();
+                if (m_onConnectionLostCallback)
+                    m_onConnectionLostCallback();
             }
         });
         m_connections.emplace_back(std::move(client));
@@ -155,12 +156,8 @@ void ConnectionPool::connect()
                     m_idleConnections.emplace(clientPtr);
                 })
             .onError([this](folly::exception_wrapper ew) {
-                close().get();
-                ew.throw_exception();
-            })
-            .onError([this](std::exception &e) {
-                close().get();
-                throw e;
+                return folly::via(m_executor.get(), [this] { return close(); })
+                    .then([ew] { ew.throw_exception(); });
             })
             .get();
     }
@@ -258,7 +255,8 @@ void ConnectionPool::send(
                                     std::all_of(m_connections.begin(),
                                         m_connections.end(),
                                         [](auto &c) { return c->connected(); }))
-                                    m_onReconnectCallback();
+                                    if (m_onReconnectCallback)
+                                        m_onReconnectCallback();
                             }
                             else
                                 client->getPipeline()->close();

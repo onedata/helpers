@@ -199,7 +199,7 @@ TEST_F(TranslatorTest, onHandshakeResponseShouldDeserializeProtocolObjects)
     auto domainHandshakeResponseF =
         [&](one::messages::HandshakeResponse msg) mutable {
             called = true;
-            EXPECT_EQ(makeErrorCode(ErrorCode::ok), msg.status());
+            EXPECT_EQ(make_error_code(ErrorCode::ok), msg.status());
             return msg.status();
         };
 

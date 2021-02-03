@@ -237,21 +237,37 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                           "Oneprovider at "
                                        << host << ":" << port << ": "
                                        << folly::exceptionStr(ew);
+                            ew.throw_exception();
                         });
                 })
                 .onError([this, host, port, executor, reconnectAttempt](
-                             folly::exception_wrapper ew) {
-                    LOG(INFO) << "Reconnect attempt failed: " << ew.what()
-                              << ". Retrying...";
+                             std::system_error &e) {
+                    LOG(ERROR) << "Reconnect attempt failed: " << e.what();
 
-                    // onError() doesn't keep the executor, so we have to
-                    // wrap it in via
-                    return folly::via(
-                        executor, [this, host, port, reconnectAttempt] {
-                            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
-                            return connect(host, port, reconnectAttempt + 1)
-                                .then([]() { return folly::makeFuture(); });
-                        });
+                    auto err = e.code().value();
+
+                    if (err == EAGAIN || err == ECONNRESET ||
+                        err == ECONNABORTED || err == ECONNREFUSED) {
+
+                        // onError() doesn't keep the executor, so we have to
+                        // wrap it in via
+                        return folly::via(
+                            executor, [this, host, port, reconnectAttempt] {
+                                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
+                                return connect(host, port, reconnectAttempt + 1)
+                                    .then([]() { return folly::makeFuture(); });
+                            });
+                    }
+
+                    if (getPipeline() != nullptr) {
+                        // close() must be called in executor
+                        //
+                        return folly::via(
+                            executor, [this] { getPipeline()->close(); })
+                            .then([e] { throw e; });
+                    }
+
+                    throw e;
                 });
         });
 }
