@@ -147,6 +147,9 @@ public:
         const folly::fbstring &marker, const off_t offset,
         const size_t size) override;
 
+    void multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey) override;
+
     struct stat getObjectInfo(const folly::fbstring &key) override;
 
     const Timeout &timeout() override { return m_timeout; }

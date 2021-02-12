@@ -13,12 +13,16 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CompletedMultipartUpload.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/Delete.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/UploadPartCopyRequest.h>
 #include <boost/algorithm/string.hpp>
 #include <folly/Range.h>
 #include <glog/stl_logging.h>
@@ -543,6 +547,95 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     }
 
     LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
+}
+
+void S3Helper::multipartCopy(
+    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+{
+    auto keys = listObjects(sourceKey, "", 0, 1000);
+    std::sort(keys.begin(), keys.end(), [](const auto &l, const auto &r) {
+        return std::get<0>(l) > std::get<0>(r);
+    });
+
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::CompletedMultipartUpload;
+    using Aws::S3::Model::CompletedPart;
+    using Aws::S3::Model::CompleteMultipartUploadOutcome;
+    using Aws::S3::Model::CompleteMultipartUploadRequest;
+    using Aws::S3::Model::CreateMultipartUploadOutcome;
+    using Aws::S3::Model::CreateMultipartUploadRequest;
+    using Aws::S3::Model::UploadPartCopyOutcome;
+    using Aws::S3::Model::UploadPartCopyRequest;
+
+    const auto effectiveDestinationKey = toEffectiveKey(destinationKey);
+
+    CreateMultipartUploadRequest createRequest;
+    createRequest.SetBucket(m_bucket.toStdString());
+    createRequest.SetKey(effectiveDestinationKey.toStdString());
+    auto createOutcome = m_client->CreateMultipartUpload(createRequest);
+    auto uploadId = createOutcome.GetResult().GetUploadId();
+
+    throwOnError("CreateMultipartUploadrequest", createOutcome);
+
+    LOG_DBG(3) << "Multipart upload id: " << uploadId;
+    LOG_DBG(3) << "Bucket is: " << m_bucket;
+
+    auto partNumber = 1UL;
+    CompletedMultipartUpload completedMultipartUpload;
+
+    for (const auto &keyStat : keys) {
+        const auto &key = std::get<0>(keyStat);
+        const auto size = std::get<1>(keyStat).st_size;
+        auto effectiveSourceKey = toEffectiveKey(key);
+
+        LOG_DBG(3) << "Copying part: " << key;
+
+        UploadPartCopyRequest request;
+        request.SetBucket(m_bucket.toStdString());
+        request.SetKey(effectiveDestinationKey.toStdString());
+        request.SetCopySource(
+            m_bucket.toStdString() + effectiveSourceKey.toStdString());
+        request.SetCopySourceRange(fmt::format("bytes={}-{}", 0, size - 1));
+        request.SetUploadId(uploadId);
+        request.SetPartNumber(partNumber);
+
+        folly::Promise<UploadPartCopyOutcome> outcomePromise;
+        auto outcomeFuture = outcomePromise.getFuture();
+
+        m_client->UploadPartCopyAsync(request,
+            [&outcomePromise](const S3Client * /*client*/,
+                const UploadPartCopyRequest & /*request*/,
+                UploadPartCopyOutcome uploadPartCopyOutcome,
+                const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                outcomePromise.setValue(std::move(uploadPartCopyOutcome));
+            },
+            nullptr);
+
+        auto uploadPartOutcome = outcomeFuture.get();
+        // NOLINTNEXTLINE
+
+        throwOnError("UploadPartCopyAsync", uploadPartOutcome);
+
+        CompletedPart completedPart;
+        completedPart.SetPartNumber(partNumber++);
+        completedPart.SetETag(
+            uploadPartOutcome.GetResult().GetCopyPartResult().GetETag());
+        completedMultipartUpload.AddParts(completedPart);
+    }
+
+    CompleteMultipartUploadRequest completeRequest;
+    completeRequest.SetKey(effectiveDestinationKey.toStdString());
+    completeRequest.SetBucket(m_bucket.toStdString());
+    completeRequest.SetUploadId(uploadId);
+    completeRequest.SetMultipartUpload(completedMultipartUpload);
+
+    auto completeOutcome = m_client->CompleteMultipartUpload(completeRequest);
+
+    throwOnError("CompleteMultipartUpload", completeOutcome);
+
+    LOG_DBG(2) << "Completed multipart copy from " << sourceKey << " to "
+               << destinationKey;
 }
 
 struct stat S3Helper::getObjectInfo(const folly::fbstring &key)

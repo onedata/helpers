@@ -140,6 +140,10 @@ public:
         return folly::makeFuture();
     }
 
+    virtual folly::Future<folly::Unit> multipartCopy(
+        const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey) override;
+
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
         const off_t offset, const size_t count) override;

@@ -33,7 +33,7 @@ def server(request):
             self.secret_key = secret_key
             self.bucket = bucket
             self.prefix = prefix
-            self.s3 = boto3.resource('s3', endpoint_url=scheme+"://"+hostname,
+            self.s3 = boto3.resource('s3', endpoint_url=self.scheme+"://"+self.hostname,
                                 aws_access_key_id = self.access_key,
                                 aws_secret_access_key = self.secret_key)
 
@@ -61,3 +61,21 @@ def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          BLOCK_SIZE)
+
+@pytest.fixture
+def helper_multipart(server):
+    return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
+                         server.access_key, server.secret_key, THREAD_NUMBER,
+                         6*1024*1024)
+
+
+def test_multipart_copy_should_create_single_object(helper_multipart, file_id, server):
+    block_num = 20*1024;
+    seed = random_str(1024)
+    data = seed * block_num
+
+    assert helper_multipart.write(file_id, data, 0) == len(data)
+
+    helper_multipart.multipart_copy(file_id, file_id+"_MERGED")
+
+

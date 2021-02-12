@@ -168,6 +168,13 @@ public:
             std::make_error_code(std::errc::function_not_supported)};
     }
 
+    virtual void multipartCopy(
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
+    }
+
     /**
      * Get the information about an object in a POSIX `stat` structure.
      * Fields which are not supported by the underlying storage, can

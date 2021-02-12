@@ -594,6 +594,13 @@ public:
             std::make_error_code(std::errc::function_not_supported)});
     }
 
+    virtual folly::Future<folly::Unit> multipartCopy(
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+    {
+        return folly::makeFuture<folly::Unit>(std::system_error{
+            std::make_error_code(std::errc::function_not_supported)});
+    }
+
     virtual folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &uuid, const folly::fbstring &name)
     {

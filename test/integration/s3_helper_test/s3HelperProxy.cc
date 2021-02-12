@@ -142,6 +142,12 @@ public:
         return res;
     }
 
+    void multipartCopy(std::string source, std::string destination)
+    {
+        ReleaseGIL guard;
+        m_helper->multipartCopy(source, destination).get();
+    }
+
     void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
@@ -216,6 +222,7 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("mknod", &S3HelperProxy::mknod)
         .def("mkdir", &S3HelperProxy::mkdir)
         .def("listobjects", &S3HelperProxy::listobjects)
+        .def("multipart_copy", &S3HelperProxy::multipartCopy)
         .def("unlink", &S3HelperProxy::unlink)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)

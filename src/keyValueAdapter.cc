@@ -470,6 +470,15 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
         [](auto && /*unused*/) { return folly::makeFuture(); });
 }
 
+folly::Future<folly::Unit> KeyValueAdapter::multipartCopy(
+    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+{
+    return folly::via(m_executor.get(),
+        [sourceKey, destinationKey, helper = m_helper, locks = m_locks] {
+            return helper->multipartCopy(sourceKey, destinationKey);
+        });
+}
+
 folly::Future<ListObjectsResult> KeyValueAdapter::listobjects(
     const folly::fbstring &prefix, const folly::fbstring &marker,
     const off_t offset, const size_t count)
