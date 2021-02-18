@@ -67,6 +67,13 @@ public:
     bool isConcurrencyEnabled() const override { return true; }
 
 private:
+    folly::Future<std::size_t> writeFlat(const off_t offset,
+        folly::IOBufQueue buf, std::size_t storageBlockSize,
+        WriteCallback &&writeCb);
+
+    folly::Future<std::size_t> writeCanonical(
+        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb);
+
     folly::Future<folly::IOBufQueue> readBlocks(
         const off_t offset, const std::size_t requestedSize);
 

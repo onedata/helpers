@@ -122,13 +122,9 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
         });
 }
 
-folly::Future<std::size_t> KeyValueFileHandle::write(
+folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
-    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
-
-    if (buf.empty())
-        return folly::makeFuture<std::size_t>(0);
 
     return folly::via(m_executor.get(),
         [this, offset, locks = m_locks, writeCb = std::move(writeCb),
@@ -144,38 +140,53 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
             using one::logging::csv::read_write_perf;
 
             log_timer<> timer;
-
-            // In case this is a storage with files stored in single objects,
-            // try to modify the contents in place
-            if (m_blockSize == 0) {
-                if (!helper->hasRandomAccess() &&
-                    (size + offset > helper->getMaxCanonicalObjectSize())) {
-                    LOG(ERROR) << "Cannot write to object storage beyond "
-                               << helper->getMaxCanonicalObjectSize();
-                    throw one::helpers::makePosixException(ERANGE);
-                }
-
-                Locks::accessor acc;
-                locks->insert(acc, m_fileId);
-                auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
-
-                if (size == 0) {
-                    folly::makeFuture<std::size_t>(
-                        static_cast<std::size_t>(helper->modifyObject(
-                            m_fileId, std::move(buf), offset)));
-                }
-                else {
-                    folly::makeFuture<std::size_t>(
-                        static_cast<std::size_t>(helper->modifyObject(
-                            m_fileId, std::move(buf), offset)));
-                }
-
-                return folly::makeFuture<std::size_t>(
-                    static_cast<std::size_t>(size));
+            if (!helper->hasRandomAccess() &&
+                (size + offset > helper->getMaxCanonicalObjectSize())) {
+                LOG(ERROR) << "Cannot write to object storage beyond "
+                           << helper->getMaxCanonicalObjectSize();
+                throw one::helpers::makePosixException(ERANGE);
             }
 
-            auto blockId = getBlockId(offset, m_blockSize);
-            auto blockOffset = getBlockOffset(offset, m_blockSize);
+            Locks::accessor acc;
+            locks->insert(acc, m_fileId);
+            auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
+
+            if (size == 0) {
+                folly::makeFuture<std::size_t>(static_cast<std::size_t>(
+                    helper->modifyObject(m_fileId, std::move(buf), offset)));
+            }
+            else {
+                folly::makeFuture<std::size_t>(static_cast<std::size_t>(
+                    helper->modifyObject(m_fileId, std::move(buf), offset)));
+            }
+
+            return folly::makeFuture<std::size_t>(
+                static_cast<std::size_t>(size));
+        });
+}
+
+folly::Future<std::size_t> KeyValueFileHandle::writeFlat(const off_t offset,
+    folly::IOBufQueue buf, std::size_t storageBlockSize,
+    WriteCallback &&writeCb)
+{
+    return folly::via(m_executor.get(),
+        [this, offset, storageBlockSize, locks = m_locks,
+            writeCb = std::move(writeCb),
+            helper =
+                std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
+            buf = std::move(buf), self = shared_from_this()]() mutable {
+            const auto size = buf.chainLength();
+            if (size == 0 && offset > 0)
+                return folly::makeFuture<std::size_t>(0);
+
+            using one::logging::log_timer;
+            using one::logging::csv::log;
+            using one::logging::csv::read_write_perf;
+
+            log_timer<> timer;
+
+            auto blockId = getBlockId(offset, storageBlockSize);
+            auto blockOffset = getBlockOffset(offset, storageBlockSize);
 
             folly::fbvector<folly::Future<folly::Unit>> writeFutures;
 
@@ -183,7 +194,7 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
                  blockOffset = 0, ++blockId) {
 
                 const auto blockSize = std::min<std::size_t>(
-                    m_blockSize - blockOffset, size - bufOffset);
+                    storageBlockSize - blockOffset, size - bufOffset);
 
                 auto writeFuture = via(m_executor.get(),
                     [this, iobuf = buf.front()->clone(), blockId, blockOffset,
@@ -226,6 +237,21 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
                     }
                 });
         });
+}
+
+folly::Future<std::size_t> KeyValueFileHandle::write(
+    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
+{
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
+    if (buf.empty())
+        return folly::makeFuture<std::size_t>(0);
+
+    if (m_blockSize > 0)
+        return writeFlat(
+            offset, std::move(buf), m_blockSize, std::move(writeCb));
+
+    return writeCanonical(offset, std::move(buf), std::move(writeCb));
 }
 
 const Timeout &KeyValueFileHandle::timeout() { return m_helper->timeout(); }
