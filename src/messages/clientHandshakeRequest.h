@@ -20,6 +20,10 @@
 namespace one {
 namespace messages {
 
+namespace handshake {
+enum class SessionMode { normal = 1, open_handle };
+}
+
 /**
  * The HandshakeRequest class represents a message that is sent by the client to
  * establish session.
@@ -36,14 +40,23 @@ public:
      * Constructor.
      * @param sessionId Id of session to be used in handshake
      * @param macaroon Access macaroon used to established session
+     * @param version Client version
      */
-
     ClientHandshakeRequest(
         std::string sessionId, std::string macaroon, std::string version);
 
+    /**
+     * Constructor.
+     * @param sessionId Id of session to be used in handshake
+     * @param macaroon Access macaroon used to established session
+     * @param version Client version
+     * @param compatibleOneproviderVersions @deprecated
+     * @param sessionMode Type of client session
+     */
     ClientHandshakeRequest(std::string sessionId, std::string macaroon,
         std::string version,
-        std::vector<std::string> compatibleOneproviderVersions);
+        std::vector<std::string> compatibleOneproviderVersions,
+        handshake::SessionMode sessionMode);
 
     std::string toString() const override;
 
@@ -54,6 +67,7 @@ private:
     boost::optional<std::string> m_macaroon;
     std::string m_version;
     std::vector<std::string> m_compatibleOneproviderVersions;
+    handshake::SessionMode m_sessionMode;
 };
 
 } // namespace messages

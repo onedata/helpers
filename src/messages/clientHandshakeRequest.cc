@@ -17,6 +17,7 @@ namespace messages {
 
 ClientHandshakeRequest::ClientHandshakeRequest(std::string sessionId)
     : m_sessionId{std::move(sessionId)}
+    , m_sessionMode{handshake::SessionMode::normal}
 {
 }
 
@@ -25,16 +26,19 @@ ClientHandshakeRequest::ClientHandshakeRequest(
     : m_sessionId{std::move(sessionId)}
     , m_macaroon{std::move(macaroon)}
     , m_version{std::move(version)}
+    , m_sessionMode{handshake::SessionMode::normal}
 {
 }
 
 ClientHandshakeRequest::ClientHandshakeRequest(std::string sessionId,
     std::string macaroon, std::string version,
-    std::vector<std::string> compatibleOneproviderVersions)
+    std::vector<std::string> compatibleOneproviderVersions,
+    handshake::SessionMode sessionMode)
     : m_sessionId{std::move(sessionId)}
     , m_macaroon{std::move(macaroon)}
     , m_version{std::move(version)}
     , m_compatibleOneproviderVersions{std::move(compatibleOneproviderVersions)}
+    , m_sessionMode{sessionMode}
 {
 }
 
@@ -53,6 +57,12 @@ std::string ClientHandshakeRequest::toString() const
            << "', compatible oneprovider versions:";
     for (const auto &compatibleVersion : m_compatibleOneproviderVersions)
         stream << " " << compatibleVersion;
+
+    stream << ", session_mode: ";
+    if (m_sessionMode == handshake::SessionMode::normal)
+        stream << "'NORMAL'";
+    else
+        stream << "'OPEN_HANDLE'";
 
     return stream.str();
 }
@@ -73,6 +83,13 @@ ClientHandshakeRequest::serializeAndDestroy()
     for (const auto &compatibleVersion : m_compatibleOneproviderVersions)
         handshakeRequestMsg->add_compatible_oneprovider_versions(
             compatibleVersion);
+
+    if (m_sessionMode == handshake::SessionMode::normal)
+        handshakeRequestMsg->set_session_mode(
+            ::one::clproto::SessionMode::NORMAL);
+    else
+        handshakeRequestMsg->set_session_mode(
+            ::one::clproto::SessionMode::OPEN_HANDLE);
 
     return clientMsg;
 }
