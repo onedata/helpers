@@ -57,6 +57,8 @@ public:
         const auto &poolName = getParam(parameters, "poolName");
         const auto &userName = getParam(parameters, "username");
         const auto &key = getParam(parameters, "key");
+        const auto storagePathType =
+            getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -65,8 +67,8 @@ public:
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
                 userName, key, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize,
-            executionContext);
+            std::make_shared<AsioExecutor>(m_service), storagePathType,
+            blockSize, executionContext);
     }
 
 private:

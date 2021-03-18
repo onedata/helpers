@@ -84,11 +84,10 @@ KeyValueFileHandle::KeyValueFileHandle(folly::fbstring fileId,
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(blockSize);
 }
 
-folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
-    const off_t offset, const std::size_t size)
+folly::Future<folly::IOBufQueue> KeyValueFileHandle::readFlat(
+    const off_t offset, const std::size_t size,
+    const std::size_t storageBlockSize)
 {
-    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
-
     using one::logging::log_timer;
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
@@ -97,34 +96,64 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(),
+        [this, offset, size, storageBlockSize, locks = m_locks,
+            helper =
+                std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
+            timer, self = shared_from_this()]() {
+            return readBlocks(offset, size, storageBlockSize);
+        });
+}
+
+folly::Future<folly::IOBufQueue> KeyValueFileHandle::readCanonical(
+    const off_t offset, const std::size_t size)
+{
+    using one::logging::log_timer;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+
+    log_timer<> timer;
+
+    assert(m_blockSize == 0);
+
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
+    return folly::via(m_executor.get(),
         [this, offset, size, locks = m_locks,
             helper =
                 std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
             timer, self = shared_from_this()]() {
-            // In case this is a storage with files stored in single objects,
-            // read from an object using it's fileId as name of the object
-            // on the storage
-            if (m_blockSize == 0) {
-                Locks::accessor acc;
-                locks->insert(acc, m_fileId);
-                auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
+            // If the file is in 1 object
+            Locks::accessor acc;
+            locks->insert(acc, m_fileId);
+            auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
 
-                auto res = folly::makeFuture<folly::IOBufQueue>(
-                    helper->getObject(m_fileId, offset, size));
+            auto res = folly::makeFuture<folly::IOBufQueue>(
+                helper->getObject(m_fileId, offset, size));
 
-                log<read_write_perf>(m_fileId, "KeyValueFileHandle", "read",
-                    offset, size, timer.stop());
+            log<read_write_perf>(m_fileId, "KeyValueFileHandle", "read", offset,
+                size, timer.stop());
 
-                return res;
-            }
+            return res;
 
-            return readBlocks(offset, size);
+            // otherwise call readblocks from parts
+            // TODO...
         });
+}
+
+folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
+    const off_t offset, const std::size_t size)
+{
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
+    if (helper()->storagePathType() == StoragePathType::FLAT)
+        return readFlat(offset, size, m_blockSize);
+
+    return readCanonical(offset, size);
 }
 
 folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
+    assert(m_blockSize == 0);
 
     return folly::via(m_executor.get(),
         [this, offset, locks = m_locks, writeCb = std::move(writeCb),
@@ -247,7 +276,7 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
     if (buf.empty())
         return folly::makeFuture<std::size_t>(0);
 
-    if (m_blockSize > 0)
+    if (helper()->storagePathType() == StoragePathType::FLAT)
         return writeFlat(
             offset, std::move(buf), m_blockSize, std::move(writeCb));
 
@@ -257,13 +286,14 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
 const Timeout &KeyValueFileHandle::timeout() { return m_helper->timeout(); }
 
 KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
-    std::shared_ptr<folly::Executor> executor, std::size_t blockSize,
-    ExecutionContext executionContext)
+    std::shared_ptr<folly::Executor> executor, StoragePathType storagePathType,
+    std::size_t blockSize, ExecutionContext executionContext)
     : StorageHelper{executionContext}
     , m_helper{std::move(helper)}
     , m_executor{std::move(executor)}
     , m_locks{std::make_shared<Locks>()}
     , m_blockSize{blockSize}
+    , m_storagePathType{storagePathType}
 {
     LOG_FCALL() << LOG_FARG(blockSize);
 }
@@ -526,7 +556,8 @@ const Timeout &KeyValueAdapter::timeout()
 }
 
 folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
-    const off_t offset, const std::size_t requestedSize)
+    const off_t offset, const std::size_t requestedSize,
+    const std::size_t storageBlockSize)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(requestedSize);
 
@@ -538,13 +569,13 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
 
     folly::fbvector<folly::Future<folly::IOBufQueue>> readFutures;
 
-    auto blockId = getBlockId(offset, m_blockSize);
-    auto blockOffset = getBlockOffset(offset, m_blockSize);
+    auto blockId = getBlockId(offset, storageBlockSize);
+    auto blockOffset = getBlockOffset(offset, storageBlockSize);
     for (std::size_t bufOffset = 0; bufOffset < size;
          blockOffset = 0, ++blockId) {
 
         const auto blockSize =
-            std::min(static_cast<std::size_t>(m_blockSize - blockOffset),
+            std::min(static_cast<std::size_t>(storageBlockSize - blockOffset),
                 static_cast<std::size_t>(size - bufOffset));
 
         auto readFuture = via(m_executor.get(),

@@ -77,7 +77,8 @@ class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
-        int threadNumber, std::size_t blockSize)
+        int threadNumber, std::size_t blockSize,
+        StoragePathType storagePathType)
         : m_service{threadNumber}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
@@ -85,7 +86,8 @@ public:
                   std::move(bucketName), std::move(accessKey),
                   std::move(secretKey), 2 * 1024 * 1024, 0664, 0775,
                   scheme == "https"),
-              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
+              std::make_shared<one::AsioExecutor>(m_service), storagePathType,
+              blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {
@@ -195,11 +197,14 @@ private:
 namespace {
 boost::shared_ptr<S3HelperProxy> create(std::string scheme,
     std::string hostName, std::string bucketName, std::string accessKey,
-    std::string secretKey, std::size_t threadNumber, std::size_t blockSize)
+    std::string secretKey, std::size_t threadNumber, std::size_t blockSize,
+    std::string storagePathType = "flat")
 {
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize);
+        std::move(secretKey), threadNumber, blockSize,
+        storagePathType == "canonical" ? StoragePathType::CANONICAL
+                                       : StoragePathType::FLAT);
 }
 }
 

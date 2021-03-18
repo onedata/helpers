@@ -70,7 +70,7 @@ def server(request):
 def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         0)
+                         0, "canonical")
 
 def truncate_test(helper, op_num, size):
     """

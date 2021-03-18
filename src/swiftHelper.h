@@ -56,6 +56,8 @@ public:
         const auto &tenantName = getParam(parameters, "tenantName");
         const auto &userName = getParam(parameters, "username");
         const auto &password = getParam(parameters, "password");
+        const auto storagePathType =
+            getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -64,8 +66,8 @@ public:
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
                 userName, password, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize,
-            executionContext);
+            std::make_shared<AsioExecutor>(m_service), storagePathType,
+            blockSize, executionContext);
     }
 
 private:

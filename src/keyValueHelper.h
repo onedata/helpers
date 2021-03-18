@@ -33,9 +33,11 @@ class KeyValueHelper {
 public:
     KeyValueHelper(const bool randomAccess = false,
         const std::size_t maxCanonicalObjectSize =
-            std::numeric_limits<std::size_t>::max())
+            std::numeric_limits<std::size_t>::max(),
+        StoragePathType storagePathType = StoragePathType::FLAT)
         : m_randomAccess{randomAccess}
         , m_maxCanonicalObjectSize{maxCanonicalObjectSize}
+        , m_storagePathType{storagePathType}
     {
     }
 
@@ -210,6 +212,8 @@ public:
         return m_maxCanonicalObjectSize;
     }
 
+    StoragePathType storagePathType() const { return m_storagePathType; }
+
 protected:
     std::string adjustPrefix(const folly::fbstring &prefix) const
     {
@@ -239,6 +243,9 @@ private:
     // define the maximum object size which can be written or modified on the
     // storage, as some storage do not allow writing from a specific offset.
     const std::size_t m_maxCanonicalObjectSize;
+
+    // The type of mapping between logical paths and storage paths
+    const StoragePathType m_storagePathType;
 };
 
 } // namespace helpers

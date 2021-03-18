@@ -180,6 +180,16 @@ struct FlagHash {
  */
 enum class ExecutionContext { ONEPROVIDER, ONECLIENT };
 
+/**
+ * Determines between different types of paths under which files are stored on
+ * actual storage with respect to logical paths in virtual file system
+ */
+enum class StoragePathType {
+    CANONICAL, // same as logical paths in virtual file system, relative to
+               // space
+    FLAT       // custom path scheme based on unique file id
+};
+
 class FileHandle;
 class StorageHelper;
 class StorageHelperParams;
@@ -288,6 +298,10 @@ folly::fbstring getParam<folly::fbstring>(
 template <>
 folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     const Params &params, const folly::fbstring &key, folly::fbstring &&def);
+
+template <>
+StoragePathType getParam<StoragePathType>(
+    const Params &params, const folly::fbstring &key);
 
 /**
  * @c StorageHelperFactory is responsible for creating a helper instance from
@@ -450,12 +464,25 @@ public:
     {
         m_timeout = Timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+
+        auto storagePathTypeString =
+            getParam<std::string>(parameters, "storagePathType", "canonical");
+        if (storagePathTypeString == "canonical")
+            m_storagePathType = StoragePathType::CANONICAL;
+        else if (storagePathTypeString == "flat")
+            m_storagePathType = StoragePathType::FLAT;
+        else
+            throw BadParameterException{
+                "storagePathType", storagePathTypeString};
     }
 
     const Timeout &timeout() const { return m_timeout; }
 
+    StoragePathType storagePathType() const { return m_storagePathType; }
+
 private:
     Timeout m_timeout;
+    StoragePathType m_storagePathType;
 };
 
 /**
@@ -642,10 +669,10 @@ public:
     }
 
     /**
-     * Updates the helper parameters by replacing the parameters promise stored
-     * in storage helper with a new one. In this way requests already created
-     * will be allowed to execute with the old set of parameters while all
-     * new requests will use the new set.
+     * Updates the helper parameters by replacing the parameters promise
+     * stored in storage helper with a new one. In this way requests already
+     * created will be allowed to execute with the old set of parameters
+     * while all new requests will use the new set.
      *
      * @param params Shared instance of @c StorageHelperParams
      */
@@ -659,6 +686,13 @@ public:
     }
 
     virtual const Timeout &timeout() { return params().get()->timeout(); }
+
+    virtual StoragePathType storagePathType() const
+    {
+        return params().get()->storagePathType();
+    }
+
+    bool isFlat() const { return storagePathType() == StoragePathType::FLAT; }
 
     virtual std::size_t blockSize() const noexcept { return 0; }
 

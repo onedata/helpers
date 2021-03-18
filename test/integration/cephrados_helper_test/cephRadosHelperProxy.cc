@@ -23,6 +23,7 @@
 #include <thread>
 
 using namespace boost::python;
+using one::helpers::StoragePathType;
 
 class ReleaseGIL {
 public:
@@ -39,13 +40,14 @@ class CephRadosHelperProxy {
 public:
     CephRadosHelperProxy(std::string monHost, std::string username,
         std::string key, std::string poolName, int threadNumber,
-        std::size_t blockSize)
+        std::size_t blockSize, StoragePathType storagePathType)
         : m_service{threadNumber}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::CephRadosHelper>(
                   "ceph", monHost, poolName, username, key),
-              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
+              std::make_shared<one::AsioExecutor>(m_service), storagePathType,
+              blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {
@@ -111,11 +113,14 @@ private:
 namespace {
 boost::shared_ptr<CephRadosHelperProxy> create(std::string monHost,
     std::string username, std::string key, std::string poolName,
-    std::size_t threadNumber, std::size_t blockSize)
+    std::size_t threadNumber, std::size_t blockSize,
+    std::string storagePathType = "flat")
 {
     return boost::make_shared<CephRadosHelperProxy>(std::move(monHost),
         std::move(username), std::move(key), std::move(poolName), threadNumber,
-        blockSize);
+        blockSize,
+        storagePathType == "canonical" ? StoragePathType::CANONICAL
+                                       : StoragePathType::FLAT);
 }
 } // namespace
 

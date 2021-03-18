@@ -69,6 +69,25 @@ folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     return std::forward<folly::fbstring>(def);
 }
 
+template <>
+StoragePathType getParam<StoragePathType>(
+    const Params &params, const folly::fbstring &key)
+{
+    try {
+        auto param = params.at(key);
+        if (param == "canonical")
+            return StoragePathType::CANONICAL;
+
+        if (param == "flat")
+            return StoragePathType::FLAT;
+
+        throw BadParameterException{key, param};
+    }
+    catch (const std::out_of_range &) {
+        throw MissingParameterException{key};
+    }
+}
+
 mode_t parsePosixPermissions(folly::fbstring p)
 {
     if ((p.length() != 3) && (p.length() != 4)) {

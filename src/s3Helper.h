@@ -79,7 +79,8 @@ public:
         const auto fileMode =
             getParam(parameters, "fileMode", kDefaultFileMode);
         const auto dirMode = getParam(parameters, "dirMode", kDefaultDirMode);
-
+        const auto storagePathType =
+            getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -96,8 +97,8 @@ public:
                 secretKey, maximumCanonicalObjectSize,
                 parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
                 scheme == "https", std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize,
-            executionContext);
+            std::make_shared<AsioExecutor>(m_service), storagePathType,
+            blockSize, executionContext);
     }
 
 private:

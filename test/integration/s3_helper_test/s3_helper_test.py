@@ -60,13 +60,13 @@ def server(request):
 def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         BLOCK_SIZE)
+                         BLOCK_SIZE, "flat")
 
 @pytest.fixture
 def helper_multipart(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         6*1024*1024)
+                         6*1024*1024, "canonical")
 
 
 def test_multipart_copy_should_create_single_object(helper_multipart, file_id, server):
