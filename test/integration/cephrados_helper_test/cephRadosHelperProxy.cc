@@ -44,10 +44,10 @@ public:
         : m_service{threadNumber}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::CephRadosHelper>(
-                  "ceph", monHost, poolName, username, key),
-              std::make_shared<one::AsioExecutor>(m_service), storagePathType,
-              blockSize)}
+              std::make_shared<one::helpers::CephRadosHelper>("ceph", monHost,
+                  poolName, username, key, std::chrono::seconds{20},
+                  storagePathType),
+              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {

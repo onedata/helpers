@@ -70,8 +70,8 @@ using std::placeholders::_1;
 
 CephRadosHelper::CephRadosHelper(folly::fbstring clusterName,
     folly::fbstring monHost, folly::fbstring poolName, folly::fbstring userName,
-    folly::fbstring key, Timeout timeout)
-    : KeyValueHelper{true}
+    folly::fbstring key, Timeout timeout, StoragePathType storagePathType)
+    : KeyValueHelper{true, storagePathType}
     , m_clusterName{std::move(clusterName)}
     , m_monHost{std::move(monHost)}
     , m_poolName{std::move(poolName)}

@@ -116,7 +116,6 @@ public:
      */
     KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        StoragePathType storagePathType,
         std::size_t blockSize = DEFAULT_BLOCK_SIZE,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
@@ -167,12 +166,9 @@ public:
         return m_blockSize;
     }
 
-    const Timeout &timeout() override;
+    virtual StoragePathType storagePathType() const override;
 
-    virtual StoragePathType storagePathType() const override
-    {
-        return m_storagePathType;
-    }
+    const Timeout &timeout() override;
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
@@ -183,7 +179,6 @@ private:
     std::shared_ptr<folly::Executor> m_executor;
     std::shared_ptr<Locks> m_locks;
     const std::size_t m_blockSize;
-    const StoragePathType m_storagePathType;
 };
 
 } // namespace helpers

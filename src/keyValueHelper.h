@@ -32,9 +32,9 @@ constexpr auto MAX_OBJECT_ID_DIGITS = 6;
 class KeyValueHelper {
 public:
     KeyValueHelper(const bool randomAccess = false,
+        StoragePathType storagePathType = StoragePathType::FLAT,
         const std::size_t maxCanonicalObjectSize =
-            std::numeric_limits<std::size_t>::max(),
-        StoragePathType storagePathType = StoragePathType::FLAT)
+            std::numeric_limits<std::size_t>::max())
         : m_randomAccess{randomAccess}
         , m_maxCanonicalObjectSize{maxCanonicalObjectSize}
         , m_storagePathType{storagePathType}

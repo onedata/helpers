@@ -65,9 +65,9 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
-                userName, password, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), storagePathType,
-            blockSize, executionContext);
+                userName, password, std::move(timeout), storagePathType),
+            std::make_shared<AsioExecutor>(m_service), blockSize,
+            executionContext);
     }
 
 private:
@@ -89,7 +89,8 @@ public:
      */
     SwiftHelper(folly::fbstring containerName, const folly::fbstring &authUrl,
         const folly::fbstring &tenantName, const folly::fbstring &userName,
-        const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT);
+        const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT,
+        StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
 

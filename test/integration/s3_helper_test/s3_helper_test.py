@@ -66,7 +66,7 @@ def helper(server):
 def helper_multipart(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         6*1024*1024, "canonical")
+                         6*1024*1024, "flat")
 
 
 def test_multipart_copy_should_create_single_object(helper_multipart, file_id, server):

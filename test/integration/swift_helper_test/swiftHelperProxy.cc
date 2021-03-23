@@ -47,9 +47,8 @@ public:
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::SwiftHelper>(
                   std::move(containerName), authUrl, tenantName, userName,
-                  password),
-              std::make_shared<one::AsioExecutor>(m_service), storagePathType,
-              blockSize)}
+                  password, std::chrono::seconds{20}, storagePathType),
+              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {

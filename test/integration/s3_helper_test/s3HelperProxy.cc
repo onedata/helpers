@@ -85,9 +85,8 @@ public:
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
                   std::move(secretKey), 2 * 1024 * 1024, 0664, 0775,
-                  scheme == "https"),
-              std::make_shared<one::AsioExecutor>(m_service), storagePathType,
-              blockSize)}
+                  scheme == "https", std::chrono::seconds{20}, storagePathType),
+              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
             std::thread t{[=] {

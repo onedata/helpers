@@ -96,9 +96,9 @@ public:
             std::make_shared<S3Helper>(hostname, bucketName, accessKey,
                 secretKey, maximumCanonicalObjectSize,
                 parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
-                scheme == "https", std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), storagePathType,
-            blockSize, executionContext);
+                scheme == "https", std::move(timeout), storagePathType),
+            std::make_shared<AsioExecutor>(m_service), blockSize,
+            executionContext);
     }
 
 private:
@@ -125,7 +125,8 @@ public:
         folly::fbstring accessKey, folly::fbstring secretKey,
         const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
         const mode_t dirMode, const bool useHttps = true,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
 

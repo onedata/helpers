@@ -66,9 +66,9 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
-                userName, key, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), storagePathType,
-            blockSize, executionContext);
+                userName, key, std::move(timeout), storagePathType),
+            std::make_shared<AsioExecutor>(m_service), blockSize,
+            executionContext);
     }
 
 private:
@@ -98,7 +98,8 @@ public:
      */
     CephRadosHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };
 

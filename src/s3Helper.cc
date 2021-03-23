@@ -116,8 +116,9 @@ namespace helpers {
 S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     folly::fbstring accessKey, folly::fbstring secretKey,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
-    const mode_t dirMode, const bool useHttps, Timeout timeout)
-    : KeyValueHelper{false, maximumCanonicalObjectSize}
+    const mode_t dirMode, const bool useHttps, Timeout timeout,
+    StoragePathType storagePathType)
+    : KeyValueHelper{false, storagePathType, maximumCanonicalObjectSize}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
     , m_dirMode{dirMode}

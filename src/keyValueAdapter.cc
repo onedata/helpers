@@ -113,8 +113,6 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readCanonical(
 
     log_timer<> timer;
 
-    assert(m_blockSize == 0);
-
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(),
         [this, offset, size, locks = m_locks,
@@ -153,8 +151,6 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
-    assert(m_blockSize == 0);
-
     return folly::via(m_executor.get(),
         [this, offset, locks = m_locks, writeCb = std::move(writeCb),
             helper =
@@ -286,14 +282,13 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
 const Timeout &KeyValueFileHandle::timeout() { return m_helper->timeout(); }
 
 KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
-    std::shared_ptr<folly::Executor> executor, StoragePathType storagePathType,
-    std::size_t blockSize, ExecutionContext executionContext)
+    std::shared_ptr<folly::Executor> executor, std::size_t blockSize,
+    ExecutionContext executionContext)
     : StorageHelper{executionContext}
     , m_helper{std::move(helper)}
     , m_executor{std::move(executor)}
     , m_locks{std::make_shared<Locks>()}
     , m_blockSize{blockSize}
-    , m_storagePathType{storagePathType}
 {
     LOG_FCALL() << LOG_FARG(blockSize);
 }
@@ -305,12 +300,13 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    if (m_blockSize > 0 && currentSize == 0)
+    if (helper()->storagePathType() == StoragePathType::FLAT &&
+        currentSize == 0)
         return folly::makeFuture();
 
     // In case files on this storage are stored in single objects
     // simply remove the object
-    if (m_blockSize == 0) {
+    if (helper()->storagePathType() == StoragePathType::CANONICAL) {
         return folly::via(m_executor.get(), [fileId, helper = m_helper] {
             helper->getObjectInfo(fileId);
             helper->deleteObject(fileId);
@@ -355,7 +351,7 @@ folly::Future<folly::Unit> KeyValueAdapter::mknod(const folly::fbstring &fileId,
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    if (m_blockSize > 0) {
+    if (helper()->storagePathType() == StoragePathType::FLAT) {
         return folly::makeFuture();
     }
 
@@ -403,7 +399,7 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
 
     // In case files on this storage are stored in single objects
     // simply remove the object
-    if (m_blockSize == 0) {
+    if (helper()->storagePathType() == StoragePathType::CANONICAL) {
         return folly::via(m_executor.get(),
             [fileId, size, currentSize, helper = m_helper, locks = m_locks] {
                 Locks::accessor acc;
@@ -553,6 +549,10 @@ const Timeout &KeyValueAdapter::timeout()
     LOG_FCALL();
 
     return m_helper->timeout();
+}
+StoragePathType KeyValueAdapter::storagePathType() const
+{
+    return m_helper->storagePathType();
 }
 
 folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
