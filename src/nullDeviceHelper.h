@@ -31,6 +31,7 @@ namespace one {
 namespace helpers {
 
 constexpr auto NULL_DEVICE_HELPER_CHAR = 'x';
+constexpr auto NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE = 1024ULL;
 
 class NullDeviceHelper;
 class NullDeviceFileHandle;
@@ -165,12 +166,14 @@ public:
      *                                      helper filesystem
      * @param simulatedFilesystemGrowSpeed Simulated filesystem grow speed in
      *                                     files per second
+     * @param simulatedFileSize Simulated file system reported file size in
+     *                          bytes.
      * @param executor Executor for driving async file operations.
      */
     NullDeviceHelper(int latencyMin, int latencyMax, double timeoutProbability,
         const folly::fbstring &filter,
         std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
-        double simulatedFilesystemGrowSpeed,
+        double simulatedFilesystemGrowSpeed, size_t simulatedFileSize,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
@@ -262,6 +265,11 @@ public:
     double simulatedFilesystemGrowSpeed() const;
 
     /**
+     * Return the simulated file size configuration option.
+     */
+    size_t simulatedFileSize() const;
+
+    /**
      * Returns the total number of entries (directories and files) on
      * a given filesystem tree level.
      * @param level Tree level
@@ -325,6 +333,7 @@ private:
 
     std::vector<std::pair<int64_t, int64_t>> m_simulatedFilesystemParameters;
     double m_simulatedFilesystemGrowSpeed;
+    size_t m_simulatedFileSize;
 
     bool m_simulatedFilesystemLevelEntryCountReady;
     std::vector<size_t> m_simulatedFilesystemLevelEntryCount;
@@ -367,7 +376,8 @@ public:
             "timeout"};
     };
 
-    static std::vector<std::pair<int64_t, int64_t>>
+    static std::pair<std::vector<std::pair<int64_t, int64_t>>,
+        folly::Optional<size_t>>
     parseSimulatedFilesystemParameters(const std::string &params);
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
@@ -394,8 +404,11 @@ public:
                 simulatedFilesystemParameters.toStdString());
 
         return std::make_shared<NullDeviceHelper>(latencyMin, latencyMax,
-            timeoutProbability, filter, simulatedFilesystemParametersParsed,
+            timeoutProbability, filter,
+            std::get<0>(simulatedFilesystemParametersParsed),
             simulatedFilesystemGrowSpeed,
+            std::get<1>(simulatedFilesystemParametersParsed)
+                .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
             std::make_shared<AsioExecutor>(m_service), std::move(timeout),
             executionContext);
     }

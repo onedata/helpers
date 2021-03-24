@@ -294,7 +294,7 @@ folly::Future<folly::Unit> NullDeviceFileHandle::fsync(bool /*isDataSync*/)
 NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     const double timeoutProbability, const folly::fbstring &filter,
     std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
-    double simulatedFilesystemGrowSpeed,
+    double simulatedFilesystemGrowSpeed, size_t simulatedFileSize,
     std::shared_ptr<folly::Executor> executor, Timeout timeout,
     ExecutionContext executionContext)
     : StorageHelper{executionContext}
@@ -306,6 +306,7 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     , m_timeoutProbability{timeoutProbability}
     , m_simulatedFilesystemParameters{std::move(simulatedFilesystemParameters)}
     , m_simulatedFilesystemGrowSpeed{simulatedFilesystemGrowSpeed}
+    , m_simulatedFileSize{simulatedFileSize}
     , m_simulatedFilesystemLevelEntryCountReady{false}
     , m_simulatedFilesystemEntryCountReady{false}
     , m_executor{std::move(executor)}
@@ -353,7 +354,6 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
             LOG_DBG(2) << "Attempting to stat file " << fileId;
 
             constexpr auto ST_MODE_MASK = 0777;
-            constexpr auto ST_SIZE_KB = 1024;
 
             struct stat stbuf = {};
             stbuf.st_gid = 0;
@@ -379,7 +379,7 @@ folly::Future<struct stat> NullDeviceHelper::getattr(
                     }
                     else {
                         stbuf.st_mode = ST_MODE_MASK | S_IFREG;
-                        stbuf.st_size = pathLeaf * ST_SIZE_KB;
+                        stbuf.st_size = m_simulatedFileSize;
                     }
                 }
 
@@ -816,6 +816,11 @@ double NullDeviceHelper::simulatedFilesystemGrowSpeed() const
     return m_simulatedFilesystemGrowSpeed;
 }
 
+size_t NullDeviceHelper::simulatedFileSize() const
+{
+    return m_simulatedFileSize;
+}
+
 size_t NullDeviceHelper::simulatedFilesystemLevelEntryCount(size_t level)
 {
     if (!m_simulatedFilesystemLevelEntryCountReady) {
@@ -880,35 +885,44 @@ size_t NullDeviceHelper::simulatedFilesystemFileDist(
     return distance - 1;
 }
 
-std::vector<std::pair<int64_t, int64_t>>
+std::pair<std::vector<std::pair<int64_t, int64_t>>, folly::Optional<size_t>>
 NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
     const std::string &params)
 {
     auto result = std::vector<std::pair<int64_t, int64_t>>{};
 
+    folly::Optional<size_t> fileSize{};
     if (params.empty())
-        return result;
+        return {result, fileSize};
 
     auto levels = std::vector<std::string>{};
 
     folly::split(":", params, levels, true);
 
+    auto i = 0U;
+
     for (const auto &level : levels) {
         auto levelParams = std::vector<std::string>{};
         folly::split("-", level, levelParams, true);
 
-        if (levelParams.size() != 2)
-            throw std::invalid_argument("Invalid null helper simulated "
-                                        "filesystem parameters "
-                                        "specification: '" +
-                params + "'");
+        if (levelParams.size() != 2) {
+            if ((i == levels.size() - 1) && (levelParams.size() == 1)) {
+                fileSize.emplace(std::stoull(levelParams[0]));
+            }
+            else {
+                throw std::invalid_argument("Invalid null helper simulated "
+                                            "filesystem parameters "
+                                            "specification: '" +
+                    params + "'");
+            }
+        }
+        else
+            result.emplace_back(
+                std::stol(levelParams[0]), std::stol(levelParams[1]));
 
-        result.emplace_back(
-            std::stol(levelParams[0]), std::stol(levelParams[1]));
+        i++;
     }
-
-    return result;
+    return {result, fileSize};
 }
-
 } // namespace helpers
 } // namespace one

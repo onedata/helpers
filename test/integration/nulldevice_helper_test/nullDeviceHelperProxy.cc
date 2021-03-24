@@ -53,13 +53,19 @@ public:
         float simulatedFilesystemGrowSpeed)
         : m_service{NULL_DEVICE_HELPER_WORKER_THREADS}
         , m_idleWork{asio::make_work_guard(m_service)}
-        , m_helper{std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
-              latencyMax, timeoutProbability, std::move(filter),
-              NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
-                  simulatedFilesystemParameters),
-              simulatedFilesystemGrowSpeed,
-              std::make_shared<one::AsioExecutor>(m_service))}
     {
+        auto simulatedFilesystemParams =
+            NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
+                simulatedFilesystemParameters);
+
+        m_helper = std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
+            latencyMax, timeoutProbability, std::move(filter),
+            std::get<0>(simulatedFilesystemParams),
+            simulatedFilesystemGrowSpeed,
+            std::get<1>(simulatedFilesystemParams)
+                .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
+            std::make_shared<one::AsioExecutor>(m_service));
+
         for (int i = 0; i < NULL_DEVICE_HELPER_WORKER_THREADS; i++) {
             m_workers.push_back(std::thread([=]() { m_service.run(); }));
         }
