@@ -95,7 +95,7 @@ def simulatedFilesystemServer(request):
 
     request.addfinalizer(fin)
 
-    return Server(0, 0, 0.0, "*", "5-20:10-20:5-1:0-100", 0.0)
+    return Server(0, 0, 0.0, "*", "5-20:10-20:5-1:0-100:1000000", 0.0)
 
 @pytest.fixture(scope='module')
 def simulatedGrowingFilesystemServer(request):
@@ -360,7 +360,7 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
     """
     Test example specification defined in simulatedFilesystemServer fixture:
 
-        5-20:10-20:5-1:0-100
+        5-20:10-20:5-1:0-100:1000000
     """
 
     S_IFDIR = 0040000
@@ -378,8 +378,8 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
     assert simulatedFilesystemStorageHelper.getattr("/1/1").st_mode & S_IFDIR
     assert simulatedFilesystemStorageHelper.getattr("/5/10/5/100").st_mode & S_IFREG
 
-    assert simulatedFilesystemStorageHelper.getattr("/6").st_size == 6*1024
-    assert simulatedFilesystemStorageHelper.getattr("/5/10/5/100").st_size == 100*1024
+    assert simulatedFilesystemStorageHelper.getattr("/6").st_size == 1000000
+    assert simulatedFilesystemStorageHelper.getattr("/5/10/5/100").st_size == 1000000
 
 
 @pytest.mark.simulated_filesystem_tests
@@ -394,3 +394,4 @@ def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFile
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/1", 0, 10)) == 0
     time.sleep(9)
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) == 4+4
+    assert simulatedGrowingFilesystemStorageHelper.getattr("/0/0").st_size == 1024
