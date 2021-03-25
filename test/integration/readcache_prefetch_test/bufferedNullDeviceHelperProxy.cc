@@ -61,7 +61,7 @@ public:
               one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
                   latencyMax, timeoutProbability, std::move(filter),
-                  std::vector<std::pair<long int, long int>>{}, 0.0,
+                  std::vector<std::pair<long int, long int>>{}, 0.0, 1024,
                   std::make_shared<one::AsioExecutor>(m_service)),
               *m_scheduler,
               std::make_shared<
