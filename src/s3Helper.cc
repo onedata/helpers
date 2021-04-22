@@ -553,10 +553,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 void S3Helper::multipartCopy(
     const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
 {
-    auto keys = listObjects(sourceKey, "", 0, 1000);
-    std::sort(keys.begin(), keys.end(), [](const auto &l, const auto &r) {
-        return std::get<0>(l) > std::get<0>(r);
-    });
+    auto keys = listAllObjects(sourceKey);
 
     using Aws::Client::AsyncCallerContext;
     using Aws::S3::S3Client;
@@ -879,5 +876,40 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     return result;
 }
 
+ListObjectsResult S3Helper::listAllObjects(const folly::fbstring &prefix)
+{
+    LOG_FCALL() << LOG_FARG(prefix);
+
+    ListObjectsResult res;
+
+    // S3 listObjects returns maximum of 1000 results per call
+    const size_t kMaxSingleListObjectsSize = 1000UL;
+
+    // The iteration is based on the name of the last returned key
+    // not numeric offset
+    folly::fbstring lastPositionMarker{};
+    while (true) {
+        auto partialRes = listObjects(
+            prefix, lastPositionMarker, 0, kMaxSingleListObjectsSize);
+
+        if (partialRes.empty())
+            break;
+
+        lastPositionMarker = std::get<0>(partialRes.back());
+
+        for (auto &key : partialRes) {
+            res.emplace_back(std::move(key));
+        }
+    }
+
+    std::sort(res.begin(), res.end(), [](const auto &l, const auto &r) {
+        return std::get<0>(l) > std::get<0>(r);
+    });
+
+    LOG_DBG(3) << "Returning " << res.size() << " objects with prefix "
+               << prefix;
+
+    return res;
+}
 } // namespace helpers
 } // namespace one

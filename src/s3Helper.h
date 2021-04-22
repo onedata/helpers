@@ -149,6 +149,8 @@ public:
         const folly::fbstring &marker, const off_t offset,
         const size_t size) override;
 
+    ListObjectsResult listAllObjects(const folly::fbstring &prefix);
+
     void multipartCopy(const folly::fbstring &sourceKey,
         const folly::fbstring &destinationKey) override;
 
