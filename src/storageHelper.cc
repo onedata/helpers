@@ -74,7 +74,7 @@ StoragePathType getParam<StoragePathType>(
     const Params &params, const folly::fbstring &key)
 {
     try {
-        auto param = params.at(key);
+        const auto &param = params.at(key);
         if (param == "canonical")
             return StoragePathType::CANONICAL;
 

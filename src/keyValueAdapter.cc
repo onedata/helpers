@@ -100,7 +100,12 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readFlat(
             helper =
                 std::dynamic_pointer_cast<KeyValueAdapter>(m_helper)->helper(),
             timer, self = shared_from_this()]() {
-            return readBlocks(offset, size, storageBlockSize);
+            auto res = readBlocks(offset, size, storageBlockSize);
+
+            log<read_write_perf>(m_fileId, "KeyValueFileHandle", "read", offset,
+                size, timer.stop());
+
+            return res;
         });
 }
 
@@ -131,9 +136,6 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readCanonical(
                 size, timer.stop());
 
             return res;
-
-            // otherwise call readblocks from parts
-            // TODO...
         });
 }
 
