@@ -979,7 +979,6 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(
         m_executor.get(), [filePath = root(fileId), uid = uid(), gid = gid()] {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.listxattr");

@@ -5,6 +5,8 @@ Checks: >-
   -*braces-around-statements,
   -cert-err58-cpp,
   -clang-analyzer-alpha.*,
+  -clang-analyzer-cplusplus.NewDelete,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
   -clang-analyzer-optin.cplusplus.VirtualCall,
   -clang-diagnostic-infinite-recursion,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,

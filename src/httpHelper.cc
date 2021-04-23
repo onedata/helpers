@@ -228,7 +228,6 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                              const HTTPFoundException &redirect) {
                     LOG_DBG(2) << "Redirecting HTTP read request of file "
                                << fileId << " to: " << redirect.location;
-                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     return self->read(offset, size, retryCount - 1,
                         Poco::URI(redirect.location));
                 })
@@ -486,7 +485,6 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                         e.code().value());
                 })
                 .onError([=](const proxygen::HTTPException &e) {
-                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     if (retryCount > 0) {
                         ONE_METRIC_COUNTER_INC(
                             "comp.helpers.mod.http.getattr.retries")
@@ -548,13 +546,11 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
         httpSession->reset();
     }
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(httpSession->evb,
         [this, evb = httpSession->evb, httpSession,
             s = std::weak_ptr<HTTPHelper>{shared_from_this()}]() mutable {
             auto self = s.lock();
             if (!self)
-                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return makeFuturePosixException<HTTPSession *>(ECANCELED);
 
             auto p = self->params().get();
@@ -641,6 +637,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
 
             return httpSession->connectionPromise->getFuture().then(
                 evb, [httpSession]() mutable {
+                    // NOLINTNEXTLINE
                     return folly::makeFuture<HTTPSession *>(
                         std::move(httpSession)); // NOLINT
                 });
@@ -796,7 +793,6 @@ folly::Future<proxygen::HTTPTransaction *> HTTPRequest::startTransaction()
 {
     assert(eventBase() != nullptr);
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(eventBase(), [this]() {
         auto session = m_session->session;
 
@@ -922,12 +918,10 @@ folly::Future<folly::IOBufQueue> HTTPGET::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return startTransaction().then(
         [self = shared_from_this()](proxygen::HTTPTransaction *txn) {
             txn->sendHeaders(self->m_request);
             txn->sendEOM();
-            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
             return self->m_resultPromise.getFuture();
         });
 }

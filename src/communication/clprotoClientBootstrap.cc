@@ -104,7 +104,6 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                 throw;
             }
 
-            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
                 address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
                 .then([this, addressStr = address.describe(), host, port,
@@ -112,7 +111,6 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
-                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     return via(executor,
                         // After connection, attempt to upgrade the connection
                         // to clproto if required for this connection
@@ -253,7 +251,6 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                         // wrap it in via
                         return folly::via(
                             executor, [this, host, port, reconnectAttempt] {
-                                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                                 return connect(host, port, reconnectAttempt + 1)
                                     .then([]() { return folly::makeFuture(); });
                             });

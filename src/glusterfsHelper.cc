@@ -945,7 +945,6 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return connect().then([this, filePath = root(fileId), uid = m_uid,
                               gid = m_gid] {
         folly::fbvector<folly::fbstring> ret;

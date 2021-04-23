@@ -1587,7 +1587,6 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
             WebDAVSessionPoolKey{redirectURL.getHost(), redirectURL.getPort()};
     }
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return connect(sessionPoolKey)
         .then([fileId, retryCount, timer = std::move(timer),
                   s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
@@ -1706,7 +1705,6 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
         webDAVSession->reset();
     }
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(webDAVSession->evb,
         [this, evb = webDAVSession->evb, webDAVSession,
             s = std::weak_ptr<WebDAVHelper>{shared_from_this()}]() mutable {
@@ -1939,7 +1937,6 @@ folly::Future<proxygen::HTTPTransaction *> WebDAVRequest::startTransaction()
 {
     assert(eventBase() != nullptr);
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(eventBase(), [this]() {
         auto session = m_session->session;
 
@@ -2362,7 +2359,6 @@ folly::Future<folly::Unit> WebDAVPROPPATCH::operator()(
     PAPtr<pxml::Element> root = propertyUpdate->createElement("propertyupdate");
     root->setAttribute("xmlns", kNSDAV);
     root->setAttribute("xmlns:o", kNSOnedata);
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     if (!remove) {
         PAPtr<pxml::Element> set = propertyUpdate->createElement("set");
         PAPtr<pxml::Element> prop = propertyUpdate->createElement("prop");
@@ -2416,7 +2412,6 @@ folly::Future<folly::Unit> WebDAVPROPPATCH::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return startTransaction().then([this, body = std::move(propUpdateString)](
                                        proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
@@ -2599,7 +2594,6 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return startTransaction().then([this](proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
         txn->sendEOM();

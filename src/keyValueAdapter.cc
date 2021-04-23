@@ -94,7 +94,6 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readFlat(
 
     log_timer<> timer;
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(),
         [this, offset, size, storageBlockSize, locks = m_locks,
             helper =
@@ -118,7 +117,6 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readCanonical(
 
     log_timer<> timer;
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(),
         [this, offset, size, locks = m_locks,
             helper =

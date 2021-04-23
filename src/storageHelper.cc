@@ -252,16 +252,13 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
     std::size_t shouldHaveWrittenSoFar = 0;
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     for (auto &buf : buffs) {
         auto size = std::get<1>(buf).chainLength();
         const auto shouldHaveWrittenAfter = shouldHaveWrittenSoFar + size;
 
-        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         future = future.then(
             [this, shouldHaveWrittenSoFar, size, buf = std::move(buf)](
                 const std::size_t wroteSoFar) mutable {
-                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);
 
@@ -271,7 +268,6 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
                 log_timer<> timer;
                 auto offset = std::get<0>(buf);
-                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return write(offset, std::move(std::get<1>(buf)),
                     std::move(std::get<2>(buf)))
                     .then([wroteSoFar, offset, size, timer, fileId = m_fileId](
