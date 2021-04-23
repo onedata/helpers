@@ -195,6 +195,12 @@ public:
         return {};
     };
 
+    virtual const std::vector<folly::fbstring>
+    getHandleOverridableParams() const
+    {
+        return {};
+    }
+
     virtual const Timeout &timeout() = 0;
 
     /**

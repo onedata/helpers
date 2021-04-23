@@ -719,5 +719,11 @@ folly::Future<FileHandlePtr> KeyValueAdapter::open(
     return folly::makeFuture(std::move(handle));
 }
 
+const std::vector<folly::fbstring>
+KeyValueAdapter::handleOverridableParams() const
+{
+    return m_helper->getHandleOverridableParams();
+}
+
 } // namespace helpers
 } // namespace one

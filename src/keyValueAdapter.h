@@ -174,6 +174,8 @@ public:
 
     std::shared_ptr<KeyValueHelper> helper() { return m_helper; };
 
+    const std::vector<folly::fbstring> handleOverridableParams() const override;
+
 private:
     std::shared_ptr<KeyValueHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
