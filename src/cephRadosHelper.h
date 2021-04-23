@@ -43,7 +43,7 @@ public:
         return CEPHRADOS_HELPER_NAME;
     }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"monitorHostname", "timeout"};
     };

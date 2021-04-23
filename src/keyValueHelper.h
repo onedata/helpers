@@ -190,13 +190,12 @@ public:
             std::make_error_code(std::errc::function_not_supported)};
     }
 
-    virtual const std::vector<folly::fbstring> getOverridableParams() const
+    virtual std::vector<folly::fbstring> getOverridableParams() const
     {
         return {};
     };
 
-    virtual const std::vector<folly::fbstring>
-    getHandleOverridableParams() const
+    virtual std::vector<folly::fbstring> getHandleOverridableParams() const
     {
         return {};
     }

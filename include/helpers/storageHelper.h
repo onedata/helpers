@@ -328,7 +328,7 @@ public:
      * Returns a list of helper specific parameters which can be overriden on
      * the client side.
      */
-    virtual const std::vector<folly::fbstring> overridableParams() const;
+    virtual std::vector<folly::fbstring> overridableParams() const;
 
     /**
      * This method allows to create a storage helper by taking into account
@@ -576,7 +576,7 @@ public:
      * Returns a list of helper specific parameters which can be overriden on
      * for a single opened file (handle).
      */
-    virtual const std::vector<folly::fbstring> handleOverridableParams() const;
+    virtual std::vector<folly::fbstring> handleOverridableParams() const;
 
     virtual const Timeout &timeout();
 

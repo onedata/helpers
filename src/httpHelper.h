@@ -570,7 +570,7 @@ public:
 
     virtual folly::fbstring name() const override { return HTTP_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"endpoint", "verifyServerCertificate", "connectionPoolSize",
             "timeout", "credentialsType", "credentials"};

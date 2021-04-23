@@ -159,8 +159,7 @@ FlagsSet maskToFlags(int mask)
     return flags;
 }
 
-const std::vector<folly::fbstring>
-StorageHelperFactory::overridableParams() const
+std::vector<folly::fbstring> StorageHelperFactory::overridableParams() const
 {
     return {};
 }
@@ -207,7 +206,7 @@ FileHandle::FileHandle(folly::fbstring fileId, Params openParams,
 std::shared_ptr<StorageHelper> FileHandle::helper() { return m_helper; }
 
 folly::Future<folly::IOBufQueue> FileHandle::read(const off_t offset,
-    const std::size_t size, const std::size_t continuousBlock)
+    const std::size_t size, const std::size_t /*continuousBlock*/)
 {
     return read(offset, size);
 }
@@ -219,7 +218,7 @@ folly::Future<folly::Unit> FileHandle::release() { return folly::makeFuture(); }
 
 folly::Future<folly::Unit> FileHandle::flush() { return folly::makeFuture(); }
 
-folly::Future<folly::Unit> FileHandle::fsync(bool isDataSync)
+folly::Future<folly::Unit> FileHandle::fsync(bool /*isDataSync*/)
 {
     return folly::makeFuture();
 }
@@ -229,7 +228,7 @@ bool FileHandle::needsDataConsistencyCheck() { return false; }
 folly::fbstring FileHandle::fileId() const { return m_fileId; }
 
 std::size_t FileHandle::wouldPrefetch(
-    const off_t offset, const std::size_t size)
+    const off_t /*offset*/, const std::size_t /*size*/)
 {
     return 0;
 }
@@ -295,97 +294,103 @@ void FileHandle::setOverrideParams(const Params &params)
     m_paramsOverride = params;
 }
 
-folly::Future<struct stat> StorageHelper::getattr(const folly::fbstring &fileId)
+folly::Future<struct stat> StorageHelper::getattr(
+    const folly::fbstring & /*fileId*/)
 {
     return folly::makeFuture<struct stat>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::access(
-    const folly::fbstring &fileId, const int mask)
+    const folly::fbstring & /*fileId*/, const int /*mask*/)
 {
     return folly::makeFuture();
 }
 
 folly::Future<folly::fbstring> StorageHelper::readlink(
-    const folly::fbstring &fileId)
+    const folly::fbstring & /*fileId*/)
 {
     return folly::makeFuture<folly::fbstring>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> StorageHelper::readdir(
-    const folly::fbstring &fileId, const off_t offset, const std::size_t count)
+    const folly::fbstring & /*fileId*/, const off_t /*offset*/,
+    const std::size_t /*count*/)
 {
     return folly::makeFuture<folly::fbvector<folly::fbstring>>(
         std::system_error{
             std::make_error_code(std::errc::function_not_supported)});
 }
 
-folly::Future<folly::Unit> StorageHelper::mknod(const folly::fbstring &fileId,
-    const mode_t mode, const FlagsSet &flags, const dev_t rdev)
+folly::Future<folly::Unit> StorageHelper::mknod(
+    const folly::fbstring & /*fileId*/, const mode_t /*mode*/,
+    const FlagsSet & /*flags*/, const dev_t /*rdev*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::mkdir(
-    const folly::fbstring &fileId, const mode_t mode)
+    const folly::fbstring & /*fileId*/, const mode_t /*mode*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::unlink(
-    const folly::fbstring &fileId, const size_t currentSize)
+    const folly::fbstring & /*fileId*/, const size_t /*currentSize*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
-folly::Future<folly::Unit> StorageHelper::rmdir(const folly::fbstring &fileId)
+folly::Future<folly::Unit> StorageHelper::rmdir(
+    const folly::fbstring & /*fileId*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::symlink(
-    const folly::fbstring &from, const folly::fbstring &to)
+    const folly::fbstring & /*from*/, const folly::fbstring & /*to*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::rename(
-    const folly::fbstring &from, const folly::fbstring &to)
+    const folly::fbstring & /*from*/, const folly::fbstring & /*to*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::link(
-    const folly::fbstring &from, const folly::fbstring &to)
+    const folly::fbstring & /*from*/, const folly::fbstring & /*to*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::chmod(
-    const folly::fbstring &fileId, const mode_t mode)
+    const folly::fbstring & /*fileId*/, const mode_t /*mode*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::chown(
-    const folly::fbstring &fileId, const uid_t uid, const gid_t gid)
+    const folly::fbstring & /*fileId*/, const uid_t /*uid*/,
+    const gid_t /*gid*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::truncate(
-    const folly::fbstring &fileId, const off_t size, const size_t currentSize)
+    const folly::fbstring & /*fileId*/, const off_t /*size*/,
+    const size_t /*currentSize*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
@@ -413,49 +418,50 @@ folly::Future<FileHandlePtr> StorageHelper::open(const folly::fbstring &fileId,
     return open(fileId, flags, openParams)
         .then([helperOverrideParams](FileHandlePtr &&fh) {
             fh->setOverrideParams(helperOverrideParams);
-            return fh;
+            return std::move(fh);
         });
 }
 
 folly::Future<ListObjectsResult> StorageHelper::listobjects(
-    const folly::fbstring &prefix, const folly::fbstring &marker,
-    const off_t offset, const size_t count)
+    const folly::fbstring & /*prefix*/, const folly::fbstring & /*marker*/,
+    const off_t /*offset*/, const size_t /*count*/)
 {
     return folly::makeFuture<ListObjectsResult>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::multipartCopy(
-    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+    const folly::fbstring & /*sourceKey*/,
+    const folly::fbstring & /*destinationKey*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::fbstring> StorageHelper::getxattr(
-    const folly::fbstring &uuid, const folly::fbstring &name)
+    const folly::fbstring & /*uuid*/, const folly::fbstring & /*name*/)
 {
     return folly::makeFuture<folly::fbstring>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
-folly::Future<folly::Unit> StorageHelper::setxattr(const folly::fbstring &uuid,
-    const folly::fbstring &name, const folly::fbstring &value, bool create,
-    bool replace)
+folly::Future<folly::Unit> StorageHelper::setxattr(
+    const folly::fbstring & /*uuid*/, const folly::fbstring & /*name*/,
+    const folly::fbstring & /*value*/, bool /*create*/, bool /*replace*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::Unit> StorageHelper::removexattr(
-    const folly::fbstring &uuid, const folly::fbstring &name)
+    const folly::fbstring & /*uuid*/, const folly::fbstring & /*name*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
         std::make_error_code(std::errc::function_not_supported)});
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> StorageHelper::listxattr(
-    const folly::fbstring &uuid)
+    const folly::fbstring & /*uuid*/)
 {
     return folly::makeFuture<folly::fbvector<folly::fbstring>>(
         std::system_error{
@@ -473,7 +479,7 @@ folly::Future<folly::Unit> StorageHelper::refreshParams(
     std::shared_ptr<StorageHelperParams> params)
 {
     return folly::via(executor().get(), [this, params = std::move(params)]() {
-        invalidateParams()->setValue(std::move(params));
+        invalidateParams()->setValue(params);
     });
 }
 
@@ -486,8 +492,7 @@ void StorageHelper::validateHandleOverrideParams(const Params &params)
             throw BadParameterException{p.first, p.second};
     }
 }
-const std::vector<folly::fbstring>
-StorageHelper::handleOverridableParams() const
+std::vector<folly::fbstring> StorageHelper::handleOverridableParams() const
 {
     return {};
 }

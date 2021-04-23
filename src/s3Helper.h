@@ -47,7 +47,7 @@ public:
 
     virtual folly::fbstring name() const override { return S3_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"scheme", "hostname", "timeout"};
     };

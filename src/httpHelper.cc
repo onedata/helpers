@@ -226,9 +226,9 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
             return (*getRequest)(fileId, offset, size)
                 .onError([fileId, self, offset, size, retryCount](
                              const HTTPFoundException &redirect) {
-                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     LOG_DBG(2) << "Redirecting HTTP read request of file "
                                << fileId << " to: " << redirect.location;
+                    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                     return self->read(offset, size, retryCount - 1,
                         Poco::URI(redirect.location));
                 })
@@ -554,6 +554,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
             s = std::weak_ptr<HTTPHelper>{shared_from_this()}]() mutable {
             auto self = s.lock();
             if (!self)
+                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return makeFuturePosixException<HTTPSession *>(ECANCELED);
 
             auto p = self->params().get();
