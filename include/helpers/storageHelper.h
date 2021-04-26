@@ -46,6 +46,8 @@ namespace helpers {
 using ListObjectsResult =
     folly::fbvector<std::tuple<folly::fbstring, struct stat>>;
 
+constexpr auto STORAGE_ROUTER_HELPER_NAME = "storagerouter";
+
 #if WITH_CEPH
 constexpr auto CEPH_HELPER_NAME = "ceph";
 constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
@@ -602,6 +604,16 @@ private:
     std::shared_ptr<StorageHelperParamsPromise> m_params;
     mutable std::mutex m_paramsMutex;
     const ExecutionContext m_executionContext;
+};
+
+/**
+ * This is an abstract interface allowing retrieval of a storage
+ * helper by a specific storage Id.
+ */
+class StorageHelperResolver {
+public:
+    virtual StorageHelperPtr get(
+        const folly::fbstring &storageId, const folly::fbstring &spaceId) = 0;
 };
 
 } // namespace helpers

@@ -129,6 +129,7 @@ public:
 #endif
         asio::io_service &nullDeviceService,
         communication::Communicator &m_communicator,
+        StorageHelperResolver &storageResolver,
         std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
@@ -154,6 +155,7 @@ public:
         std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
         asio::io_service &nullDeviceService,
+        StorageHelperResolver &storageResolver,
         std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
@@ -214,6 +216,8 @@ private:
 #ifdef BUILD_PROXY_IO
     communication::Communicator &m_communicator;
 #endif
+
+    StorageHelperResolver& m_storageResolver;
 
     ExecutionContext m_executionContext;
 };

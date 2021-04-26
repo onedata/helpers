@@ -14,6 +14,7 @@
 #include "posixHelper.h"
 #include "proxyHelper.h"
 #include "scheduler.h"
+#include "storageRouterHelper.h"
 
 #if WITH_CEPH
 #include "cephHelper.h"
@@ -71,68 +72,7 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
     asio::io_service &nullDeviceService,
     communication::Communicator &communicator,
-    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
-    ExecutionContext executionContext)
-    :
-#if WITH_CEPH
-    m_cephService{cephService}
-    , m_cephRadosService{cephRadosService}
-    ,
-#endif
-    m_dioService{dioService}
-    ,
-#if WITH_S3
-    m_s3Service{s3Service}
-    ,
-#endif
-#if WITH_SWIFT
-    m_swiftService{swiftService}
-    ,
-#endif
-#if WITH_GLUSTERFS
-    m_glusterfsService{glusterfsService}
-    ,
-#endif
-#if WITH_WEBDAV
-    m_webDAVExecutor{std::move(webDAVExecutor)}
-    ,
-#endif
-#if WITH_XROOTD
-    m_xrootdExecutor{std::move(xrootdExecutor)}
-    ,
-#endif
-    m_nullDeviceService{nullDeviceService}
-    , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
-    , m_bufferLimits{bufferLimits}
-    , m_bufferMemoryLimitGuard{std::make_shared<
-          buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
-    , m_communicator{communicator}
-    , m_executionContext{executionContext}
-{
-}
-#else
-
-StorageHelperCreator::StorageHelperCreator(
-#if WITH_CEPH
-    asio::io_service &cephService, asio::io_service &cephRadosService,
-#endif
-    asio::io_service &dioService,
-#if WITH_S3
-    asio::io_service &s3Service,
-#endif
-#if WITH_SWIFT
-    asio::io_service &swiftService,
-#endif
-#if WITH_GLUSTERFS
-    asio::io_service &glusterfsService,
-#endif
-#if WITH_WEBDAV
-    std::shared_ptr<folly::IOExecutor> webDAVExecutor,
-#endif
-#if WITH_XROOTD
-    std::shared_ptr<folly::IOExecutor> xrootdExecutor,
-#endif
-    asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
+    StorageHelperResolver &storageResolver, std::size_t bufferSchedulerWorkers,
     buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
     :
 #if WITH_CEPH
@@ -167,6 +107,71 @@ StorageHelperCreator::StorageHelperCreator(
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
           buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
+    , m_communicator{communicator}
+    , m_storageResolver{storageResolver}
+    , m_executionContext{executionContext}
+{
+}
+#else
+
+StorageHelperCreator::StorageHelperCreator(
+#if WITH_CEPH
+    asio::io_service &cephService, asio::io_service &cephRadosService,
+#endif
+    asio::io_service &dioService,
+#if WITH_S3
+    asio::io_service &s3Service,
+#endif
+#if WITH_SWIFT
+    asio::io_service &swiftService,
+#endif
+#if WITH_GLUSTERFS
+    asio::io_service &glusterfsService,
+#endif
+#if WITH_WEBDAV
+    std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
+#if WITH_XROOTD
+    std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
+    asio::io_service &nullDeviceService,
+
+    StorageHelperResolver &storageResolver, std::size_t bufferSchedulerWorkers,
+    buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
+    :
+#if WITH_CEPH
+    m_cephService{cephService}
+    , m_cephRadosService{cephRadosService}
+    ,
+#endif
+    m_dioService{dioService}
+    ,
+#if WITH_S3
+    m_s3Service{s3Service}
+    ,
+#endif
+#if WITH_SWIFT
+    m_swiftService{swiftService}
+    ,
+#endif
+#if WITH_GLUSTERFS
+    m_glusterfsService{glusterfsService}
+    ,
+#endif
+#if WITH_WEBDAV
+    m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_XROOTD
+    m_xrootdExecutor{std::move(xrootdExecutor)}
+    ,
+#endif
+    m_nullDeviceService{nullDeviceService}
+    , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
+    , m_bufferLimits{bufferLimits}
+    , m_bufferMemoryLimitGuard{std::make_shared<
+          buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
+    , m_storageResolver{storageResolver}
     , m_executionContext{executionContext}
 {
 }
@@ -182,6 +187,12 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     LOG_FCALL() << LOG_FARG(name) << LOG_FARGM(args) << LOG_FARG(buffered);
 
     StorageHelperPtr helper;
+
+    if (name == STORAGE_ROUTER_HELPER_NAME) {
+        helper =
+            StorageRouterHelperFactory{m_storageResolver}.createStorageHelper(
+                args, m_executionContext);
+    }
 
     if (name == POSIX_HELPER_NAME) {
         helper =
