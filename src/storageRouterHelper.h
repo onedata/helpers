@@ -16,15 +16,6 @@
 namespace one {
 namespace helpers {
 
-namespace detail {
-template <typename T> struct StringLengthCmp {
-    bool operator()(const T &a, const T &b)
-    {
-        return a.first.size() > b.first.size();
-    }
-};
-} // namespace detail
-
 class StorageRouterHelper
     : public StorageHelper,
       public std::enable_shared_from_this<StorageRouterHelper> {
@@ -42,7 +33,7 @@ public:
      * Closes connection to StorageRouter storage cluster and destroys internal
      * context object.
      */
-    virtual ~StorageRouterHelper();
+    virtual ~StorageRouterHelper() = default;
 
     virtual folly::fbstring name() const override;
 
@@ -112,10 +103,14 @@ public:
         const folly::fbstring &uuid);
 
     virtual StorageHelperPtr route(const folly::fbstring &fileId);
+    virtual folly::fbstring routePath(const folly::fbstring &fileId);
 
 private:
-    // std::map<folly::fbstring, StorageHelperPtr, detail::StringLengthCmp>
-    std::vector<std::pair<folly::fbstring, StorageHelperPtr>> m_routes;
+    folly::fbstring routeRelative(StorageHelperPtr helper,
+        const folly::fbstring &route, const folly::fbstring &fileId);
+
+    std::map<folly::fbstring, StorageHelperPtr> m_routes;
+    std::vector<folly::fbstring> m_routesOrder;
 };
 
 /**

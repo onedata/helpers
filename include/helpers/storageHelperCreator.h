@@ -217,7 +217,7 @@ private:
     communication::Communicator &m_communicator;
 #endif
 
-    StorageHelperResolver& m_storageResolver;
+    StorageHelperResolver &m_storageResolver;
 
     ExecutionContext m_executionContext;
 };

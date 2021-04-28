@@ -263,21 +263,13 @@ public:
         }
         return res;
     }
-    /*
-        void refreshParams(std::string mountPoint, int uid, int gid)
-        {
-            std::unordered_map<folly::fbstring, folly::fbstring> params;
-            params["type"] = "posix";
-            params["mountPoint"] = mountPoint;
-            params["uid"] = std::to_string(uid);
-            params["gid"] = std::to_string(gid);
 
-            auto p = PosixHelperParams::create(params);
-
-            m_helper->refreshParams(std::move(p)).get();
-        }
-    */
-    //std::string mountpoint(std::string route) { return m_helper->route(fileId)->mountPoint().c_str(); }
+    std::string mountpoint(std::string route)
+    {
+        auto posixHelperPtr =
+            std::dynamic_pointer_cast<PosixHelper>(m_helper->route(route));
+        return posixHelperPtr->mountPoint().c_str();
+    }
 
 private:
     asio::io_service m_service;
@@ -321,7 +313,6 @@ BOOST_PYTHON_MODULE(storagerouter_helper)
         .def("getxattr", &StorageRouterHelperProxy::getxattr)
         .def("setxattr", &StorageRouterHelperProxy::setxattr)
         .def("removexattr", &StorageRouterHelperProxy::removexattr)
-        .def("listxattr", &StorageRouterHelperProxy::listxattr);
-        //.def("refresh_params", &StorageRouterHelperProxy::refreshParams)
-        //.def("mountpoint", &StorageRouterHelperProxy::mountpoint);
+        .def("listxattr", &StorageRouterHelperProxy::listxattr)
+        .def("mountpoint", &StorageRouterHelperProxy::mountpoint);
 }

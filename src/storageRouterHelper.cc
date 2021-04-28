@@ -11,27 +11,74 @@
 namespace one {
 namespace helpers {
 
+// NOLINTNEXTLINE
+#define ROUTE(__ROUTE__name, __ROUTE__fileId, ...)                             \
+    do {                                                                       \
+        auto rp = routePath(__ROUTE__fileId);                                  \
+        auto rh = route(__ROUTE__fileId);                                      \
+        return rh->__ROUTE__name(                                              \
+            routeRelative(rh, rp, __ROUTE__fileId), __VA_ARGS__);              \
+    } while (0);
+
+// NOLINTNEXTLINE
+#define ROUTE_NO_ARGS(__ROUTE__name, __ROUTE__fileId)                          \
+    do {                                                                       \
+        auto rp = routePath(__ROUTE__fileId);                                  \
+        auto rh = route(__ROUTE__fileId);                                      \
+        return rh->__ROUTE__name(routeRelative(rh, rp, __ROUTE__fileId));      \
+    } while (0);
+
+// NOLINTNEXTLINE
+#define ROUTE_FROM_TO(__ROUTE__name, __ROUTE__from, __ROUTE__to)               \
+    do {                                                                       \
+        auto rfrom = routePath(__ROUTE__from);                                 \
+        auto rto = routePath(__ROUTE__to);                                     \
+        auto hfrom = route(__ROUTE__from);                                     \
+        auto hto = route(__ROUTE__to);                                         \
+        if (hto.get() != hfrom.get())                                          \
+            throw makePosixException(ENOTSUP);                                 \
+        return hfrom->__ROUTE__name(                                           \
+            routeRelative(hfrom, rfrom, __ROUTE__from),                        \
+            routeRelative(hto, rto, __ROUTE__to));                             \
+    } while (0);
+
 StorageRouterHelper::StorageRouterHelper(
     std::map<folly::fbstring, StorageHelperPtr> routes,
     ExecutionContext executionContext)
-    : m_routes{routes.begin(), routes.end()}
+    : StorageHelper{executionContext}
+    , m_routes{std::move(routes)}
 {
-    std::sort(
-        m_routes.begin(), m_routes.end(), [](const auto &a, const auto &b) {
-            return a.first.size() > b.first.size();
-        });
+    for (const auto &rs : m_routes) {
+        m_routesOrder.push_back(rs.first);
+    }
+
+    std::sort(m_routesOrder.begin(), m_routesOrder.end(),
+        [](const auto &a, const auto &b) { return a.size() > b.size(); });
 }
 
-StorageRouterHelper::~StorageRouterHelper() {}
-
-StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
+folly::fbstring StorageRouterHelper::routePath(const folly::fbstring &fileId)
 {
-    for (const auto &route : m_routes) {
-        if (fileId.find(route.first) != std::string::npos)
-            return route.second;
+    for (const auto &route : m_routesOrder) {
+        if (fileId.find(route) != std::string::npos) {
+            return route;
+        }
     }
 
     throw makePosixException(EEXIST);
+}
+
+StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
+{
+    return m_routes.at(routePath(fileId));
+}
+
+folly::fbstring StorageRouterHelper::routeRelative(StorageHelperPtr helper,
+    const folly::fbstring &route, const folly::fbstring &fileId)
+{
+    if (helper->name() == POSIX_HELPER_NAME)
+        return fileId.substr(route.size());
+
+    return fileId;
 }
 
 folly::fbstring StorageRouterHelper::name() const
@@ -42,92 +89,92 @@ folly::fbstring StorageRouterHelper::name() const
 folly::Future<struct stat> StorageRouterHelper::getattr(
     const folly::fbstring &fileId)
 {
-    return route(fileId)->getattr(fileId);
+    ROUTE_NO_ARGS(getattr, fileId);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::access(
     const folly::fbstring &fileId, const int mask)
 {
-    return route(fileId)->access(fileId, mask);
+    ROUTE(access, fileId, mask);
 }
 
 folly::Future<folly::fbstring> StorageRouterHelper::readlink(
     const folly::fbstring &fileId)
 {
-    return route(fileId)->readlink(fileId);
+    ROUTE_NO_ARGS(readlink, fileId);
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> StorageRouterHelper::readdir(
     const folly::fbstring &fileId, const off_t offset, const std::size_t count)
 {
-    return route(fileId)->readdir(fileId, offset, count);
+    ROUTE(readdir, fileId, offset, count);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::mknod(
     const folly::fbstring &fileId, const mode_t mode, const FlagsSet &flags,
     const dev_t rdev)
 {
-    return route(fileId)->mknod(fileId, mode, flags, rdev);
+    ROUTE(mknod, fileId, mode, flags, rdev);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::mkdir(
     const folly::fbstring &fileId, const mode_t mode)
 {
-    return route(fileId)->mkdir(fileId, mode);
+    ROUTE(mkdir, fileId, mode);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::unlink(
     const folly::fbstring &fileId, const size_t currentSize)
 {
-    return route(fileId)->unlink(fileId, currentSize);
+    ROUTE(unlink, fileId, currentSize);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::rmdir(
     const folly::fbstring &fileId)
 {
-    return route(fileId)->rmdir(fileId);
+    ROUTE_NO_ARGS(rmdir, fileId);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::symlink(
     const folly::fbstring &from, const folly::fbstring &to)
 {
-    return route(to)->symlink(from, to);
+    ROUTE_FROM_TO(symlink, from, to);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::rename(
     const folly::fbstring &from, const folly::fbstring &to)
 {
-    return route(to)->rename(from, to);
+    ROUTE_FROM_TO(rename, from, to);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::link(
     const folly::fbstring &from, const folly::fbstring &to)
 {
-    return route(to)->link(from, to);
+    ROUTE_FROM_TO(link, from, to);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::chmod(
     const folly::fbstring &fileId, const mode_t mode)
 {
-    return route(fileId)->chmod(fileId, mode);
+    ROUTE(chmod, fileId, mode);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::chown(
     const folly::fbstring &fileId, const uid_t uid, const gid_t gid)
 {
-    return route(fileId)->chown(fileId, uid, gid);
+    ROUTE(chown, fileId, uid, gid);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::truncate(
     const folly::fbstring &fileId, const off_t size, const size_t currentSize)
 {
-    return route(fileId)->chown(fileId, size, currentSize);
+    ROUTE(chown, fileId, size, currentSize);
 }
 
 folly::Future<FileHandlePtr> StorageRouterHelper::open(
     const folly::fbstring &fileId, const int flags, const Params &openParams)
 {
-    return route(fileId)->open(fileId, flags, openParams);
+    ROUTE(open, fileId, flags, openParams);
 }
 
 folly::Future<ListObjectsResult> StorageRouterHelper::listobjects(
@@ -135,11 +182,12 @@ folly::Future<ListObjectsResult> StorageRouterHelper::listobjects(
     const off_t offset, const size_t count)
 {
     // TODO handle case when prefix matches multiple routes
-    return route(prefix)->listobjects(prefix, marker, offset, count);
+    ROUTE(listobjects, prefix, marker, offset, count);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::multipartCopy(
-    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+    const folly::fbstring & /*sourceKey*/,
+    const folly::fbstring & /*destinationKey*/)
 {
     throw std::system_error{
         std::make_error_code(std::errc::function_not_supported)};
@@ -148,49 +196,26 @@ folly::Future<folly::Unit> StorageRouterHelper::multipartCopy(
 folly::Future<folly::fbstring> StorageRouterHelper::getxattr(
     const folly::fbstring &uuid, const folly::fbstring &name)
 {
-    return route(uuid)->getxattr(uuid, name);
+    ROUTE(getxattr, uuid, name);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::setxattr(
     const folly::fbstring &uuid, const folly::fbstring &name,
     const folly::fbstring &value, bool create, bool replace)
 {
-    return route(uuid)->setxattr(uuid, name, value, create, replace);
+    ROUTE(setxattr, uuid, name, value, create, replace);
 }
 
 folly::Future<folly::Unit> StorageRouterHelper::removexattr(
     const folly::fbstring &uuid, const folly::fbstring &name)
 {
-    return route(uuid)->removexattr(uuid, name);
+    ROUTE(removexattr, uuid, name);
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> StorageRouterHelper::listxattr(
     const folly::fbstring &uuid)
 {
-    return route(uuid)->listxattr(uuid);
+    ROUTE_NO_ARGS(listxattr, uuid);
 }
-/*
-StorageRouterFileHandle::StorageRouterFileHandle(
-    folly::fbstring fileId, std::shared_ptr<StorageRouterHelper> helper)
-{
-}
-
-folly::Future<folly::IOBufQueue> StorageRouterFileHandle::read(
-    const off_t offset, const std::size_t size)
-{
-    throw std::system_error{
-        std::make_error_code(std::errc::function_not_supported)};
-}
-
-folly::Future<std::size_t> StorageRouterFileHandle::write(
-    const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
-{
-    throw std::system_error{
-        std::make_error_code(std::errc::function_not_supported)};
-}
-
-const Timeout &StorageRouterFileHandle::timeout() {}
-*/
-}
-}
-
+} // namespace helpers
+} // namespace one
