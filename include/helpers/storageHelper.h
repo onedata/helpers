@@ -47,6 +47,7 @@ using ListObjectsResult =
     folly::fbvector<std::tuple<folly::fbstring, struct stat>>;
 
 constexpr auto STORAGE_ROUTER_HELPER_NAME = "storagerouter";
+constexpr auto BUFFERED_STORAGE_HELPER_NAME = "bufferedstorage";
 
 #if WITH_CEPH
 constexpr auto CEPH_HELPER_NAME = "ceph";
