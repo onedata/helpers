@@ -603,7 +603,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
 
         struct stat keyStat = {};
         folly::fbstring key{
-            fmt::format("{}/{}", effectiveSourceKey, 999999 - blockIt)};
+            fmt::format("{}/{}", effectiveSourceKey, MAX_OBJECT_ID - blockIt)};
         UploadPartCopyRequest request;
         request.SetBucket(m_bucket.toStdString());
         request.SetKey(effectiveDestinationKey.toStdString());

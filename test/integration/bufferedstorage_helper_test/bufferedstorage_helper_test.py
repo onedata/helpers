@@ -81,26 +81,15 @@ def test_read_should_read_written_data(helper, server):
     file_id = '/space1/' + random_str()
 
     assert helper.write(file_id, data, offset) == len(data)
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
     assert len(server.list('/')) == 3
 
     helper.flushBuffer(file_id, len(data))
-
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
 
     assert len(server.list('/')) == 1
 
     assert helper.read(file_id, offset, len(data)) == data
 
     helper.unlink(file_id, len(data))
-
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
 
     assert len(server.list('/')) == 0
 
@@ -118,26 +107,15 @@ def test_write_should_write_from_nonzero_offset(helper, server):
     assert helper.write(file_id, 'x'*(BLOCK_SIZE), offset) \
             == BLOCK_SIZE
 
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
     assert len(server.list('/')) == 1
 
     helper.flushBuffer(file_id, len(data))
-
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
 
     assert len(server.list('/')) == 1
 
     assert helper.read(file_id, 0, len(data)) == data
 
     helper.unlink(file_id, len(data))
-
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
 
     assert len(server.list('/')) == 0
 
@@ -150,9 +128,6 @@ def test_write_should_modify_data_on_main_storage(helper, server):
     file_id = '/space1/' + random_str()
 
     assert helper.write(file_id, data, offset) == len(data)
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
 
     helper.flushBuffer(file_id, len(data))
 
@@ -162,23 +137,16 @@ def test_write_should_modify_data_on_main_storage(helper, server):
 
     assert helper.write(file_id, 'yyy', BLOCK_SIZE-2) == 3
 
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
-
     assert len(server.list('/')) == 2+1 # 2 modified blocks in buffer + original file
 
     helper.flushBuffer(file_id, len(data2))
 
     assert helper.read(file_id, 0, len(data2)) == data2
 
-    print("#############################")
-    print(server.list('/'))
-    print("#############################")
-
     assert len(server.list('/')) == 1
 
     helper.unlink(file_id, len(data))
+
     assert len(server.list('/')) == 0
 
 

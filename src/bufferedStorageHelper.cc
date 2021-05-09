@@ -31,10 +31,10 @@ folly::Future<folly::IOBufQueue> BufferedStorageFileHandle::read(
 {
     return m_bufferStorageHandle->helper()
         ->getattr(m_bufferStorageHandle->fileId())
-        .then([this, offset, size](const auto &&attr) {
+        .then([this, offset, size](const auto && /*attr*/) {
             return m_bufferStorageHandle->read(offset, size);
         })
-        .onError([this, offset, size](const std::system_error &e) {
+        .onError([this, offset, size](const std::system_error & /*e*/) {
             return m_mainStorageHandle->read(offset, size);
         });
 }
@@ -124,7 +124,7 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
 
 BufferedStorageHelper::BufferedStorageHelper(StorageHelperPtr bufferStorage,
     StorageHelperPtr mainStorage, ExecutionContext executionContext,
-    folly::fbstring bufferPath, const std::size_t bufferStorageSize)
+    folly::fbstring bufferPath, const std::size_t /*bufferStorageSize*/)
     : StorageHelper{executionContext}
     , m_bufferStorage{std::move(bufferStorage)}
     , m_mainStorage{std::move(mainStorage)}
@@ -138,7 +138,7 @@ folly::fbstring BufferedStorageHelper::name() const
 }
 
 folly::Future<folly::Unit> BufferedStorageHelper::loadBuffer(
-    const folly::fbstring &fileId, const std::size_t size)
+    const folly::fbstring & /*fileId*/, const std::size_t /*size*/)
 {
     return {};
 }
@@ -264,8 +264,9 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
             .then([this, fileId, currentSize]() {
                 return m_mainStorage->unlink(fileId, currentSize)
                     .then([this, fileId]() {
+                        const auto kDefaultMode = 0666;
                         return m_mainStorage->mknod(
-                            fileId, 0666, maskToFlags(S_IFREG), 0);
+                            fileId, kDefaultMode, maskToFlags(S_IFREG), 0);
                     });
             });
     }

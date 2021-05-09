@@ -428,7 +428,7 @@ folly::Future<ListObjectsResult> StorageHelper::listobjects(
 
 folly::Future<folly::Unit> StorageHelper::multipartCopy(
     const folly::fbstring & /*sourceKey*/,
-    const folly::fbstring & /*destinationKey*/, const std::size_t blockSize,
+    const folly::fbstring & /*destinationKey*/, const std::size_t /*blockSize*/,
     const std::size_t /*size*/)
 {
     return folly::makeFuture<folly::Unit>(std::system_error{
@@ -466,13 +466,13 @@ folly::Future<folly::fbvector<folly::fbstring>> StorageHelper::listxattr(
 }
 
 folly::Future<folly::Unit> StorageHelper::loadBuffer(
-    const folly::fbstring &fileId, const std::size_t size)
+    const folly::fbstring & /*fileId*/, const std::size_t /*size*/)
 {
     return {};
 }
 
 folly::Future<folly::Unit> StorageHelper::flushBuffer(
-    const folly::fbstring &fileId, const std::size_t size)
+    const folly::fbstring & /*fileId*/, const std::size_t /*size*/)
 {
     return {};
 }
