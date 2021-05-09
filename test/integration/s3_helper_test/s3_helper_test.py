@@ -67,15 +67,3 @@ def helper_multipart(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          6*1024*1024, "flat")
-
-
-def test_multipart_copy_should_create_single_object(helper_multipart, file_id, server):
-    block_num = 20*1024;
-    seed = random_str(1024)
-    data = seed * block_num
-
-    assert helper_multipart.write(file_id, data, 0) == len(data)
-
-    helper_multipart.multipart_copy(file_id, file_id+"_MERGED")
-
-

@@ -281,79 +281,78 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
                     return flushBuffer(fileId, size);
                 });
         });
+}
 
-    folly::Future<FileHandlePtr> BufferedStorageHelper::open(
-        const folly::fbstring &fileId, const int flags,
-        const Params &openParams)
-    {
-        auto mainStorageHandle =
-            m_mainStorage->open(fileId, flags, openParams).get();
-        auto bufferStorageHandle =
-            m_bufferStorage->open(toBufferPath(fileId), flags, openParams)
-                .get();
+folly::Future<FileHandlePtr> BufferedStorageHelper::open(
+    const folly::fbstring &fileId, const int flags, const Params &openParams)
+{
+    auto mainStorageHandle =
+        m_mainStorage->open(fileId, flags, openParams).get();
+    auto bufferStorageHandle =
+        m_bufferStorage->open(toBufferPath(fileId), flags, openParams).get();
 
-        return std::make_shared<BufferedStorageFileHandle>(fileId,
-            shared_from_this(), std::move(bufferStorageHandle),
-            std::move(mainStorageHandle));
+    return std::make_shared<BufferedStorageFileHandle>(fileId,
+        shared_from_this(), std::move(bufferStorageHandle),
+        std::move(mainStorageHandle));
+}
+
+folly::Future<ListObjectsResult> BufferedStorageHelper::listobjects(
+    const folly::fbstring &prefix, const folly::fbstring &marker,
+    const off_t offset, const size_t count)
+{
+    return m_mainStorage->listobjects(prefix, marker, offset, count);
+}
+
+folly::Future<folly::Unit> BufferedStorageHelper::multipartCopy(
+    const folly::fbstring & /*sourceKey*/,
+    const folly::fbstring & /*destinationKey*/, const std::size_t /*blockSize*/,
+    const std::size_t /*size*/)
+{
+    throw std::system_error{
+        std::make_error_code(std::errc::function_not_supported)};
+}
+
+folly::Future<folly::fbstring> BufferedStorageHelper::getxattr(
+    const folly::fbstring &uuid, const folly::fbstring &name)
+{
+    return m_mainStorage->getxattr(uuid, name);
+}
+
+folly::Future<folly::Unit> BufferedStorageHelper::setxattr(
+    const folly::fbstring &uuid, const folly::fbstring &name,
+    const folly::fbstring &value, bool create, bool replace)
+{
+    return m_mainStorage->setxattr(uuid, name, value, create, replace);
+}
+
+folly::Future<folly::Unit> BufferedStorageHelper::removexattr(
+    const folly::fbstring &uuid, const folly::fbstring &name)
+{
+    return m_mainStorage->removexattr(uuid, name);
+}
+
+folly::Future<folly::fbvector<folly::fbstring>>
+BufferedStorageHelper::listxattr(const folly::fbstring &uuid)
+{
+    return m_mainStorage->listxattr(uuid);
+}
+
+folly::fbstring BufferedStorageHelper::toBufferPath(
+    const folly::fbstring &fileId)
+{
+    folly::fbstring result{};
+    std::vector<std::string> fileIdTokensVec;
+    folly::split("/", fileId, fileIdTokensVec, false);
+    std::list<folly::fbstring> fileIdTokens{
+        fileIdTokensVec.begin(), fileIdTokensVec.end()};
+    if (!m_bufferPath.empty()) {
+        auto it = fileIdTokens.begin();
+        std::advance(it, 2);
+        fileIdTokens.insert(it, m_bufferPath);
     }
+    folly::join("/", fileIdTokens.begin(), fileIdTokens.end(), result);
 
-    folly::Future<ListObjectsResult> BufferedStorageHelper::listobjects(
-        const folly::fbstring &prefix, const folly::fbstring &marker,
-        const off_t offset, const size_t count)
-    {
-        return m_mainStorage->listobjects(prefix, marker, offset, count);
-    }
-
-    folly::Future<folly::Unit> BufferedStorageHelper::multipartCopy(
-        const folly::fbstring & /*sourceKey*/,
-        const folly::fbstring & /*destinationKey*/,
-        const std::size_t /*blockSize*/, const std::size_t /*size*/)
-    {
-        throw std::system_error{
-            std::make_error_code(std::errc::function_not_supported)};
-    }
-
-    folly::Future<folly::fbstring> BufferedStorageHelper::getxattr(
-        const folly::fbstring &uuid, const folly::fbstring &name)
-    {
-        return m_mainStorage->getxattr(uuid, name);
-    }
-
-    folly::Future<folly::Unit> BufferedStorageHelper::setxattr(
-        const folly::fbstring &uuid, const folly::fbstring &name,
-        const folly::fbstring &value, bool create, bool replace)
-    {
-        return m_mainStorage->setxattr(uuid, name, value, create, replace);
-    }
-
-    folly::Future<folly::Unit> BufferedStorageHelper::removexattr(
-        const folly::fbstring &uuid, const folly::fbstring &name)
-    {
-        return m_mainStorage->removexattr(uuid, name);
-    }
-
-    folly::Future<folly::fbvector<folly::fbstring>>
-    BufferedStorageHelper::listxattr(const folly::fbstring &uuid)
-    {
-        return m_mainStorage->listxattr(uuid);
-    }
-
-    folly::fbstring BufferedStorageHelper::toBufferPath(
-        const folly::fbstring &fileId)
-    {
-        folly::fbstring result{};
-        std::vector<std::string> fileIdTokensVec;
-        folly::split("/", fileId, fileIdTokensVec, false);
-        std::list<folly::fbstring> fileIdTokens{
-            fileIdTokensVec.begin(), fileIdTokensVec.end()};
-        if (!m_bufferPath.empty()) {
-            auto it = fileIdTokens.begin();
-            std::advance(it, 2);
-            fileIdTokens.insert(it, m_bufferPath);
-        }
-        folly::join("/", fileIdTokens.begin(), fileIdTokens.end(), result);
-
-        return result;
-    }
+    return result;
+}
 } // namespace helpers
 } // namespace one
