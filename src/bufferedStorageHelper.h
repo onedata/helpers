@@ -16,15 +16,18 @@
 namespace one {
 namespace helpers {
 
-constexpr auto kDefaultBufferedStorageBufferSize =
-    10 * 1024 * 1024 * 1024 * 1024;
+constexpr std::size_t kDefaultBufferedStorageBufferSize =
+    10 * 1024ULL * 1024ULL * 1024ULL * 1024ULL;
+
+class BufferedStorageHelper;
 
 class BufferedStorageFileHandle
     : public FileHandle,
       public std::enable_shared_from_this<BufferedStorageFileHandle> {
 public:
-    BufferedStorageFileHandle(
-        folly::fbstring fileId, std::shared_ptr<BufferedStorageHelper> helper);
+    BufferedStorageFileHandle(folly::fbstring fileId,
+        std::shared_ptr<BufferedStorageHelper> helper,
+        FileHandlePtr bufferStorageHandle, FileHandlePtr mainStorageHandle);
 
     virtual ~BufferedStorageFileHandle() = default;
 
@@ -40,9 +43,16 @@ public:
 
     virtual folly::Future<folly::Unit> fsync(bool isDataSync) override;
 
+    const Timeout &timeout() override { return m_mainStorageHandle->timeout(); }
+
+    folly::Future<folly::Unit> loadBufferBlocks(
+        const off_t offset, const std::size_t size);
+
 private:
-    StorageHelperPtr m_buffer;
-    StorageHelperPtr m_main;
+    StorageHelperPtr m_bufferStorageHelper;
+    StorageHelperPtr m_mainStorageHelper;
+    FileHandlePtr m_bufferStorageHandle;
+    FileHandlePtr m_mainStorageHandle;
 };
 
 class BufferedStorageHelper
@@ -56,9 +66,10 @@ public:
      */
     BufferedStorageHelper(StorageHelperPtr bufferStorage,
         StorageHelperPtr mainStorage,
-        const std::size_t bufferStorageSize = kDefaultBufferedStorageBufferSize,
-        folly::fbstring cachePrefix = {},
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER,
+        folly::fbstring bufferPath = {},
+        const std::size_t bufferStorageSize =
+            kDefaultBufferedStorageBufferSize);
 
     /**
      * Destructor.
@@ -69,82 +80,93 @@ public:
 
     virtual folly::fbstring name() const override;
 
-    virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
+    virtual folly::Future<struct stat> getattr(
+        const folly::fbstring &fileId) override;
 
     virtual folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask);
+        const folly::fbstring &fileId, const int mask) override;
 
     virtual folly::Future<folly::fbstring> readlink(
-        const folly::fbstring &fileId);
+        const folly::fbstring &fileId) override;
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
         const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count);
+        const std::size_t count) override;
 
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev);
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
 
     virtual folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, const mode_t mode) override;
 
     virtual folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize);
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
-    virtual folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId);
+    virtual folly::Future<folly::Unit> rmdir(
+        const folly::fbstring &fileId) override;
 
     virtual folly::Future<folly::Unit> symlink(
-        const folly::fbstring &from, const folly::fbstring &to);
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     virtual folly::Future<folly::Unit> rename(
-        const folly::fbstring &from, const folly::fbstring &to);
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     virtual folly::Future<folly::Unit> link(
-        const folly::fbstring &from, const folly::fbstring &to);
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     virtual folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, const mode_t mode) override;
 
-    virtual folly::Future<folly::Unit> chown(
-        const folly::fbstring &fileId, const uid_t uid, const gid_t gid);
+    virtual folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
+        const uid_t uid, const gid_t gid) override;
 
     virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize);
+        const off_t size, const size_t currentSize) override;
 
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams);
+        const int flags, const Params &openParams) override;
 
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
-        const off_t offset, const size_t count);
+        const off_t offset, const size_t count) override;
 
     virtual folly::Future<folly::Unit> multipartCopy(
-        const folly::fbstring &sourceKey,
-        const folly::fbstring &destinationKey);
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
+        const std::size_t blockSize, const std::size_t size) override;
 
     virtual folly::Future<folly::fbstring> getxattr(
-        const folly::fbstring &uuid, const folly::fbstring &name);
+        const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     virtual folly::Future<folly::Unit> setxattr(const folly::fbstring &uuid,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace);
+        bool replace) override;
 
     virtual folly::Future<folly::Unit> removexattr(
-        const folly::fbstring &uuid, const folly::fbstring &name);
+        const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &uuid);
+        const folly::fbstring &uuid) override;
+
+    virtual folly::Future<folly::Unit> loadBuffer(
+        const folly::fbstring &fileId, const std::size_t size) override;
+
+    virtual folly::Future<folly::Unit> flushBuffer(
+        const folly::fbstring &fileId, const std::size_t size) override;
 
     StorageHelperPtr bufferHelper() { return m_bufferStorage; };
     StorageHelperPtr mainHelper() { return m_mainStorage; };
 
+    folly::fbstring toBufferPath(const folly::fbstring &fileId);
+
 private:
     StorageHelperPtr m_bufferStorage;
     StorageHelperPtr m_mainStorage;
+
+    folly::fbstring m_bufferPath;
 };
 
 /**
- * An implementation of @c StorageHelperFactory for StorageRouter storage
- * helper.
+ * An implementation of @c StorageHelperFactory for BufferedStorageHelper.
  */
 class BufferedStorageHelperFactory : public StorageHelperFactory {
 public:
@@ -153,11 +175,7 @@ public:
      * @param service @c io_service that will be used for some async
      * operations.
      */
-    BufferedStorageHelperFactory(StorageHelperResolver &storageResolver)
-        : m_storageResolver{storageResolver}
-    {
-        LOG_FCALL();
-    }
+    BufferedStorageHelperFactory() { LOG_FCALL(); }
 
     virtual folly::fbstring name() const override
     {
@@ -170,17 +188,22 @@ public:
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
-        std::map<folly::fbstring, StorageHelperPtr> helpers;
-        // helpers.emplace();
-
-        return std::make_shared<BufferedStorageHelper>(
-            std::move(helpers), executionContext);
+        return {};
     }
 
-private:
-    StorageHelperResolver &m_storageResolver;
+    std::shared_ptr<BufferedStorageHelper> createStorageHelper(
+        StorageHelperPtr bufferStorageHelper,
+        StorageHelperPtr mainStorageHelper,
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+    {
+        return std::make_shared<BufferedStorageHelper>(
+            std::move(bufferStorageHelper), std::move(mainStorageHelper),
+            executionContext, ".__onedata_buffer",
+            kDefaultBufferedStorageBufferSize);
+    }
 };
 
 } // namespace helpers

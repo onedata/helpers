@@ -152,7 +152,8 @@ public:
     ListObjectsResult listAllObjects(const folly::fbstring &prefix);
 
     void multipartCopy(const folly::fbstring &sourceKey,
-        const folly::fbstring &destinationKey) override;
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size) override;
 
     struct stat getObjectInfo(const folly::fbstring &key) override;
 

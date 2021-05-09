@@ -550,10 +550,20 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
-void S3Helper::multipartCopy(
-    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
+    const folly::fbstring &destinationKey, const std::size_t blockSize,
+    const std::size_t size)
 {
-    auto keys = listAllObjects(sourceKey);
+
+    LOG_FCALL() << LOG_FARG(sourceKey) << LOG_FARG(destinationKey)
+                << LOG_FARG(blockSize) << LOG_FARG(size);
+
+    if (blockSize == 0) {
+        LOG(ERROR)
+            << "Cannot perform multipart copy from storage with blocksize 0";
+        throw std::system_error{
+            {EINVAL, std::system_category()}, "Invalid request"};
+    }
 
     using Aws::Client::AsyncCallerContext;
     using Aws::S3::S3Client;
@@ -582,21 +592,42 @@ void S3Helper::multipartCopy(
     auto partNumber = 1UL;
     CompletedMultipartUpload completedMultipartUpload;
 
-    for (const auto &keyStat : keys) {
-        const auto &key = std::get<0>(keyStat);
-        const auto size = std::get<1>(keyStat).st_size;
-        auto effectiveSourceKey = toEffectiveKey(key);
+    const std::size_t blockCount = std::floor(size / blockSize) + 1;
+    std::size_t blockIt = 0;
 
-        LOG_DBG(3) << "Copying part: " << key;
+    auto effectiveSourceKey = toEffectiveKey(sourceKey);
 
+    for (; blockIt < blockCount; blockIt++) {
+        if (blockIt * blockSize >= size)
+            continue;
+
+        struct stat keyStat = {};
+        folly::fbstring key{
+            fmt::format("{}/{}", effectiveSourceKey, 999999 - blockIt)};
         UploadPartCopyRequest request;
         request.SetBucket(m_bucket.toStdString());
         request.SetKey(effectiveDestinationKey.toStdString());
-        request.SetCopySource(
-            m_bucket.toStdString() + effectiveSourceKey.toStdString());
-        request.SetCopySourceRange(fmt::format("bytes={}-{}", 0, size - 1));
-        request.SetUploadId(uploadId);
         request.SetPartNumber(partNumber);
+        request.SetUploadId(uploadId);
+
+        try {
+            keyStat = getObjectInfo(key);
+            request.SetCopySource(m_bucket.toStdString() + key.toStdString());
+            request.SetCopySourceRange(
+                fmt::format("bytes={}-{}", 0, keyStat.st_size - 1));
+        }
+        catch (...) {
+            // If the key does not exist on the source storage
+            // use the destination file as source
+            size_t startRange = blockIt * blockSize;
+            size_t endRange = blockIt * blockSize + blockSize - 1;
+            endRange = std::min(endRange, size - 1);
+
+            request.SetCopySource(
+                m_bucket.toStdString() + effectiveDestinationKey.toStdString());
+            request.SetCopySourceRange(
+                fmt::format("bytes={}-{}", startRange, endRange));
+        }
 
         folly::Promise<UploadPartCopyOutcome> outcomePromise;
         auto outcomeFuture = outcomePromise.getFuture();

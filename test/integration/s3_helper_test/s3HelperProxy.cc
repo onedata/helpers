@@ -29,6 +29,7 @@
 using namespace boost::python;
 using namespace one::helpers;
 
+namespace {
 struct Stat {
     time_t atime;
     time_t mtime;
@@ -58,6 +59,8 @@ struct Stat {
             gid == o.gid && uid == o.uid && mode == o.mode && size == o.size;
     }
 };
+}
+
 using ReadDirResult = std::vector<std::string>;
 
 class ReleaseGIL {
@@ -143,10 +146,12 @@ public:
         return res;
     }
 
-    void multipartCopy(std::string source, std::string destination)
+    void multipartCopy(std::string source, std::string destination, int size)
     {
         ReleaseGIL guard;
-        m_helper->multipartCopy(source, destination).get();
+        m_helper->multipartCopy(
+                    source, destination, m_helper->blockSize(), size)
+            .get();
     }
 
     void unlink(std::string fileId, int size)

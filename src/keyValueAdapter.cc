@@ -115,6 +115,8 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::readCanonical(
     using one::logging::csv::log;
     using one::logging::csv::read_write_perf;
 
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
     log_timer<> timer;
 
     return folly::via(m_executor.get(),
@@ -523,11 +525,14 @@ folly::Future<folly::Unit> KeyValueAdapter::access(
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::multipartCopy(
-    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+    const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
+    const std::size_t blockSize, const std::size_t size)
 {
     return folly::via(m_executor.get(),
-        [sourceKey, destinationKey, helper = m_helper, locks = m_locks] {
-            return helper->multipartCopy(sourceKey, destinationKey);
+        [sourceKey, destinationKey, blockSize, size, helper = m_helper,
+            locks = m_locks] {
+            return helper->multipartCopy(
+                sourceKey, destinationKey, blockSize, size);
         });
 }
 
@@ -703,6 +708,50 @@ void KeyValueFileHandle::writeBlock(
         log<read_write_perf>(key.toStdString(), "KeyValueFileHandle", "write",
             blockOffset, size);
     }
+}
+
+folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
+    const folly::fbstring fileId, std::size_t size)
+{
+    size_t blockId = 0;
+    std::vector<folly::Future<std::size_t>> futs;
+    bool lastPart = false;
+
+    while (blockId * m_blockSize < size) {
+        if ((blockId + 1) * m_blockSize >= size)
+            lastPart = true;
+        auto key = helper()->getKey(fileId, blockId);
+        auto fut = getattr(key)
+                       .then([this, lastPart, key](auto &&attr) -> std::size_t {
+                           if (!lastPart &&
+                               (static_cast<std::size_t>(attr.st_size) <
+                                   m_blockSize)) {
+                               return helper()->putObject(key,
+                                   fillToSize(helper()->getObject(
+                                                  key, 0, attr.st_size),
+                                       m_blockSize));
+                           }
+
+                           return 0;
+                       })
+                       .onError([this, key](const std::system_error & /*e*/) {
+                           LOG_DBG(2) << "Creating empty null block: " << key;
+                           return helper()->putObject(key,
+                               fillToSize(
+                                   folly::IOBufQueue{
+                                       folly::IOBufQueue::cacheChainLength()},
+                                   m_blockSize));
+                       });
+        futs.emplace_back(std::move(fut));
+        blockId++;
+    }
+
+    return folly::collectAll(futs.begin(), futs.end())
+        .then([](const std::vector<folly::Try<std::size_t>> &res) {
+            std::for_each(res.begin(), res.end(),
+                [](const auto &v) { v.throwIfFailed(); });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<FileHandlePtr> KeyValueAdapter::open(

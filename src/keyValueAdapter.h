@@ -152,12 +152,15 @@ public:
     }
 
     virtual folly::Future<folly::Unit> multipartCopy(
-        const folly::fbstring &sourceKey,
-        const folly::fbstring &destinationKey) override;
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
+        const std::size_t blockSize, const std::size_t size) override;
 
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
         const off_t offset, const size_t count) override;
+
+    virtual folly::Future<folly::Unit> fillMissingFileBlocks(
+        const folly::fbstring fileId, std::size_t size);
 
     virtual bool isObjectStorage() const noexcept override { return true; }
 

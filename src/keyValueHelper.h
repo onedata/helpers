@@ -170,8 +170,9 @@ public:
             std::make_error_code(std::errc::function_not_supported)};
     }
 
-    virtual void multipartCopy(
-        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey)
+    virtual void multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size)
     {
         throw std::system_error{
             std::make_error_code(std::errc::function_not_supported)};

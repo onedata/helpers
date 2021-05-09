@@ -8,6 +8,7 @@
 
 #include "helpers/storageHelperCreator.h"
 
+#include "bufferedStorageHelper.h"
 #include "buffering/bufferAgent.h"
 #include "helpers/logging.h"
 #include "nullDeviceHelper.h"
@@ -220,9 +221,23 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #endif
 
 #if WITH_S3
-    if (name == S3_HELPER_NAME)
-        helper = S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
-            args, overrideParams, m_executionContext);
+    if (name == S3_HELPER_NAME) {
+        if (args.find("archive_storage") != args.end()) {
+            auto bufferHelper =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+            auto mainHelper =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+            helper = BufferedStorageHelperFactory{}.createStorageHelper(
+                std::move(bufferHelper), std::move(mainHelper),
+                m_executionContext);
+        }
+        else
+            helper =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+    }
 #endif
 
 #if WITH_SWIFT

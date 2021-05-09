@@ -86,8 +86,8 @@ public:
         const off_t offset, const size_t count);
 
     virtual folly::Future<folly::Unit> multipartCopy(
-        const folly::fbstring &sourceKey,
-        const folly::fbstring &destinationKey);
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
+        const std::size_t size);
 
     virtual folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &uuid, const folly::fbstring &name);
