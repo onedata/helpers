@@ -8,6 +8,7 @@
 
 #include "bufferedStorageHelper.h"
 #include "keyValueAdapter.h"
+#include "keyValueHelper.h"
 
 #include <folly/Range.h>
 #include <folly/String.h>
@@ -83,7 +84,7 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
 
     while (blockOffset < offset + size) {
         folly::fbstring blockFileId{bufferedStorageHelper->toBufferPath(
-            fmt::format("{}/{}", fileId(), 999999 - blockNumber))};
+            fmt::format("{}/{}", fileId(), MAX_OBJECT_ID - blockNumber))};
 
         LOG_DBG(2) << "Loading block to buffer: " << blockFileId;
 
