@@ -159,6 +159,14 @@ public:
     folly::fbstring toBufferPath(const folly::fbstring &fileId);
 
 private:
+    /**
+     * Applies the requested operations on both buffer and main storages
+     * asynchronously and returns a pair of results
+     */
+    template <typename T, typename F>
+    folly::Future<std::pair<T, T>> applyAsync(
+        F &&bufferOp, F &&mainOp, const bool ignoreBufferError = false);
+
     StorageHelperPtr m_bufferStorage;
     StorageHelperPtr m_mainStorage;
 

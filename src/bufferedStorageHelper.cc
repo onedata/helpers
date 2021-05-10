@@ -133,6 +133,25 @@ BufferedStorageHelper::BufferedStorageHelper(StorageHelperPtr bufferStorage,
 {
 }
 
+template <typename T, typename F>
+folly::Future<std::pair<T, T>> BufferedStorageHelper::applyAsync(
+    F &&bufferOp, F &&mainOp, bool ignoreBufferError)
+{
+    std::vector<folly::Future<T>> futs;
+    futs.emplace_back(std::forward<F>(bufferOp));
+    futs.emplace_back(std::forward<F>(mainOp));
+
+    return folly::collectAll(futs).then(
+        [ignoreBufferError](std::vector<folly::Try<T>> &&res) {
+            if (!ignoreBufferError)
+                res[0].throwIfFailed();
+            res[1].throwIfFailed();
+
+            return std::make_pair<T, T>(
+                std::move(res[0].value()), std::move(res[1].value()));
+        });
+}
+
 folly::fbstring BufferedStorageHelper::name() const
 {
     return BUFFERED_STORAGE_HELPER_NAME;
@@ -265,7 +284,7 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
             .then([this, fileId, currentSize]() {
                 return m_mainStorage->unlink(fileId, currentSize)
                     .then([this, fileId]() {
-                        const auto kDefaultMode = 0666;
+                        const auto kDefaultMode = 0644;
                         return m_mainStorage->mknod(
                             fileId, kDefaultMode, maskToFlags(S_IFREG), 0);
                     });
@@ -288,14 +307,15 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
 folly::Future<FileHandlePtr> BufferedStorageHelper::open(
     const folly::fbstring &fileId, const int flags, const Params &openParams)
 {
-    auto mainStorageHandle =
-        m_mainStorage->open(fileId, flags, openParams).get();
-    auto bufferStorageHandle =
-        m_bufferStorage->open(toBufferPath(fileId), flags, openParams).get();
-
-    return std::make_shared<BufferedStorageFileHandle>(fileId,
-        shared_from_this(), std::move(bufferStorageHandle),
-        std::move(mainStorageHandle));
+    return applyAsync<FileHandlePtr>(
+        m_bufferStorage->open(toBufferPath(fileId), flags, openParams),
+        m_mainStorage->open(fileId, flags, openParams))
+        .then(
+            [this, fileId](std::pair<FileHandlePtr, FileHandlePtr> &&handles) {
+                return std::make_shared<BufferedStorageFileHandle>(fileId,
+                    shared_from_this(), std::move(std::get<0>(handles)),
+                    std::move(std::get<1>(handles)));
+            });
 }
 
 folly::Future<ListObjectsResult> BufferedStorageHelper::listobjects(
