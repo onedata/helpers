@@ -124,11 +124,7 @@ public:
      * @param service @c io_service that will be used for some async
      * operations.
      */
-    StorageRouterHelperFactory(StorageHelperResolver &storageResolver)
-        : m_storageResolver{storageResolver}
-    {
-        LOG_FCALL();
-    }
+    StorageRouterHelperFactory() { LOG_FCALL(); }
 
     virtual folly::fbstring name() const override
     {
@@ -148,9 +144,6 @@ public:
         return std::make_shared<StorageRouterHelper>(
             std::move(routes), executionContext);
     }
-
-private:
-    StorageHelperResolver &m_storageResolver;
 };
 
 } // namespace helpers

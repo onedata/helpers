@@ -613,16 +613,6 @@ private:
     const ExecutionContext m_executionContext;
 };
 
-/**
- * This is an abstract interface allowing retrieval of a storage
- * helper by a specific storage Id.
- */
-class StorageHelperResolver {
-public:
-    virtual StorageHelperPtr get(
-        const folly::fbstring &storageId, const folly::fbstring &spaceId) = 0;
-};
-
 } // namespace helpers
 } // namespace one
 

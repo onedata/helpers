@@ -73,8 +73,8 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
     asio::io_service &nullDeviceService,
     communication::Communicator &communicator,
-    StorageHelperResolver &storageResolver, std::size_t bufferSchedulerWorkers,
-    buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
+    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
+    ExecutionContext executionContext)
     :
 #if WITH_CEPH
     m_cephService{cephService}
@@ -109,7 +109,6 @@ StorageHelperCreator::StorageHelperCreator(
     , m_bufferMemoryLimitGuard{std::make_shared<
           buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
     , m_communicator{communicator}
-    , m_storageResolver{storageResolver}
     , m_executionContext{executionContext}
 {
 }
@@ -135,9 +134,7 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
-    asio::io_service &nullDeviceService,
-
-    StorageHelperResolver &storageResolver, std::size_t bufferSchedulerWorkers,
+    asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
     buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
     :
 #if WITH_CEPH
@@ -172,7 +169,6 @@ StorageHelperCreator::StorageHelperCreator(
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
           buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
-    , m_storageResolver{storageResolver}
     , m_executionContext{executionContext}
 {
 }
@@ -190,9 +186,8 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     StorageHelperPtr helper;
 
     if (name == STORAGE_ROUTER_HELPER_NAME) {
-        helper =
-            StorageRouterHelperFactory{m_storageResolver}.createStorageHelper(
-                args, m_executionContext);
+        helper = StorageRouterHelperFactory{}.createStorageHelper(
+            args, m_executionContext);
     }
 
     if (name == POSIX_HELPER_NAME) {
