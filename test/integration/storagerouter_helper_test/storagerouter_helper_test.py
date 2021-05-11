@@ -33,13 +33,13 @@ def server(request):
             self.gid = gid
 
     home = expanduser("~")
-    mountpoint_a = os.path.join(home, 'storagerouter_helper_test/.hidden')
+    mountpoint_a = os.path.join(home, 'storagerouter_helper_test_hidden')
     mountpoint_b = os.path.join(home, 'storagerouter_helper_test')
     route_a = '/.hidden'
     route_b = '/'
 
-    assert os.system("mkdir -p %s" % (mountpoint_a)) == 0
-    assert os.system("mkdir -p %s" % (mountpoint_b)) == 0
+    assert os.system("mkdir -p %s" % (mountpoint_a+"/space1/.hidden")) == 0
+    assert os.system("mkdir -p %s" % (mountpoint_b+"/space1")) == 0
 
     def fin():
         os.system("rm -rf %s" % (mountpoint_a))
@@ -63,8 +63,8 @@ def test_read_should_read_written_data(helper):
     data = random_str()
     offset = random_int()
 
-    file_id_a = '/.hidden/' + random_str()
-    file_id_b = '/' + random_str()
+    file_id_a = '/space1/.hidden/' + random_str()
+    file_id_b = '/space1/' + random_str()
 
     assert helper.write(file_id_a, data, offset) == len(data)
     assert helper.read(file_id_a, offset, len(data)) == data
@@ -74,6 +74,6 @@ def test_read_should_read_written_data(helper):
 
     home = expanduser("~")
     assert helper.mountpoint(file_id_a) == os.path.join(
-        home, 'storagerouter_helper_test/.hidden')
+        home, 'storagerouter_helper_test_hidden')
     assert helper.mountpoint(file_id_b) == os.path.join(
         home, 'storagerouter_helper_test')

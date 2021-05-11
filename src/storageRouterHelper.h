@@ -140,14 +140,13 @@ public:
         return {};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params & /*parameters*/,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
     {
-        std::map<folly::fbstring, StorageHelperPtr> helpers;
-        // helpers.emplace();
-
+        std::map<folly::fbstring, StorageHelperPtr> routes;
         return std::make_shared<StorageRouterHelper>(
-            std::move(helpers), executionContext);
+            std::move(routes), executionContext);
     }
 
 private:

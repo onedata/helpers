@@ -58,13 +58,23 @@ StorageRouterHelper::StorageRouterHelper(
 
 folly::fbstring StorageRouterHelper::routePath(const folly::fbstring &fileId)
 {
+    if (fileId.empty())
+        throw makePosixException(ENOENT);
+
+    folly::fbstring fileIdRoute{fileId};
+    if (fileId.front() == '/')
+        fileIdRoute = fileId.substr(1);
+
+    // Skip space id from routing
+    fileIdRoute = fileIdRoute.substr(fileIdRoute.find_first_of('/'));
+
     for (const auto &route : m_routesOrder) {
-        if (fileId.find(route) != std::string::npos) {
+        if (fileIdRoute.find(route) == 0) {
             return route;
         }
     }
 
-    throw makePosixException(EEXIST);
+    throw makePosixException(ENOENT);
 }
 
 StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
@@ -75,9 +85,6 @@ StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
 folly::fbstring StorageRouterHelper::routeRelative(StorageHelperPtr helper,
     const folly::fbstring &route, const folly::fbstring &fileId)
 {
-    if (helper->name() == POSIX_HELPER_NAME)
-        return fileId.substr(route.size());
-
     return fileId;
 }
 
