@@ -125,11 +125,13 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
 
 BufferedStorageHelper::BufferedStorageHelper(StorageHelperPtr bufferStorage,
     StorageHelperPtr mainStorage, ExecutionContext executionContext,
-    folly::fbstring bufferPath, const std::size_t /*bufferStorageSize*/)
+    folly::fbstring bufferPath, const int bufferDepth,
+    const std::size_t /*bufferStorageSize*/)
     : StorageHelper{executionContext}
     , m_bufferStorage{std::move(bufferStorage)}
     , m_mainStorage{std::move(mainStorage)}
     , m_bufferPath{std::move(bufferPath)}
+    , m_bufferDepth{bufferDepth}
 {
 }
 
@@ -369,7 +371,7 @@ folly::fbstring BufferedStorageHelper::toBufferPath(
         fileIdTokensVec.begin(), fileIdTokensVec.end()};
     if (!m_bufferPath.empty()) {
         auto it = fileIdTokens.begin();
-        std::advance(it, 2);
+        std::advance(it, m_bufferDepth + 1);
         fileIdTokens.insert(it, m_bufferPath);
     }
     folly::join("/", fileIdTokens.begin(), fileIdTokens.end(), result);

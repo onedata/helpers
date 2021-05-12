@@ -82,8 +82,8 @@ StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
     return m_routes.at(routePath(fileId));
 }
 
-folly::fbstring StorageRouterHelper::routeRelative(StorageHelperPtr helper,
-    const folly::fbstring &route, const folly::fbstring &fileId)
+folly::fbstring StorageRouterHelper::routeRelative(StorageHelperPtr /*helper*/,
+    const folly::fbstring & /*route*/, const folly::fbstring &fileId)
 {
     return fileId;
 }
@@ -175,7 +175,7 @@ folly::Future<folly::Unit> StorageRouterHelper::chown(
 folly::Future<folly::Unit> StorageRouterHelper::truncate(
     const folly::fbstring &fileId, const off_t size, const size_t currentSize)
 {
-    ROUTE(chown, fileId, size, currentSize);
+    ROUTE(truncate, fileId, size, currentSize);
 }
 
 folly::Future<FileHandlePtr> StorageRouterHelper::open(
@@ -188,7 +188,6 @@ folly::Future<ListObjectsResult> StorageRouterHelper::listobjects(
     const folly::fbstring &prefix, const folly::fbstring &marker,
     const off_t offset, const size_t count)
 {
-    // TODO handle case when prefix matches multiple routes
     ROUTE(listobjects, prefix, marker, offset, count);
 }
 
@@ -224,5 +223,18 @@ folly::Future<folly::fbvector<folly::fbstring>> StorageRouterHelper::listxattr(
 {
     ROUTE_NO_ARGS(listxattr, uuid);
 }
+
+folly::Future<folly::Unit> StorageRouterHelper::loadBuffer(
+    const folly::fbstring &uuid, const std::size_t size)
+{
+    ROUTE(loadBuffer, uuid, size);
+}
+
+folly::Future<folly::Unit> StorageRouterHelper::flushBuffer(
+    const folly::fbstring &uuid, const std::size_t size)
+{
+    ROUTE(flushBuffer, uuid, size);
+}
+
 } // namespace helpers
 } // namespace one

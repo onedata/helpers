@@ -102,6 +102,12 @@ public:
     virtual folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &uuid);
 
+    virtual folly::Future<folly::Unit> loadBuffer(
+        const folly::fbstring &uuid, const std::size_t size) override;
+
+    virtual folly::Future<folly::Unit> flushBuffer(
+        const folly::fbstring &uuid, const std::size_t size) override;
+
     virtual StorageHelperPtr route(const folly::fbstring &fileId);
     virtual folly::fbstring routePath(const folly::fbstring &fileId);
 

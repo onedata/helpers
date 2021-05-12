@@ -67,7 +67,7 @@ public:
     BufferedStorageHelper(StorageHelperPtr bufferStorage,
         StorageHelperPtr mainStorage,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER,
-        folly::fbstring bufferPath = {},
+        folly::fbstring bufferPath = {}, const int bufferDepth = 1,
         const std::size_t bufferStorageSize =
             kDefaultBufferedStorageBufferSize);
 
@@ -171,6 +171,7 @@ private:
     StorageHelperPtr m_mainStorage;
 
     folly::fbstring m_bufferPath;
+    int m_bufferDepth;
 };
 
 /**
@@ -204,12 +205,15 @@ public:
 
     std::shared_ptr<BufferedStorageHelper> createStorageHelper(
         StorageHelperPtr bufferStorageHelper,
-        StorageHelperPtr mainStorageHelper,
+        StorageHelperPtr mainStorageHelper, const Params &parameters,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
     {
         return std::make_shared<BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
-            executionContext, ".__onedata_buffer",
+            executionContext,
+            getParam<folly::fbstring>(
+                parameters, "bufferPath", ".__onedata_buffer"),
+            getParam<int>(parameters, "bufferDepth", 1),
             kDefaultBufferedStorageBufferSize);
     }
 };
