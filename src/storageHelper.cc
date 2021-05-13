@@ -70,6 +70,17 @@ folly::fbstring getParam<folly::fbstring, folly::fbstring>(
 }
 
 template <>
+bool getParam<bool, bool>(
+    const Params &params, const folly::fbstring &key, bool &&def)
+{
+    auto param = params.find(key);
+    if (param != params.end())
+        return param->second == "true";
+
+    return def;
+}
+
+template <>
 StoragePathType getParam<StoragePathType>(
     const Params &params, const folly::fbstring &key)
 {
