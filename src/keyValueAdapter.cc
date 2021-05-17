@@ -721,27 +721,28 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
         if ((blockId + 1) * m_blockSize >= size)
             lastPart = true;
         auto key = helper()->getKey(fileId, blockId);
-        auto fut = getattr(key)
-                       .then([this, lastPart, key](auto &&attr) -> std::size_t {
-                           if (!lastPart &&
-                               (static_cast<std::size_t>(attr.st_size) <
-                                   m_blockSize)) {
-                               return helper()->putObject(key,
-                                   fillToSize(helper()->getObject(
-                                                  key, 0, attr.st_size),
-                                       m_blockSize));
-                           }
+        auto fut =
+            getattr(key)
+                .then([this, helper = helper(), lastPart, key](
+                          auto &&attr) -> std::size_t {
+                    if (!lastPart &&
+                        (static_cast<std::size_t>(attr.st_size) <
+                            m_blockSize)) {
+                        return helper->putObject(key,
+                            fillToSize(helper->getObject(key, 0, attr.st_size),
+                                m_blockSize));
+                    }
 
-                           return 0;
-                       })
-                       .onError([this, key](const std::system_error & /*e*/) {
-                           LOG_DBG(2) << "Creating empty null block: " << key;
-                           return helper()->putObject(key,
-                               fillToSize(
-                                   folly::IOBufQueue{
-                                       folly::IOBufQueue::cacheChainLength()},
-                                   m_blockSize));
-                       });
+                    return 0;
+                })
+                .onError([this, key](const std::system_error & /*e*/) {
+                    LOG_DBG(2) << "Creating empty null block: " << key;
+                    return helper()->putObject(key,
+                        fillToSize(
+                            folly::IOBufQueue{
+                                folly::IOBufQueue::cacheChainLength()},
+                            m_blockSize));
+                });
         futs.emplace_back(std::move(fut));
         blockId++;
     }
