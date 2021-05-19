@@ -47,7 +47,7 @@ public:
 
     virtual folly::fbstring name() const override { return S3_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"scheme", "hostname", "timeout"};
     };
@@ -79,7 +79,8 @@ public:
         const auto fileMode =
             getParam(parameters, "fileMode", kDefaultFileMode);
         const auto dirMode = getParam(parameters, "dirMode", kDefaultDirMode);
-
+        const auto storagePathType =
+            getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -95,7 +96,7 @@ public:
             std::make_shared<S3Helper>(hostname, bucketName, accessKey,
                 secretKey, maximumCanonicalObjectSize,
                 parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
-                scheme == "https", std::move(timeout)),
+                scheme == "https", std::move(timeout), storagePathType),
             std::make_shared<AsioExecutor>(m_service), blockSize,
             executionContext);
     }
@@ -124,7 +125,8 @@ public:
         folly::fbstring accessKey, folly::fbstring secretKey,
         const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
         const mode_t dirMode, const bool useHttps = true,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
 
@@ -146,6 +148,12 @@ public:
     ListObjectsResult listObjects(const folly::fbstring &prefix,
         const folly::fbstring &marker, const off_t offset,
         const size_t size) override;
+
+    ListObjectsResult listAllObjects(const folly::fbstring &prefix);
+
+    void multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size) override;
 
     struct stat getObjectInfo(const folly::fbstring &key) override;
 

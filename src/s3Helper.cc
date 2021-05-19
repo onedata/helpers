@@ -13,12 +13,16 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CompletedMultipartUpload.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/Delete.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/UploadPartCopyRequest.h>
 #include <boost/algorithm/string.hpp>
 #include <folly/Range.h>
 #include <glog/stl_logging.h>
@@ -112,8 +116,9 @@ namespace helpers {
 S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
     folly::fbstring accessKey, folly::fbstring secretKey,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
-    const mode_t dirMode, const bool useHttps, Timeout timeout)
-    : KeyValueHelper{false, maximumCanonicalObjectSize}
+    const mode_t dirMode, const bool useHttps, Timeout timeout,
+    StoragePathType storagePathType)
+    : KeyValueHelper{false, storagePathType, maximumCanonicalObjectSize}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
     , m_dirMode{dirMode}
@@ -545,6 +550,123 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     LOG_DBG(2) << "Deleted objects: " << LOG_VEC(keys);
 }
 
+void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
+    const folly::fbstring &destinationKey, const std::size_t blockSize,
+    const std::size_t size)
+{
+
+    LOG_FCALL() << LOG_FARG(sourceKey) << LOG_FARG(destinationKey)
+                << LOG_FARG(blockSize) << LOG_FARG(size);
+
+    if (blockSize == 0) {
+        LOG(ERROR)
+            << "Cannot perform multipart copy from storage with blocksize 0";
+        throw std::system_error{
+            {EINVAL, std::system_category()}, "Invalid request"};
+    }
+
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::CompletedMultipartUpload;
+    using Aws::S3::Model::CompletedPart;
+    using Aws::S3::Model::CompleteMultipartUploadOutcome;
+    using Aws::S3::Model::CompleteMultipartUploadRequest;
+    using Aws::S3::Model::CreateMultipartUploadOutcome;
+    using Aws::S3::Model::CreateMultipartUploadRequest;
+    using Aws::S3::Model::UploadPartCopyOutcome;
+    using Aws::S3::Model::UploadPartCopyRequest;
+
+    const auto effectiveDestinationKey = toEffectiveKey(destinationKey);
+
+    CreateMultipartUploadRequest createRequest;
+    createRequest.SetBucket(m_bucket.toStdString());
+    createRequest.SetKey(effectiveDestinationKey.toStdString());
+    auto createOutcome = m_client->CreateMultipartUpload(createRequest);
+    auto uploadId = createOutcome.GetResult().GetUploadId();
+
+    throwOnError("CreateMultipartUploadrequest", createOutcome);
+
+    LOG_DBG(3) << "Multipart upload id: " << uploadId;
+    LOG_DBG(3) << "Bucket is: " << m_bucket;
+
+    auto partNumber = 1UL;
+    CompletedMultipartUpload completedMultipartUpload;
+
+    const std::size_t blockCount = std::floor(size / blockSize) + 1;
+    std::size_t blockIt = 0;
+
+    auto effectiveSourceKey = toEffectiveKey(sourceKey);
+
+    for (; blockIt < blockCount; blockIt++) {
+        if (blockIt * blockSize >= size)
+            continue;
+
+        struct stat keyStat = {};
+        folly::fbstring key{
+            fmt::format("{}/{}", effectiveSourceKey, MAX_OBJECT_ID - blockIt)};
+        UploadPartCopyRequest request;
+        request.SetBucket(m_bucket.toStdString());
+        request.SetKey(effectiveDestinationKey.toStdString());
+        request.SetPartNumber(partNumber);
+        request.SetUploadId(uploadId);
+
+        try {
+            keyStat = getObjectInfo(key);
+            request.SetCopySource(m_bucket.toStdString() + key.toStdString());
+            request.SetCopySourceRange(
+                fmt::format("bytes={}-{}", 0, keyStat.st_size - 1));
+        }
+        catch (...) {
+            // If the key does not exist on the source storage
+            // use the destination file as source
+            size_t startRange = blockIt * blockSize;
+            size_t endRange = blockIt * blockSize + blockSize - 1;
+            endRange = std::min(endRange, size - 1);
+
+            request.SetCopySource(
+                m_bucket.toStdString() + effectiveDestinationKey.toStdString());
+            request.SetCopySourceRange(
+                fmt::format("bytes={}-{}", startRange, endRange));
+        }
+
+        folly::Promise<UploadPartCopyOutcome> outcomePromise;
+        auto outcomeFuture = outcomePromise.getFuture();
+
+        m_client->UploadPartCopyAsync(request,
+            [&outcomePromise](const S3Client * /*client*/,
+                const UploadPartCopyRequest & /*request*/,
+                UploadPartCopyOutcome uploadPartCopyOutcome,
+                const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                outcomePromise.setValue(std::move(uploadPartCopyOutcome));
+            },
+            nullptr);
+
+        auto uploadPartOutcome = outcomeFuture.get();
+        // NOLINTNEXTLINE
+
+        throwOnError("UploadPartCopyAsync", uploadPartOutcome);
+
+        CompletedPart completedPart;
+        completedPart.SetPartNumber(partNumber++);
+        completedPart.SetETag(
+            uploadPartOutcome.GetResult().GetCopyPartResult().GetETag());
+        completedMultipartUpload.AddParts(completedPart);
+    }
+
+    CompleteMultipartUploadRequest completeRequest;
+    completeRequest.SetKey(effectiveDestinationKey.toStdString());
+    completeRequest.SetBucket(m_bucket.toStdString());
+    completeRequest.SetUploadId(uploadId);
+    completeRequest.SetMultipartUpload(completedMultipartUpload);
+
+    auto completeOutcome = m_client->CompleteMultipartUpload(completeRequest);
+
+    throwOnError("CompleteMultipartUpload", completeOutcome);
+
+    LOG_DBG(2) << "Completed multipart copy from " << sourceKey << " to "
+               << destinationKey;
+}
+
 struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
     using Aws::Client::AsyncCallerContext;
@@ -785,5 +907,40 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     return result;
 }
 
+ListObjectsResult S3Helper::listAllObjects(const folly::fbstring &prefix)
+{
+    LOG_FCALL() << LOG_FARG(prefix);
+
+    ListObjectsResult res;
+
+    // S3 listObjects returns maximum of 1000 results per call
+    const size_t kMaxSingleListObjectsSize = 1000UL;
+
+    // The iteration is based on the name of the last returned key
+    // not numeric offset
+    folly::fbstring lastPositionMarker{};
+    while (true) {
+        auto partialRes = listObjects(
+            prefix, lastPositionMarker, 0, kMaxSingleListObjectsSize);
+
+        if (partialRes.empty())
+            break;
+
+        lastPositionMarker = std::get<0>(partialRes.back());
+
+        for (auto &key : partialRes) {
+            res.emplace_back(std::move(key));
+        }
+    }
+
+    std::sort(res.begin(), res.end(), [](const auto &l, const auto &r) {
+        return std::get<0>(l) > std::get<0>(r);
+    });
+
+    LOG_DBG(3) << "Returning " << res.size() << " objects with prefix "
+               << prefix;
+
+    return res;
+}
 } // namespace helpers
 } // namespace one

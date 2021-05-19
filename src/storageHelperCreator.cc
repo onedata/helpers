@@ -8,12 +8,14 @@
 
 #include "helpers/storageHelperCreator.h"
 
+#include "bufferedStorageHelper.h"
 #include "buffering/bufferAgent.h"
 #include "helpers/logging.h"
 #include "nullDeviceHelper.h"
 #include "posixHelper.h"
 #include "proxyHelper.h"
 #include "scheduler.h"
+#include "storageRouterHelper.h"
 
 #if WITH_CEPH
 #include "cephHelper.h"
@@ -183,6 +185,11 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 
     StorageHelperPtr helper;
 
+    if (name == STORAGE_ROUTER_HELPER_NAME) {
+        helper = StorageRouterHelperFactory{}.createStorageHelper(
+            args, m_executionContext);
+    }
+
     if (name == POSIX_HELPER_NAME) {
         helper =
             PosixHelperFactory{m_dioService}.createStorageHelperWithOverride(
@@ -209,9 +216,43 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #endif
 
 #if WITH_S3
-    if (name == S3_HELPER_NAME)
-        helper = S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
-            args, overrideParams, m_executionContext);
+    if (name == S3_HELPER_NAME) {
+        if (getParam<bool>(args, "archiveStorage", false)) {
+            const auto kDefaultBufferStorageBlockSizeMultiplier = 5UL;
+            auto bufferArgs{args};
+            auto mainArgs{args};
+            auto bufferedArgs{args};
+            bufferArgs["blockSize"] = std::to_string(
+                kDefaultBufferStorageBlockSizeMultiplier *
+                getParam<std::size_t>(args, "blockSize", DEFAULT_BLOCK_SIZE));
+            mainArgs["storagePathType"] = "canonical";
+            bufferedArgs["bufferPath"] = ".__onedata_buffer";
+            bufferedArgs["bufferDepth"] = "2";
+
+            auto bufferHelper =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    bufferArgs, overrideParams, m_executionContext);
+            auto mainHelper =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    mainArgs, overrideParams, m_executionContext);
+            auto bufferedHelper =
+                BufferedStorageHelperFactory{}.createStorageHelper(
+                    std::move(bufferHelper), std::move(mainHelper),
+                    bufferedArgs, m_executionContext);
+
+            std::map<folly::fbstring, StorageHelperPtr> routes;
+            routes["/.__onedata_archive"] = std::move(bufferedHelper);
+            routes["/"] =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+            helper = std::make_shared<StorageRouterHelper>(
+                std::move(routes), m_executionContext);
+        }
+        else
+            helper =
+                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+    }
 #endif
 
 #if WITH_SWIFT

@@ -32,10 +32,12 @@ constexpr auto MAX_OBJECT_ID_DIGITS = 6;
 class KeyValueHelper {
 public:
     KeyValueHelper(const bool randomAccess = false,
+        StoragePathType storagePathType = StoragePathType::FLAT,
         const std::size_t maxCanonicalObjectSize =
             std::numeric_limits<std::size_t>::max())
         : m_randomAccess{randomAccess}
         , m_maxCanonicalObjectSize{maxCanonicalObjectSize}
+        , m_storagePathType{storagePathType}
     {
     }
 
@@ -168,6 +170,14 @@ public:
             std::make_error_code(std::errc::function_not_supported)};
     }
 
+    virtual void multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size)
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
+    }
+
     /**
      * Get the information about an object in a POSIX `stat` structure.
      * Fields which are not supported by the underlying storage, can
@@ -181,10 +191,15 @@ public:
             std::make_error_code(std::errc::function_not_supported)};
     }
 
-    virtual const std::vector<folly::fbstring> getOverridableParams() const
+    virtual std::vector<folly::fbstring> getOverridableParams() const
     {
         return {};
     };
+
+    virtual std::vector<folly::fbstring> getHandleOverridableParams() const
+    {
+        return {};
+    }
 
     virtual const Timeout &timeout() = 0;
 
@@ -202,6 +217,8 @@ public:
     {
         return m_maxCanonicalObjectSize;
     }
+
+    StoragePathType storagePathType() const { return m_storagePathType; }
 
 protected:
     std::string adjustPrefix(const folly::fbstring &prefix) const
@@ -232,6 +249,9 @@ private:
     // define the maximum object size which can be written or modified on the
     // storage, as some storage do not allow writing from a specific offset.
     const std::size_t m_maxCanonicalObjectSize;
+
+    // The type of mapping between logical paths and storage paths
+    const StoragePathType m_storagePathType;
 };
 
 } // namespace helpers

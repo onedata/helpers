@@ -756,7 +756,6 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.listxattr");
 

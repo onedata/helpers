@@ -43,7 +43,7 @@ public:
         return CEPHRADOS_HELPER_NAME;
     }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"monitorHostname", "timeout"};
     };
@@ -57,6 +57,8 @@ public:
         const auto &poolName = getParam(parameters, "poolName");
         const auto &userName = getParam(parameters, "username");
         const auto &key = getParam(parameters, "key");
+        const auto storagePathType =
+            getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -64,7 +66,7 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
-                userName, key, std::move(timeout)),
+                userName, key, std::move(timeout), storagePathType),
             std::make_shared<AsioExecutor>(m_service), blockSize,
             executionContext);
     }
@@ -96,7 +98,8 @@ public:
      */
     CephRadosHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };
 

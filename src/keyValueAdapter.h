@@ -67,8 +67,21 @@ public:
     bool isConcurrencyEnabled() const override { return true; }
 
 private:
-    folly::Future<folly::IOBufQueue> readBlocks(
-        const off_t offset, const std::size_t requestedSize);
+    folly::Future<std::size_t> writeFlat(const off_t offset,
+        folly::IOBufQueue buf, std::size_t storageBlockSize,
+        WriteCallback &&writeCb);
+
+    folly::Future<folly::IOBufQueue> readFlat(const off_t offset,
+        const std::size_t size, const std::size_t storageBlockSize);
+
+    folly::Future<std::size_t> writeCanonical(
+        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb);
+
+    folly::Future<folly::IOBufQueue> readCanonical(
+        const off_t offset, const std::size_t size);
+
+    folly::Future<folly::IOBufQueue> readBlocks(const off_t offset,
+        const std::size_t requestedSize, const std::size_t storageBlockSize);
 
     folly::IOBufQueue readBlock(const uint64_t blockId, const off_t blockOffset,
         const std::size_t size);
@@ -96,9 +109,7 @@ public:
      * Constructor.
      * @param helper @c KeyValueHelper instance that provides low level storage
      * access.
-     * @param service IO service used for asynchronous operations.
-     * @param locks Map of locks used to exclude concurrent operations on the
-     * same storage block.
+     * @param storagePathType Type of storage path mapping
      * @param blockSize Size of storage block.
      * @param randomAccess Specifies whether the underlying object storage
      *                     provides random access read/write functionality.
@@ -140,9 +151,16 @@ public:
         return folly::makeFuture();
     }
 
+    virtual folly::Future<folly::Unit> multipartCopy(
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
+        const std::size_t blockSize, const std::size_t size) override;
+
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
         const off_t offset, const size_t count) override;
+
+    virtual folly::Future<folly::Unit> fillMissingFileBlocks(
+        const folly::fbstring fileId, std::size_t size);
 
     virtual bool isObjectStorage() const noexcept override { return true; }
 
@@ -151,11 +169,15 @@ public:
         return m_blockSize;
     }
 
+    virtual StoragePathType storagePathType() const override;
+
     const Timeout &timeout() override;
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
     std::shared_ptr<KeyValueHelper> helper() { return m_helper; };
+
+    std::vector<folly::fbstring> handleOverridableParams() const override;
 
 private:
     std::shared_ptr<KeyValueHelper> m_helper;

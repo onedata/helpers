@@ -23,6 +23,7 @@
 #include <vector>
 
 using namespace boost::python;
+using one::helpers::StoragePathType;
 
 class ReleaseGIL {
 public:
@@ -39,13 +40,14 @@ class SwiftHelperProxy {
 public:
     SwiftHelperProxy(std::string authUrl, std::string containerName,
         std::string tenantName, std::string userName, std::string password,
-        int threadNumber, std::size_t blockSize)
+        int threadNumber, std::size_t blockSize,
+        StoragePathType storagePathType)
         : m_service{threadNumber}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::SwiftHelper>(
                   std::move(containerName), authUrl, tenantName, userName,
-                  password),
+                  password, std::chrono::seconds{20}, storagePathType),
               std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
@@ -112,11 +114,14 @@ private:
 namespace {
 boost::shared_ptr<SwiftHelperProxy> create(std::string authUrl,
     std::string containerName, std::string tenantName, std::string userName,
-    std::string password, std::size_t threadNumber, std::size_t blockSize)
+    std::string password, std::size_t threadNumber, std::size_t blockSize,
+    std::string storagePathType = "flat")
 {
     return boost::make_shared<SwiftHelperProxy>(std::move(authUrl),
         std::move(containerName), std::move(tenantName), std::move(userName),
-        std::move(password), threadNumber, blockSize);
+        std::move(password), threadNumber, blockSize,
+        storagePathType == "canonical" ? StoragePathType::CANONICAL
+                                       : StoragePathType::FLAT);
 }
 }
 

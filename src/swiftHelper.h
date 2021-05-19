@@ -42,7 +42,7 @@ public:
 
     virtual folly::fbstring name() const override { return SWIFT_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"authUrl", "timeout"};
     };
@@ -56,6 +56,8 @@ public:
         const auto &tenantName = getParam(parameters, "tenantName");
         const auto &userName = getParam(parameters, "username");
         const auto &password = getParam(parameters, "password");
+        const auto storagePathType =
+            getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
@@ -63,7 +65,7 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
-                userName, password, std::move(timeout)),
+                userName, password, std::move(timeout), storagePathType),
             std::make_shared<AsioExecutor>(m_service), blockSize,
             executionContext);
     }
@@ -87,7 +89,8 @@ public:
      */
     SwiftHelper(folly::fbstring containerName, const folly::fbstring &authUrl,
         const folly::fbstring &tenantName, const folly::fbstring &userName,
-        const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT);
+        const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT,
+        StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
 

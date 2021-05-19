@@ -61,4 +61,4 @@ def server(request):
 def helper(request, server):
     return SwiftHelperProxy(server.auth_url, server.container_name,
                             server.tenant_name, server.username,
-                            server.password, THREAD_NUMBER, BLOCK_SIZE)
+                            server.password, THREAD_NUMBER, BLOCK_SIZE, "flat")

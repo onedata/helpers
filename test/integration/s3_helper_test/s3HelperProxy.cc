@@ -29,6 +29,7 @@
 using namespace boost::python;
 using namespace one::helpers;
 
+namespace {
 struct Stat {
     time_t atime;
     time_t mtime;
@@ -58,6 +59,8 @@ struct Stat {
             gid == o.gid && uid == o.uid && mode == o.mode && size == o.size;
     }
 };
+}
+
 using ReadDirResult = std::vector<std::string>;
 
 class ReleaseGIL {
@@ -77,14 +80,15 @@ class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
-        int threadNumber, std::size_t blockSize)
+        int threadNumber, std::size_t blockSize,
+        StoragePathType storagePathType)
         : m_service{threadNumber}
         , m_idleWork{asio::make_work_guard(m_service)}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
                   std::move(secretKey), 2 * 1024 * 1024, 0664, 0775,
-                  scheme == "https"),
+                  scheme == "https", std::chrono::seconds{20}, storagePathType),
               std::make_shared<one::AsioExecutor>(m_service), blockSize)}
     {
         std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
@@ -142,6 +146,14 @@ public:
         return res;
     }
 
+    void multipartCopy(std::string source, std::string destination, int size)
+    {
+        ReleaseGIL guard;
+        m_helper->multipartCopy(
+                    source, destination, m_helper->blockSize(), size)
+            .get();
+    }
+
     void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
@@ -189,11 +201,14 @@ private:
 namespace {
 boost::shared_ptr<S3HelperProxy> create(std::string scheme,
     std::string hostName, std::string bucketName, std::string accessKey,
-    std::string secretKey, std::size_t threadNumber, std::size_t blockSize)
+    std::string secretKey, std::size_t threadNumber, std::size_t blockSize,
+    std::string storagePathType = "flat")
 {
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize);
+        std::move(secretKey), threadNumber, blockSize,
+        storagePathType == "canonical" ? StoragePathType::CANONICAL
+                                       : StoragePathType::FLAT);
 }
 }
 
@@ -216,6 +231,7 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("mknod", &S3HelperProxy::mknod)
         .def("mkdir", &S3HelperProxy::mkdir)
         .def("listobjects", &S3HelperProxy::listobjects)
+        .def("multipart_copy", &S3HelperProxy::multipartCopy)
         .def("unlink", &S3HelperProxy::unlink)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)

@@ -144,12 +144,10 @@ void ConnectionPool::connect()
 {
     LOG_FCALL();
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     if (m_connected)
         return;
 
     for (auto &client : m_connections) {
-        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         client->connect(m_host, m_port)
             .then(m_executor.get(),
                 [this, clientPtr = client.get()]() {

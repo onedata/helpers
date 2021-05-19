@@ -450,7 +450,6 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     return connect().then([this, fileId,
                               s = std::weak_ptr<CephHelper>{
                                   shared_from_this()}] {

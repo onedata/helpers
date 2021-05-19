@@ -69,6 +69,36 @@ folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     return std::forward<folly::fbstring>(def);
 }
 
+template <>
+bool getParam<bool, bool>(
+    const Params &params, const folly::fbstring &key, bool &&def)
+{
+    auto param = params.find(key);
+    if (param != params.end())
+        return param->second == "true";
+
+    return def;
+}
+
+template <>
+StoragePathType getParam<StoragePathType>(
+    const Params &params, const folly::fbstring &key)
+{
+    try {
+        const auto &param = params.at(key);
+        if (param == "canonical")
+            return StoragePathType::CANONICAL;
+
+        if (param == "flat")
+            return StoragePathType::FLAT;
+
+        throw BadParameterException{key, param};
+    }
+    catch (const std::out_of_range &) {
+        throw MissingParameterException{key};
+    }
+}
+
 mode_t parsePosixPermissions(folly::fbstring p)
 {
     if ((p.length() != 3) && (p.length() != 4)) {
@@ -140,6 +170,84 @@ FlagsSet maskToFlags(int mask)
     return flags;
 }
 
+std::vector<folly::fbstring> StorageHelperFactory::overridableParams() const
+{
+    return {};
+}
+
+StorageHelperPtr StorageHelperFactory::createStorageHelperWithOverride(
+    Params parameters, const Params &overrideParameters,
+    ExecutionContext executionContext)
+{
+    LOG_FCALL() << LOG_FARGM(overrideParameters);
+
+    const auto &overridable = overridableParams();
+
+    for (const auto &p : overrideParameters) {
+        const auto &parameterName = p.first;
+        if (std::find(overridable.cbegin(), overridable.cend(),
+                parameterName) != overridable.end()) {
+            LOG_DBG(1) << "Overriding " << name() << " storage parameter "
+                       << parameterName << " with value " << p.second;
+
+            parameters[parameterName] = p.second;
+        }
+        else
+            LOG(WARNING) << "Storage helper " << name() << " parameter "
+                         << parameterName << " cannot be overriden";
+    }
+
+    return createStorageHelper(parameters, executionContext);
+}
+
+FileHandle::FileHandle(
+    folly::fbstring fileId, std::shared_ptr<StorageHelper> helper)
+    : FileHandle{std::move(fileId), {}, std::move(helper)}
+{
+}
+
+FileHandle::FileHandle(folly::fbstring fileId, Params openParams,
+    std::shared_ptr<StorageHelper> helper)
+    : m_fileId{std::move(fileId)}
+    , m_openParams{std::move(openParams)}
+    , m_helper{std::move(helper)}
+{
+}
+
+std::shared_ptr<StorageHelper> FileHandle::helper() { return m_helper; }
+
+folly::Future<folly::IOBufQueue> FileHandle::read(const off_t offset,
+    const std::size_t size, const std::size_t /*continuousBlock*/)
+{
+    return read(offset, size);
+}
+
+folly::Future<std::size_t> multiwrite(
+    folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>> buffs);
+
+folly::Future<folly::Unit> FileHandle::release() { return folly::makeFuture(); }
+
+folly::Future<folly::Unit> FileHandle::flush() { return folly::makeFuture(); }
+
+folly::Future<folly::Unit> FileHandle::fsync(bool /*isDataSync*/)
+{
+    return folly::makeFuture();
+}
+
+bool FileHandle::needsDataConsistencyCheck() { return false; }
+
+folly::fbstring FileHandle::fileId() const { return m_fileId; }
+
+std::size_t FileHandle::wouldPrefetch(
+    const off_t /*offset*/, const std::size_t /*size*/)
+{
+    return 0;
+}
+
+folly::Future<folly::Unit> FileHandle::flushUnderlying() { return flush(); }
+
+bool FileHandle::isConcurrencyEnabled() const { return false; }
+
 folly::Future<folly::Unit> FileHandle::refreshHelperParams(
     std::shared_ptr<StorageHelperParams> params)
 {
@@ -155,16 +263,13 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
     std::size_t shouldHaveWrittenSoFar = 0;
 
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
     for (auto &buf : buffs) {
         auto size = std::get<1>(buf).chainLength();
         const auto shouldHaveWrittenAfter = shouldHaveWrittenSoFar + size;
 
-        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         future = future.then(
             [this, shouldHaveWrittenSoFar, size, buf = std::move(buf)](
                 const std::size_t wroteSoFar) mutable {
-                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 if (shouldHaveWrittenSoFar < wroteSoFar)
                     return folly::makeFuture(wroteSoFar);
 
@@ -174,7 +279,6 @@ folly::Future<std::size_t> FileHandle::multiwrite(
 
                 log_timer<> timer;
                 auto offset = std::get<0>(buf);
-                // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
                 return write(offset, std::move(std::get<1>(buf)),
                     std::move(std::get<2>(buf)))
                     .then([wroteSoFar, offset, size, timer, fileId = m_fileId](
@@ -190,6 +294,258 @@ folly::Future<std::size_t> FileHandle::multiwrite(
     }
 
     return future;
+}
+
+void FileHandle::setOverrideParams(const Params &params)
+{
+    m_paramsOverride = params;
+}
+
+folly::Future<struct stat> StorageHelper::getattr(
+    const folly::fbstring & /*fileId*/)
+{
+    return folly::makeFuture<struct stat>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::access(
+    const folly::fbstring & /*fileId*/, const int /*mask*/)
+{
+    return folly::makeFuture();
+}
+
+folly::Future<folly::fbstring> StorageHelper::readlink(
+    const folly::fbstring & /*fileId*/)
+{
+    return folly::makeFuture<folly::fbstring>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::fbvector<folly::fbstring>> StorageHelper::readdir(
+    const folly::fbstring & /*fileId*/, const off_t /*offset*/,
+    const std::size_t /*count*/)
+{
+    return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+        std::system_error{
+            std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::mknod(
+    const folly::fbstring & /*fileId*/, const mode_t /*mode*/,
+    const FlagsSet & /*flags*/, const dev_t /*rdev*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::mkdir(
+    const folly::fbstring & /*fileId*/, const mode_t /*mode*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::unlink(
+    const folly::fbstring & /*fileId*/, const size_t /*currentSize*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::rmdir(
+    const folly::fbstring & /*fileId*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::symlink(
+    const folly::fbstring & /*from*/, const folly::fbstring & /*to*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::rename(
+    const folly::fbstring & /*from*/, const folly::fbstring & /*to*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::link(
+    const folly::fbstring & /*from*/, const folly::fbstring & /*to*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::chmod(
+    const folly::fbstring & /*fileId*/, const mode_t /*mode*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::chown(
+    const folly::fbstring & /*fileId*/, const uid_t /*uid*/,
+    const gid_t /*gid*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::truncate(
+    const folly::fbstring & /*fileId*/, const off_t /*size*/,
+    const size_t /*currentSize*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<FileHandlePtr> StorageHelper::open(const folly::fbstring &fileId,
+    const FlagsSet &flags, const Params &openParams)
+{
+    return open(fileId, flagsToMask(flags), openParams, {});
+}
+
+folly::Future<FileHandlePtr> StorageHelper::open(const folly::fbstring &fileId,
+    const FlagsSet &flags, const Params &openParams,
+    const Params &helperOverrideParams)
+{
+    return open(fileId, flagsToMask(flags), openParams, helperOverrideParams);
+}
+
+folly::Future<FileHandlePtr> StorageHelper::open(const folly::fbstring &fileId,
+    const int flags, const Params &openParams,
+    const Params &helperOverrideParams)
+{
+    validateHandleOverrideParams(helperOverrideParams);
+
+    return open(fileId, flags, openParams)
+        .then([helperOverrideParams](FileHandlePtr &&fh) {
+            fh->setOverrideParams(helperOverrideParams);
+            return std::move(fh);
+        });
+}
+
+folly::Future<ListObjectsResult> StorageHelper::listobjects(
+    const folly::fbstring & /*prefix*/, const folly::fbstring & /*marker*/,
+    const off_t /*offset*/, const size_t /*count*/)
+{
+    return folly::makeFuture<ListObjectsResult>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::multipartCopy(
+    const folly::fbstring & /*sourceKey*/,
+    const folly::fbstring & /*destinationKey*/, const std::size_t /*blockSize*/,
+    const std::size_t /*size*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::fbstring> StorageHelper::getxattr(
+    const folly::fbstring & /*uuid*/, const folly::fbstring & /*name*/)
+{
+    return folly::makeFuture<folly::fbstring>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::setxattr(
+    const folly::fbstring & /*uuid*/, const folly::fbstring & /*name*/,
+    const folly::fbstring & /*value*/, bool /*create*/, bool /*replace*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::removexattr(
+    const folly::fbstring & /*uuid*/, const folly::fbstring & /*name*/)
+{
+    return folly::makeFuture<folly::Unit>(std::system_error{
+        std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::fbvector<folly::fbstring>> StorageHelper::listxattr(
+    const folly::fbstring & /*uuid*/)
+{
+    return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+        std::system_error{
+            std::make_error_code(std::errc::function_not_supported)});
+}
+
+folly::Future<folly::Unit> StorageHelper::loadBuffer(
+    const folly::fbstring & /*fileId*/, const std::size_t /*size*/)
+{
+    return {};
+}
+
+folly::Future<folly::Unit> StorageHelper::flushBuffer(
+    const folly::fbstring & /*fileId*/, const std::size_t /*size*/)
+{
+    return {};
+}
+
+folly::Future<std::shared_ptr<StorageHelperParams>>
+StorageHelper::params() const
+{
+    std::lock_guard<std::mutex> m_lock{m_paramsMutex};
+    return m_params->getFuture();
+}
+
+folly::Future<folly::Unit> StorageHelper::refreshParams(
+    std::shared_ptr<StorageHelperParams> params)
+{
+    return folly::via(executor().get(), [this, params = std::move(params)]() {
+        invalidateParams()->setValue(params);
+    });
+}
+
+void StorageHelper::validateHandleOverrideParams(const Params &params)
+{
+    const auto &overridableParams = handleOverridableParams();
+    for (const auto &p : params) {
+        if (std::find(overridableParams.begin(), overridableParams.end(),
+                p.first) == overridableParams.cend())
+            throw BadParameterException{p.first, p.second};
+    }
+}
+std::vector<folly::fbstring> StorageHelper::handleOverridableParams() const
+{
+    return {};
+}
+
+const Timeout &StorageHelper::timeout() { return params().get()->timeout(); }
+
+StoragePathType StorageHelper::storagePathType() const
+{
+    return params().get()->storagePathType();
+}
+
+bool StorageHelper::isFlat() const
+{
+    return storagePathType() == StoragePathType::FLAT;
+}
+
+std::size_t StorageHelper::blockSize() const noexcept { return 0; }
+
+bool StorageHelper::isObjectStorage() const noexcept { return false; }
+
+std::shared_ptr<folly::Executor> StorageHelper::executor() { return {}; }
+
+ExecutionContext StorageHelper::executionContext() const
+{
+    return m_executionContext;
+}
+
+std::shared_ptr<StorageHelper::StorageHelperParamsPromise>
+StorageHelper::invalidateParams()
+{
+    std::lock_guard<std::mutex> m_lock{m_paramsMutex};
+    m_params = std::make_shared<StorageHelper::StorageHelperParamsPromise>();
+    return m_params;
 }
 
 } // namespace helpers
