@@ -488,6 +488,12 @@ folly::Future<folly::Unit> StorageHelper::flushBuffer(
     return {};
 }
 
+folly::Future<std::size_t> StorageHelper::blockSizeForPath(
+    const folly::fbstring & /*fileId*/)
+{
+    return blockSize();
+}
+
 folly::Future<std::shared_ptr<StorageHelperParams>>
 StorageHelper::params() const
 {

@@ -236,5 +236,10 @@ folly::Future<folly::Unit> StorageRouterHelper::flushBuffer(
     ROUTE(flushBuffer, uuid, size);
 }
 
+folly::Future<std::size_t> StorageRouterHelper::blockSizeForPath(
+    const folly::fbstring &uuid)
+{
+    ROUTE_NO_ARGS(blockSizeForPath, uuid);
+}
 } // namespace helpers
 } // namespace one
