@@ -153,6 +153,9 @@ public:
     virtual folly::Future<folly::Unit> flushBuffer(
         const folly::fbstring &fileId, const std::size_t size) override;
 
+    virtual folly::Future<std::size_t> blockSizeForPath(
+        const folly::fbstring &fileId) override;
+
     StorageHelperPtr bufferHelper() { return m_bufferStorage; };
     StorageHelperPtr mainHelper() { return m_mainStorage; };
 

@@ -361,6 +361,12 @@ BufferedStorageHelper::listxattr(const folly::fbstring &uuid)
     return m_mainStorage->listxattr(uuid);
 }
 
+folly::Future<std::size_t> BufferedStorageHelper::blockSizeForPath(
+    const folly::fbstring &fileId)
+{
+    return m_bufferStorage->blockSizeForPath(fileId);
+}
+
 folly::fbstring BufferedStorageHelper::toBufferPath(
     const folly::fbstring &fileId)
 {
