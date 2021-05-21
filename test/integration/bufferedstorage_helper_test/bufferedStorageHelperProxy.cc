@@ -103,7 +103,7 @@ public:
 
         m_helper = std::make_shared<one::helpers::BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
-            ExecutionContext::ONECLIENT, ".__onedata_buffer");
+            ExecutionContext::ONECLIENT, ".__onedata__buffer");
 
         for (int i = 0; i < threadNumber; i++) {
             m_workers.push_back(std::thread([=]() { m_service.run(); }));

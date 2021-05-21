@@ -212,7 +212,7 @@ public:
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
             executionContext,
             getParam<folly::fbstring>(
-                parameters, "bufferPath", ".__onedata_buffer"),
+                parameters, "bufferPath", ".__onedata__buffer"),
             getParam<int>(parameters, "bufferDepth", 1),
             kDefaultBufferedStorageBufferSize);
     }
