@@ -598,7 +598,7 @@ public:
 
     virtual std::size_t blockSize() const noexcept;
 
-    virtual bool isObjectStorage() const noexcept;
+    virtual bool isObjectStorage() const;
 
     virtual std::shared_ptr<folly::Executor> executor();
 

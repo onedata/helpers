@@ -162,7 +162,7 @@ public:
     virtual folly::Future<folly::Unit> fillMissingFileBlocks(
         const folly::fbstring fileId, std::size_t size);
 
-    virtual bool isObjectStorage() const noexcept override { return true; }
+    virtual bool isObjectStorage() const override { return true; }
 
     virtual std::size_t blockSize() const noexcept override
     {

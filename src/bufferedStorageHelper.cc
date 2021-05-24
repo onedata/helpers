@@ -367,6 +367,11 @@ folly::Future<std::size_t> BufferedStorageHelper::blockSizeForPath(
     return m_bufferStorage->blockSizeForPath(fileId);
 }
 
+bool BufferedStorageHelper::isObjectStorage() const
+{
+    return m_bufferStorage->isObjectStorage();
+}
+
 folly::fbstring BufferedStorageHelper::toBufferPath(
     const folly::fbstring &fileId)
 {

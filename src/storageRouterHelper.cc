@@ -241,5 +241,15 @@ folly::Future<std::size_t> StorageRouterHelper::blockSizeForPath(
 {
     ROUTE_NO_ARGS(blockSizeForPath, uuid);
 }
+
+bool StorageRouterHelper::isObjectStorage() const
+{
+    // Return true if any of the storages is object storage
+    for (auto &routes : m_routes)
+        if (routes.second->isObjectStorage())
+            return true;
+
+    return false;
+}
 } // namespace helpers
 } // namespace one

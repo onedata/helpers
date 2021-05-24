@@ -537,7 +537,7 @@ bool StorageHelper::isFlat() const
 
 std::size_t StorageHelper::blockSize() const noexcept { return 0; }
 
-bool StorageHelper::isObjectStorage() const noexcept { return false; }
+bool StorageHelper::isObjectStorage() const { return false; }
 
 std::shared_ptr<folly::Executor> StorageHelper::executor() { return {}; }
 

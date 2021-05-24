@@ -156,6 +156,8 @@ public:
     virtual folly::Future<std::size_t> blockSizeForPath(
         const folly::fbstring &fileId) override;
 
+    virtual bool isObjectStorage() const override;
+
     StorageHelperPtr bufferHelper() { return m_bufferStorage; };
     StorageHelperPtr mainHelper() { return m_mainStorage; };
 
