@@ -554,6 +554,9 @@ public:
     virtual folly::Future<folly::Unit> flushBuffer(
         const folly::fbstring &fileId, const std::size_t size);
 
+    virtual folly::Future<std::size_t> blockSizeForPath(
+        const folly::fbstring &fileId);
+
     /**
      * Returns a future to an instance of storage helper parameters.
      * It allows for overriding for special helpers such as @c BufferAgent.
@@ -595,7 +598,7 @@ public:
 
     virtual std::size_t blockSize() const noexcept;
 
-    virtual bool isObjectStorage() const noexcept;
+    virtual bool isObjectStorage() const;
 
     virtual std::shared_ptr<folly::Executor> executor();
 

@@ -153,6 +153,11 @@ public:
     virtual folly::Future<folly::Unit> flushBuffer(
         const folly::fbstring &fileId, const std::size_t size) override;
 
+    virtual folly::Future<std::size_t> blockSizeForPath(
+        const folly::fbstring &fileId) override;
+
+    virtual bool isObjectStorage() const override;
+
     StorageHelperPtr bufferHelper() { return m_bufferStorage; };
     StorageHelperPtr mainHelper() { return m_mainStorage; };
 
@@ -212,7 +217,7 @@ public:
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
             executionContext,
             getParam<folly::fbstring>(
-                parameters, "bufferPath", ".__onedata_buffer"),
+                parameters, "bufferPath", ".__onedata__buffer"),
             getParam<int>(parameters, "bufferDepth", 1),
             kDefaultBufferedStorageBufferSize);
     }

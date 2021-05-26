@@ -488,6 +488,12 @@ folly::Future<folly::Unit> StorageHelper::flushBuffer(
     return {};
 }
 
+folly::Future<std::size_t> StorageHelper::blockSizeForPath(
+    const folly::fbstring & /*fileId*/)
+{
+    return blockSize();
+}
+
 folly::Future<std::shared_ptr<StorageHelperParams>>
 StorageHelper::params() const
 {
@@ -531,7 +537,7 @@ bool StorageHelper::isFlat() const
 
 std::size_t StorageHelper::blockSize() const noexcept { return 0; }
 
-bool StorageHelper::isObjectStorage() const noexcept { return false; }
+bool StorageHelper::isObjectStorage() const { return false; }
 
 std::shared_ptr<folly::Executor> StorageHelper::executor() { return {}; }
 

@@ -226,7 +226,7 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
                 kDefaultBufferStorageBlockSizeMultiplier *
                 getParam<std::size_t>(args, "blockSize", DEFAULT_BLOCK_SIZE));
             mainArgs["storagePathType"] = "canonical";
-            bufferedArgs["bufferPath"] = ".__onedata_buffer";
+            bufferedArgs["bufferPath"] = ".__onedata__buffer";
             bufferedArgs["bufferDepth"] = "2";
 
             auto bufferHelper =
@@ -241,7 +241,7 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
                     bufferedArgs, m_executionContext);
 
             std::map<folly::fbstring, StorageHelperPtr> routes;
-            routes["/.__onedata_archive"] = std::move(bufferedHelper);
+            routes["/.__onedata__archive"] = std::move(bufferedHelper);
             routes["/"] =
                 S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
                     args, overrideParams, m_executionContext);
