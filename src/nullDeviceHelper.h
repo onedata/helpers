@@ -181,176 +181,62 @@ public:
 
     folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; };
 
-    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override
-    {
-        return simulateStorageIssues<struct stat>(
-            "getattr", [fileId, self = shared_from_this()] {
-                return self->getattrImpl(fileId);
-            });
-    }
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "access", [fileId, mask, self = shared_from_this()] {
-                return self->accessImpl(fileId, mask);
-            });
-    }
+        const folly::fbstring &fileId, const int mask) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> readdir(
-        const folly::fbstring &fileId, off_t offset, size_t count) override
-    {
-        return simulateStorageIssues<folly::fbvector<folly::fbstring>>(
-            "readdir", [fileId, offset, count, self = shared_from_this()] {
-                return self->readdirImpl(fileId, offset, count);
-            });
-    }
+        const folly::fbstring &fileId, off_t offset, size_t count) override;
 
     folly::Future<folly::fbstring> readlink(
-        const folly::fbstring &fileId) override
-    {
-        return simulateStorageIssues<folly::fbstring>(
-            "readlink", [fileId, self = shared_from_this()] {
-                return self->readlinkImpl(fileId);
-            });
-    }
+        const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t unmaskedMode, const FlagsSet &flags,
-        const dev_t rdev) override
-    {
-        return simulateStorageIssues<folly::Unit>("mknod",
-            [fileId, unmaskedMode, flags, rdev, self = shared_from_this()] {
-                return self->mknodImpl(fileId, unmaskedMode, flags, rdev);
-            });
-    }
+        const dev_t rdev) override;
 
     folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "mkdir", [fileId, mode, self = shared_from_this()] {
-                return self->mkdirImpl(fileId, mode);
-            });
-    }
+        const folly::fbstring &fileId, const mode_t mode) override;
 
     folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "unlink", [fileId, currentSize, self = shared_from_this()] {
-                return self->unlinkImpl(fileId, currentSize);
-            });
-    }
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
-    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "rmdir", [fileId, self = shared_from_this()] {
-                return self->rmdirImpl(fileId);
-            });
-    }
+    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> symlink(
-        const folly::fbstring &from, const folly::fbstring &to) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "symlink", [from, to, self = shared_from_this()] {
-                return self->symlinkImpl(from, to);
-            });
-    }
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> rename(
-        const folly::fbstring &from, const folly::fbstring &to) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "rename", [from, to, self = shared_from_this()] {
-                return self->renameImpl(from, to);
-            });
-    }
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> link(
-        const folly::fbstring &from, const folly::fbstring &to) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "link", [from, to, self = shared_from_this()] {
-                return self->linkImpl(from, to);
-            });
-    }
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "chmod", [fileId, mode, self = shared_from_this()] {
-                return self->chmodImpl(fileId, mode);
-            });
-    }
+        const folly::fbstring &fileId, const mode_t mode) override;
 
     folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
-        const uid_t uid, const gid_t gid) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "chown", [fileId, uid, gid, self = shared_from_this()] {
-                return self->chownImpl(fileId, uid, gid);
-            });
-    }
+        const uid_t uid, const gid_t gid) override;
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "truncate", [fileId, size, currentSize, self = shared_from_this()] {
-                return self->truncateImpl(fileId, size, currentSize);
-            });
-    }
+        const off_t size, const size_t currentSize) override;
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams) override
-    {
-        return simulateStorageIssues<FileHandlePtr>(
-            "open", [fileId, flags, openParams, self = shared_from_this()] {
-                return self->openImpl(fileId, flags, openParams);
-            });
-    }
+        const int flags, const Params &openParams) override;
 
     folly::Future<folly::fbstring> getxattr(
-        const folly::fbstring &fileId, const folly::fbstring &name) override
-    {
-        return simulateStorageIssues<folly::fbstring>(
-            "getxattr", [fileId, name, self = shared_from_this()] {
-                return self->getxattrImpl(fileId, name);
-            });
-    }
+        const folly::fbstring &fileId, const folly::fbstring &name) override;
 
     folly::Future<folly::Unit> setxattr(const folly::fbstring &fileId,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace) override
-    {
-        return simulateStorageIssues<folly::Unit>("setxattr",
-            [fileId, name, value, create, replace, self = shared_from_this()] {
-                return self->setxattrImpl(fileId, name, value, create, replace);
-            });
-    }
+        bool replace) override;
 
     folly::Future<folly::Unit> removexattr(
-        const folly::fbstring &fileId, const folly::fbstring &name) override
-    {
-        return simulateStorageIssues<folly::Unit>(
-            "removexattr", [fileId, name, self = shared_from_this()] {
-                return self->removexattrImpl(fileId, name);
-            });
-    }
+        const folly::fbstring &fileId, const folly::fbstring &name) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &fileId) override
-    {
-        return simulateStorageIssues<folly::fbvector<folly::fbstring>>(
-            "listxattr", [fileId, self = shared_from_this()] {
-                return self->listxattrImpl(fileId);
-            });
-    }
+        const folly::fbstring &fileId) override;
 
     const Timeout &timeout() override { return m_timeout; }
 

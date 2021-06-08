@@ -327,6 +327,179 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     simulatedFilesystemEntryCount();
 }
 
+folly::Future<struct stat> NullDeviceHelper::getattr(
+    const folly::fbstring &fileId)
+{
+    return simulateStorageIssues<struct stat>(
+        "getattr", [fileId, self = shared_from_this()] {
+            return self->getattrImpl(fileId);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::access(
+    const folly::fbstring &fileId, const int mask)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "access", [fileId, mask, self = shared_from_this()] {
+            return self->accessImpl(fileId, mask);
+        });
+}
+
+folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdir(
+    const folly::fbstring &fileId, off_t offset, size_t count)
+{
+    return simulateStorageIssues<folly::fbvector<folly::fbstring>>(
+        "readdir", [fileId, offset, count, self = shared_from_this()] {
+            return self->readdirImpl(fileId, offset, count);
+        });
+}
+
+folly::Future<folly::fbstring> NullDeviceHelper::readlink(
+    const folly::fbstring &fileId)
+{
+    return simulateStorageIssues<folly::fbstring>(
+        "readlink", [fileId, self = shared_from_this()] {
+            return self->readlinkImpl(fileId);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::mknod(
+    const folly::fbstring &fileId, const mode_t unmaskedMode,
+    const FlagsSet &flags, const dev_t rdev)
+{
+    return simulateStorageIssues<folly::Unit>("mknod",
+        [fileId, unmaskedMode, flags, rdev, self = shared_from_this()] {
+            return self->mknodImpl(fileId, unmaskedMode, flags, rdev);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::mkdir(
+    const folly::fbstring &fileId, const mode_t mode)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "mkdir", [fileId, mode, self = shared_from_this()] {
+            return self->mkdirImpl(fileId, mode);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::unlink(
+    const folly::fbstring &fileId, const size_t currentSize)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "unlink", [fileId, currentSize, self = shared_from_this()] {
+            return self->unlinkImpl(fileId, currentSize);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::rmdir(
+    const folly::fbstring &fileId)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "rmdir", [fileId, self = shared_from_this()] {
+            return self->rmdirImpl(fileId);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::symlink(
+    const folly::fbstring &from, const folly::fbstring &to)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "symlink", [from, to, self = shared_from_this()] {
+            return self->symlinkImpl(from, to);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::rename(
+    const folly::fbstring &from, const folly::fbstring &to)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "rename", [from, to, self = shared_from_this()] {
+            return self->renameImpl(from, to);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::link(
+    const folly::fbstring &from, const folly::fbstring &to)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "link", [from, to, self = shared_from_this()] {
+            return self->linkImpl(from, to);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::chmod(
+    const folly::fbstring &fileId, const mode_t mode)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "chmod", [fileId, mode, self = shared_from_this()] {
+            return self->chmodImpl(fileId, mode);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::chown(
+    const folly::fbstring &fileId, const uid_t uid, const gid_t gid)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "chown", [fileId, uid, gid, self = shared_from_this()] {
+            return self->chownImpl(fileId, uid, gid);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::truncate(
+    const folly::fbstring &fileId, const off_t size, const size_t currentSize)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "truncate", [fileId, size, currentSize, self = shared_from_this()] {
+            return self->truncateImpl(fileId, size, currentSize);
+        });
+}
+
+folly::Future<FileHandlePtr> NullDeviceHelper::open(
+    const folly::fbstring &fileId, const int flags, const Params &openParams)
+{
+    return simulateStorageIssues<FileHandlePtr>(
+        "open", [fileId, flags, openParams, self = shared_from_this()] {
+            return self->openImpl(fileId, flags, openParams);
+        });
+}
+
+folly::Future<folly::fbstring> NullDeviceHelper::getxattr(
+    const folly::fbstring &fileId, const folly::fbstring &name)
+{
+    return simulateStorageIssues<folly::fbstring>(
+        "getxattr", [fileId, name, self = shared_from_this()] {
+            return self->getxattrImpl(fileId, name);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::setxattr(
+    const folly::fbstring &fileId, const folly::fbstring &name,
+    const folly::fbstring &value, bool create, bool replace)
+{
+    return simulateStorageIssues<folly::Unit>("setxattr",
+        [fileId, name, value, create, replace, self = shared_from_this()] {
+            return self->setxattrImpl(fileId, name, value, create, replace);
+        });
+}
+
+folly::Future<folly::Unit> NullDeviceHelper::removexattr(
+    const folly::fbstring &fileId, const folly::fbstring &name)
+{
+    return simulateStorageIssues<folly::Unit>(
+        "removexattr", [fileId, name, self = shared_from_this()] {
+            return self->removexattrImpl(fileId, name);
+        });
+}
+
+folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::listxattr(
+    const folly::fbstring &fileId)
+{
+    return simulateStorageIssues<folly::fbvector<folly::fbstring>>(
+        "listxattr", [fileId, self = shared_from_this()] {
+            return self->listxattrImpl(fileId);
+        });
+}
+
 folly::Future<struct stat> NullDeviceHelper::getattrImpl(
     const folly::fbstring &fileId)
 {
