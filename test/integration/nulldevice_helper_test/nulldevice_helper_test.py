@@ -114,7 +114,7 @@ def simulatedGrowingFilesystemServer(request):
 
     request.addfinalizer(fin)
 
-    return Server(0, 0, 0.0, "*", "4-4:0-1", 1.0)
+    return Server(0, 0, 0.0, "*", "4-4:0-1", 0.1)
 
 
 @pytest.fixture
@@ -314,7 +314,7 @@ def test_write_should_write_with_latency_in_bounds(slowStorageHelper, file_id):
         slowStorageHelper.write(file_id, data, offset)
         elapsed_ms = measureElapsed(start)
         assert elapsed_ms >= 25
-        assert elapsed_ms < 75 + 5
+        assert elapsed_ms < 75 + 10
 
 
 @pytest.mark.readwrite_operations_tests
@@ -393,5 +393,5 @@ def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFile
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) < 4+4
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/1", 0, 10)) == 0
     time.sleep(9)
-    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) == 4+4
+    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) == 4
     assert simulatedGrowingFilesystemStorageHelper.getattr("/0/0").st_size == 1024

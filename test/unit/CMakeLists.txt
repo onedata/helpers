@@ -30,6 +30,7 @@ foreach(TEST_FILE ${HELPER_TEST_SOURCES})
         ${HELPER_TEST_HEADERS}
         $<TARGET_OBJECTS:testRunner>)
     target_link_libraries(${TEST_NAME}
+        gflags
         helpersShared
         gmock_main
         gtest)
