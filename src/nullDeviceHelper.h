@@ -328,21 +328,13 @@ public:
 private:
     template <typename T, typename F>
     folly::Future<T> simulateStorageIssues(
-        folly::fbstring operationName, F &&func)
-    {
-        return folly::via(m_executor.get(),
-            [this, operationName, self = shared_from_this()] {
-                return simulateLatency(operationName.toStdString());
-            })
-            .then([this, operationName, self = shared_from_this()] {
-                return simulateTimeout(operationName.toStdString());
-            })
-            .then([this, func = std::move(func)] { return func(); });
-    }
+        folly::fbstring operationName, F &&func);
 
     folly::Future<struct stat> getattrImpl(const folly::fbstring &fileId);
+
     folly::Future<folly::Unit> accessImpl(
         const folly::fbstring &fileId, const int mask);
+
     folly::Future<folly::fbvector<folly::fbstring>> readdirImpl(
         const folly::fbstring &fileId, off_t offset, size_t count);
 

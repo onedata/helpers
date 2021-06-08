@@ -75,16 +75,16 @@ folly::Future<T> NullDeviceFileHandle::simulateStorageIssues(
     folly::fbstring operationName, F &&func)
 {
     return folly::via(m_executor.get(),
-        [this, operationName,
+        [operationName,
             helper = std::dynamic_pointer_cast<NullDeviceHelper>(helper())] {
             return helper->simulateLatency(operationName.toStdString());
         })
-        .then([this, operationName,
+        .then([operationName,
                   helper =
                       std::dynamic_pointer_cast<NullDeviceHelper>(helper())] {
             return helper->simulateTimeout(operationName.toStdString());
         })
-        .then([func = std::move(func)] { return func(); });
+        .then([func = std::forward<F>(func)] { return func(); });
 }
 
 NullDeviceFileHandle::OpExec::OpExec(
@@ -118,7 +118,7 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
 
     return simulateStorageIssues<folly::Unit>("read", []() {})
         .then([offset, size, timer = std::move(timer),
-                  self = shared_from_this()] {
+                  self = shared_from_this()]() mutable {
             return self->opScheduler->schedule(
                 ReadOp{{}, offset, size, std::move(timer)});
         });
@@ -325,6 +325,20 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     // Precalculate the number of entries per level and total in the
     // filesystem
     simulatedFilesystemEntryCount();
+}
+
+template <typename T, typename F>
+folly::Future<T> NullDeviceHelper::simulateStorageIssues(
+    folly::fbstring operationName, F &&func)
+{
+    return folly::via(m_executor.get(),
+        [this, operationName, self = shared_from_this()] {
+            return simulateLatency(operationName.toStdString());
+        })
+        .then([this, operationName, self = shared_from_this()] {
+            return simulateTimeout(operationName.toStdString());
+        })
+        .then([func = std::forward<F>(func)] { return func(); });
 }
 
 folly::Future<struct stat> NullDeviceHelper::getattr(
