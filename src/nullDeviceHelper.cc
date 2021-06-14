@@ -117,9 +117,8 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.read");
 
     return simulateStorageIssues<folly::Unit>("read", []() {})
-        .then([offset, size, timer = std::move(timer),
-                  self = shared_from_this()]() mutable {
-            return self->opScheduler->schedule(
+        .then([this, offset, size, timer = std::move(timer)]() mutable {
+            return opScheduler->schedule(
                 ReadOp{{}, offset, size, std::move(timer)});
         });
 }
@@ -165,11 +164,13 @@ folly::Future<std::size_t> NullDeviceFileHandle::write(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
     auto timer =
         ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.write");
+
     return opScheduler->schedule(WriteOp{{}, offset, std::move(buf)})
-        .then([self = shared_from_this()](std::size_t written) {
-            return self->simulateStorageIssues<std::size_t>(
+        .then([this](std::size_t written) {
+            return simulateStorageIssues<std::size_t>(
                 "write", [written] { return written; });
         })
         .then([writeCb = std::move(writeCb), timer = std::move(timer)](
@@ -178,7 +179,6 @@ folly::Future<std::size_t> NullDeviceFileHandle::write(
                 writeCb(written);
             return written;
         });
-    ;
 }
 
 void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
@@ -924,27 +924,25 @@ bool NullDeviceHelper::applies(const folly::fbstring &operationName)
 folly::Future<folly::Unit> NullDeviceHelper::simulateTimeout(
     const std::string &operationName)
 {
-    return folly::via(
-        m_executor.get(), [operationName, self = shared_from_this()] {
-            if (self->applies(operationName) && self->randomTimeout())
-                throw one::helpers::makePosixException(EAGAIN);
+    return folly::via(m_executor.get(), [this, operationName] {
+        if (applies(operationName) && randomTimeout())
+            throw one::helpers::makePosixException(EAGAIN);
 
-            return folly::makeFuture();
-        });
+        return folly::makeFuture();
+    });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::simulateLatency(
     const std::string &operationName)
 {
-    return folly::via(
-        m_executor.get(), [operationName, self = shared_from_this()] {
-            if (self->applies(operationName)) {
-                return folly::makeFuture().delayed(
-                    std::chrono::milliseconds(self->randomLatency()));
-            }
+    return folly::via(m_executor.get(), [this, operationName] {
+        if (applies(operationName)) {
+            return folly::makeFuture().delayed(
+                std::chrono::milliseconds(randomLatency()));
+        }
 
-            return folly::makeFuture();
-        });
+        return folly::makeFuture();
+    });
 }
 
 bool NullDeviceHelper::isSimulatedFilesystem() const
