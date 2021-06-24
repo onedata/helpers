@@ -32,7 +32,7 @@ def server(request):
             self.endpoint = endpoint
             self.credentials = credentials
 
-    result = http.up('onedata/lighttpd:v1', 'storage',
+    result = http.up('onedata/lighttpd:v2', 'storage',
                        common.generate_uid())
 
     [container] = result['docker_ids']
@@ -101,6 +101,18 @@ def test_read_should_read_valid_data_with_absolute_url(server, file_id):
 
     for file_data in index:
         data = helper.read(server.endpoint+'/test_data/'+file_data[0], 0, int(file_data[1]))
+        assert len(data) == int(file_data[1])
+        m = hashlib.md5()
+        m.update(data)
+        assert file_data[0] == m.hexdigest()
+
+
+def test_read_should_read_valid_data_with_query_string(server, file_id):
+    helper = HTTPHelperProxy(server.endpoint, server.credentials, "basic")
+    index = get_file_index(helper)
+
+    for file_data in index:
+        data = helper.read(server.endpoint+'/test_data/direct?file='+file_data[0], 0, int(file_data[1]))
         assert len(data) == int(file_data[1])
         m = hashlib.md5()
         m.update(data)
