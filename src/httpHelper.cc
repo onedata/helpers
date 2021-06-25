@@ -164,31 +164,10 @@ HTTPFileHandle::HTTPFileHandle(
 
     // Try to parse the fileId as URL - if it contains Host - treat it
     // as an external resource and create a separate HTTP session pool key
-    auto endpoint = std::dynamic_pointer_cast<HTTPHelper>(m_helper)->endpoint();
-    auto fileURI = Poco::URI(m_fileId.toStdString());
-    if (!fileURI.getHost().empty()) {
-        if (fileURI.getHost() == endpoint.getHost() &&
-            fileURI.getPort() == endpoint.getPort() &&
-            fileURI.getScheme() == endpoint.getScheme()) {
-            // This is a request using an absolute URL to the registered host
-            // Relativize the path and use registered credentials
-            m_sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), false, fileURI.getScheme() == "https"};
-            if (endpoint.getPath().empty())
-                m_effectiveFileId = fileURI.getPath();
-            else {
-                m_effectiveFileId =
-                    fileURI.getPath().substr(endpoint.getPath().size());
-            }
-        }
-        else {
-            // This is a request to an external resource on an external
-            // server, with respect to the registered server.
-            m_sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), true, fileURI.getScheme() == "https"};
-            m_effectiveFileId = fileURI.getPath();
-        }
-    }
+    auto poolKeyAndUri =
+        std::dynamic_pointer_cast<HTTPHelper>(m_helper)->relativizeURI(fileId);
+    m_sessionPoolKey = std::move(poolKeyAndUri.first);
+    m_effectiveFileId = std::move(poolKeyAndUri.second);
 }
 
 folly::Future<folly::IOBufQueue> HTTPFileHandle::read(
@@ -351,6 +330,46 @@ folly::Future<FileHandlePtr> HTTPHelper::open(const folly::fbstring &fileId,
     return folly::makeFuture(handle);
 }
 
+std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
+    const folly::fbstring &fileId)
+{
+    std::pair<HTTPSessionPoolKey, folly::fbstring> res;
+
+    HTTPSessionPoolKey sessionPoolKey{};
+    folly::fbstring effectiveFileId{fileId};
+
+    auto endpoint = this->endpoint();
+    auto fileURI = Poco::URI(fileId.toStdString());
+    if (!fileURI.getHost().empty()) {
+        if (fileURI.getHost() == endpoint.getHost() &&
+            fileURI.getPort() == endpoint.getPort() &&
+            fileURI.getScheme() == endpoint.getScheme()) {
+            // This is a request using an absolute URL to the registered host
+            // Relativize the path and use registered credentials
+            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
+                fileURI.getPort(), false, fileURI.getScheme() == "https"};
+            if (endpoint.getPath().empty())
+                effectiveFileId = fileURI.getPathAndQuery();
+            else {
+                effectiveFileId =
+                    fileURI.getPathAndQuery().substr(endpoint.getPath().size());
+            }
+        }
+        else {
+            // This is a request to an external resource on an external
+            // server, with respect to the registered server.
+            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
+                fileURI.getPort(), true, fileURI.getScheme() == "https"};
+            effectiveFileId = fileURI.getPathAndQuery();
+        }
+    }
+
+    res.first = std::move(sessionPoolKey);
+    res.second = std::move(effectiveFileId);
+
+    return res;
+}
+
 folly::Future<folly::Unit> HTTPHelper::access(
     const folly::fbstring &fileId, const int /*mask*/)
 {
@@ -369,37 +388,14 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto sessionPoolKey = HTTPSessionPoolKey{};
+    HTTPSessionPoolKey sessionPoolKey{};
+    folly::fbstring effectiveFileId{};
 
     // Try to parse the fileId as URL - if it contains Host - treat it
     // as an external resource and create a separate HTTP session pool key
-    auto effectiveFileId = fileId;
-    auto fileURI = Poco::URI(fileId.toStdString());
-    if (!fileURI.getHost().empty()) {
-
-        if (fileURI.getHost() == P()->endpoint().getHost() &&
-            fileURI.getPort() == P()->endpoint().getPort() &&
-            fileURI.getScheme() == P()->endpoint().getScheme()) {
-            // This is a request using an absolute URL to the registered host
-            // Relativize the path and use registered credentials
-            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), false, fileURI.getScheme() == "https"};
-
-            if (P()->endpoint().getPath().empty())
-                effectiveFileId = fileURI.getPath();
-            else {
-                effectiveFileId =
-                    fileURI.getPath().substr(P()->endpoint().getPath().size());
-            }
-        }
-        else {
-            // This is a request to an external resource on an external
-            // server, with respect to the registered server.
-            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), true, fileURI.getScheme() == "https"};
-            effectiveFileId = fileURI.getPath();
-        }
-    }
+    auto poolKeyAndUri = relativizeURI(fileId);
+    sessionPoolKey = std::move(poolKeyAndUri.first);
+    effectiveFileId = std::move(poolKeyAndUri.second);
 
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),

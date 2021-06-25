@@ -300,6 +300,9 @@ public:
         return P()->credentialsType();
     }
 
+    std::pair<HTTPSessionPoolKey, folly::fbstring> relativizeURI(
+        const folly::fbstring &fileId);
+
     Poco::URI endpoint() const { return P()->endpoint(); }
 
     folly::fbstring credentials() const { return P()->credentials(); }
