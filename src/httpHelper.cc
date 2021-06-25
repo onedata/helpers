@@ -205,7 +205,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
             return (*getRequest)(fileId, offset, size)
                 .onError([fileId, self, offset, size, retryCount](
                              const HTTPFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting HTTP read request of file "
+                    LOG(ERROR) << "Redirecting HTTP read request of file "
                                << fileId << " to: " << redirect.location;
                     return self->read(offset, size, retryCount - 1,
                         Poco::URI(redirect.location));
@@ -222,7 +222,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                         ONE_METRIC_COUNTER_INC(
                             "comp.helpers.mod.http.read.retries");
 
-                        LOG_DBG(1) << "Retrying HTTP read request for "
+                        LOG(ERROR) << "Retrying HTTP read request for "
                                    << fileId << " due to " << e.what();
                         return folly::makeFuture()
                             .delayed(retryDelay(retryCount))
@@ -231,7 +231,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                             });
                     }
 
-                    LOG_DBG(1) << "Failed HTTP read request for " << fileId
+                    LOG(ERROR) << "Failed HTTP read request for " << fileId
                                << " due to " << e.what();
                     return makeFuturePosixException<folly::IOBufQueue>(
                         e.code().value());
@@ -242,7 +242,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                         ONE_METRIC_COUNTER_INC(
                             "comp.helpers.mod.http.read.retries");
 
-                        LOG_DBG(1) << "Retrying HTTP read request for "
+                        LOG(ERROR) << "Retrying HTTP read request for "
                                    << fileId << " due to " << e.what();
                         return folly::makeFuture()
                             .delayed(retryDelay(retryCount))
@@ -251,7 +251,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                             });
                     }
 
-                    LOG_DBG(1) << "Failed HTTP read request for " << fileId
+                    LOG(ERROR) << "Failed HTTP read request for " << fileId
                                << " due to " << e.what();
                     return makeFuturePosixException<folly::IOBufQueue>(EIO);
                 })
