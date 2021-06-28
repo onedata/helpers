@@ -186,29 +186,51 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
     auto helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper);
 
     auto sessionPoolKey = m_sessionPoolKey;
+    auto effectiveFileId = m_effectiveFileId;
 
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
             redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+        effectiveFileId = redirectURL.getPath();
     }
 
     return helper->connect(sessionPoolKey)
-        .then([fileId = m_effectiveFileId, redirectURL, offset, size,
-                  retryCount, timer = std::move(timer),
+        .then([fileId = effectiveFileId, redirectURL, offset, size, retryCount,
+                  timer = std::move(timer),
                   helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper),
                   self = shared_from_this()](HTTPSession *session) mutable {
             auto getRequest = std::make_shared<HTTPGET>(helper.get(), session);
 
-            if (!redirectURL.empty())
+            if (!redirectURL.empty()) {
                 getRequest->setRedirectURL(redirectURL);
+            }
 
             return (*getRequest)(fileId, offset, size)
                 .onError([fileId, self, offset, size, retryCount](
                              const HTTPFoundException &redirect) {
-                    LOG(ERROR) << "Redirecting HTTP read request of file "
+                    LOG_DBG(2) << "Redirecting HTTP read request of file "
                                << fileId << " to: " << redirect.location;
                     return self->read(offset, size, retryCount - 1,
                         Poco::URI(redirect.location));
+                })
+                .onError([self, fileId, helper, offset, size, retryCount](
+                             const proxygen::HTTPException &e) {
+                    if (retryCount > 0) {
+                        ONE_METRIC_COUNTER_INC(
+                            "comp.helpers.mod.http.read.retries");
+
+                        LOG_DBG(1) << "Retrying HTTP read request for "
+                                   << fileId << " due to " << e.what();
+                        return folly::makeFuture()
+                            .delayed(retryDelay(retryCount))
+                            .then([self, offset, size, retryCount]() {
+                                return self->read(offset, size, retryCount - 1);
+                            });
+                    }
+
+                    LOG_DBG(1) << "Failed HTTP read request for " << fileId
+                               << " due to " << e.what();
+                    return makeFuturePosixException<folly::IOBufQueue>(EIO);
                 })
                 .onError([self, fileId, helper, offset, size, retryCount](
                              std::system_error &e) {
@@ -222,7 +244,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                         ONE_METRIC_COUNTER_INC(
                             "comp.helpers.mod.http.read.retries");
 
-                        LOG(ERROR) << "Retrying HTTP read request for "
+                        LOG_DBG(1) << "Retrying HTTP read request for "
                                    << fileId << " due to " << e.what();
                         return folly::makeFuture()
                             .delayed(retryDelay(retryCount))
@@ -231,29 +253,10 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                             });
                     }
 
-                    LOG(ERROR) << "Failed HTTP read request for " << fileId
+                    LOG_DBG(1) << "Failed HTTP read request for " << fileId
                                << " due to " << e.what();
                     return makeFuturePosixException<folly::IOBufQueue>(
                         e.code().value());
-                })
-                .onError([self, fileId, helper, offset, size, retryCount](
-                             const proxygen::HTTPException &e) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.http.read.retries");
-
-                        LOG(ERROR) << "Retrying HTTP read request for "
-                                   << fileId << " due to " << e.what();
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([self, offset, size, retryCount]() {
-                                return self->read(offset, size, retryCount - 1);
-                            });
-                    }
-
-                    LOG(ERROR) << "Failed HTTP read request for " << fileId
-                               << " due to " << e.what();
-                    return makeFuturePosixException<folly::IOBufQueue>(EIO);
                 })
                 .then([timer = std::move(timer), getRequest, helper](
                           folly::IOBufQueue &&buf) {
@@ -738,8 +741,9 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
         m_request.getHeaders().add("Connection", "Keep-Alive");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0u) {
-        m_request.getHeaders().add(
-            "Host", std::get<0>(session->key).toStdString());
+        m_request.getHeaders().add("Host",
+            fmt::format("{}:{}", std::get<0>(session->key).toStdString(),
+                std::get<1>(session->key)));
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u &&
         !isExternal) {
