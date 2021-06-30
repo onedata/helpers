@@ -164,31 +164,10 @@ HTTPFileHandle::HTTPFileHandle(
 
     // Try to parse the fileId as URL - if it contains Host - treat it
     // as an external resource and create a separate HTTP session pool key
-    auto endpoint = std::dynamic_pointer_cast<HTTPHelper>(m_helper)->endpoint();
-    auto fileURI = Poco::URI(m_fileId.toStdString());
-    if (!fileURI.getHost().empty()) {
-        if (fileURI.getHost() == endpoint.getHost() &&
-            fileURI.getPort() == endpoint.getPort() &&
-            fileURI.getScheme() == endpoint.getScheme()) {
-            // This is a request using an absolute URL to the registered host
-            // Relativize the path and use registered credentials
-            m_sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), false, fileURI.getScheme() == "https"};
-            if (endpoint.getPath().empty())
-                m_effectiveFileId = fileURI.getPath();
-            else {
-                m_effectiveFileId =
-                    fileURI.getPath().substr(endpoint.getPath().size());
-            }
-        }
-        else {
-            // This is a request to an external resource on an external
-            // server, with respect to the registered server.
-            m_sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), true, fileURI.getScheme() == "https"};
-            m_effectiveFileId = fileURI.getPath();
-        }
-    }
+    auto poolKeyAndUri =
+        std::dynamic_pointer_cast<HTTPHelper>(m_helper)->relativizeURI(fileId);
+    m_sessionPoolKey = std::move(poolKeyAndUri.first);
+    m_effectiveFileId = std::move(poolKeyAndUri.second);
 }
 
 folly::Future<folly::IOBufQueue> HTTPFileHandle::read(
@@ -207,21 +186,24 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
     auto helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper);
 
     auto sessionPoolKey = m_sessionPoolKey;
+    auto effectiveFileId = m_effectiveFileId;
 
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
             redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+        effectiveFileId = redirectURL.getPath();
     }
 
     return helper->connect(sessionPoolKey)
-        .then([fileId = m_effectiveFileId, redirectURL, offset, size,
-                  retryCount, timer = std::move(timer),
+        .then([fileId = effectiveFileId, redirectURL, offset, size, retryCount,
+                  timer = std::move(timer),
                   helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper),
                   self = shared_from_this()](HTTPSession *session) mutable {
             auto getRequest = std::make_shared<HTTPGET>(helper.get(), session);
 
-            if (!redirectURL.empty())
+            if (!redirectURL.empty()) {
                 getRequest->setRedirectURL(redirectURL);
+            }
 
             return (*getRequest)(fileId, offset, size)
                 .onError([fileId, self, offset, size, retryCount](
@@ -230,6 +212,25 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                << fileId << " to: " << redirect.location;
                     return self->read(offset, size, retryCount - 1,
                         Poco::URI(redirect.location));
+                })
+                .onError([self, fileId, helper, offset, size, retryCount](
+                             const proxygen::HTTPException &e) {
+                    if (retryCount > 0) {
+                        ONE_METRIC_COUNTER_INC(
+                            "comp.helpers.mod.http.read.retries");
+
+                        LOG_DBG(1) << "Retrying HTTP read request for "
+                                   << fileId << " due to " << e.what();
+                        return folly::makeFuture()
+                            .delayed(retryDelay(retryCount))
+                            .then([self, offset, size, retryCount]() {
+                                return self->read(offset, size, retryCount - 1);
+                            });
+                    }
+
+                    LOG_DBG(1) << "Failed HTTP read request for " << fileId
+                               << " due to " << e.what();
+                    return makeFuturePosixException<folly::IOBufQueue>(EIO);
                 })
                 .onError([self, fileId, helper, offset, size, retryCount](
                              std::system_error &e) {
@@ -256,25 +257,6 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                << " due to " << e.what();
                     return makeFuturePosixException<folly::IOBufQueue>(
                         e.code().value());
-                })
-                .onError([self, fileId, helper, offset, size, retryCount](
-                             const proxygen::HTTPException &e) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.http.read.retries");
-
-                        LOG_DBG(1) << "Retrying HTTP read request for "
-                                   << fileId << " due to " << e.what();
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([self, offset, size, retryCount]() {
-                                return self->read(offset, size, retryCount - 1);
-                            });
-                    }
-
-                    LOG_DBG(1) << "Failed HTTP read request for " << fileId
-                               << " due to " << e.what();
-                    return makeFuturePosixException<folly::IOBufQueue>(EIO);
                 })
                 .then([timer = std::move(timer), getRequest, helper](
                           folly::IOBufQueue &&buf) {
@@ -351,6 +333,46 @@ folly::Future<FileHandlePtr> HTTPHelper::open(const folly::fbstring &fileId,
     return folly::makeFuture(handle);
 }
 
+std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
+    const folly::fbstring &fileId)
+{
+    std::pair<HTTPSessionPoolKey, folly::fbstring> res;
+
+    HTTPSessionPoolKey sessionPoolKey{};
+    folly::fbstring effectiveFileId{fileId};
+
+    auto endpoint = this->endpoint();
+    auto fileURI = Poco::URI(fileId.toStdString());
+    if (!fileURI.getHost().empty()) {
+        if (fileURI.getHost() == endpoint.getHost() &&
+            fileURI.getPort() == endpoint.getPort() &&
+            fileURI.getScheme() == endpoint.getScheme()) {
+            // This is a request using an absolute URL to the registered host
+            // Relativize the path and use registered credentials
+            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
+                fileURI.getPort(), false, fileURI.getScheme() == "https"};
+            if (endpoint.getPath().empty())
+                effectiveFileId = fileURI.getPathAndQuery();
+            else {
+                effectiveFileId =
+                    fileURI.getPathAndQuery().substr(endpoint.getPath().size());
+            }
+        }
+        else {
+            // This is a request to an external resource on an external
+            // server, with respect to the registered server.
+            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
+                fileURI.getPort(), true, fileURI.getScheme() == "https"};
+            effectiveFileId = fileURI.getPathAndQuery();
+        }
+    }
+
+    res.first = std::move(sessionPoolKey);
+    res.second = std::move(effectiveFileId);
+
+    return res;
+}
+
 folly::Future<folly::Unit> HTTPHelper::access(
     const folly::fbstring &fileId, const int /*mask*/)
 {
@@ -369,37 +391,14 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto sessionPoolKey = HTTPSessionPoolKey{};
+    HTTPSessionPoolKey sessionPoolKey{};
+    folly::fbstring effectiveFileId{};
 
     // Try to parse the fileId as URL - if it contains Host - treat it
     // as an external resource and create a separate HTTP session pool key
-    auto effectiveFileId = fileId;
-    auto fileURI = Poco::URI(fileId.toStdString());
-    if (!fileURI.getHost().empty()) {
-
-        if (fileURI.getHost() == P()->endpoint().getHost() &&
-            fileURI.getPort() == P()->endpoint().getPort() &&
-            fileURI.getScheme() == P()->endpoint().getScheme()) {
-            // This is a request using an absolute URL to the registered host
-            // Relativize the path and use registered credentials
-            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), false, fileURI.getScheme() == "https"};
-
-            if (P()->endpoint().getPath().empty())
-                effectiveFileId = fileURI.getPath();
-            else {
-                effectiveFileId =
-                    fileURI.getPath().substr(P()->endpoint().getPath().size());
-            }
-        }
-        else {
-            // This is a request to an external resource on an external
-            // server, with respect to the registered server.
-            sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
-                fileURI.getPort(), true, fileURI.getScheme() == "https"};
-            effectiveFileId = fileURI.getPath();
-        }
-    }
+    auto poolKeyAndUri = relativizeURI(fileId);
+    sessionPoolKey = std::move(poolKeyAndUri.first);
+    effectiveFileId = std::move(poolKeyAndUri.second);
 
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
@@ -742,8 +741,9 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
         m_request.getHeaders().add("Connection", "Keep-Alive");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0u) {
-        m_request.getHeaders().add(
-            "Host", std::get<0>(session->key).toStdString());
+        m_request.getHeaders().add("Host",
+            fmt::format("{}:{}", std::get<0>(session->key).toStdString(),
+                std::get<1>(session->key)));
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u &&
         !isExternal) {
