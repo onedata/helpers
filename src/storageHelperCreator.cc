@@ -104,7 +104,7 @@ StorageHelperCreator::StorageHelperCreator(
     m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
-    m_nullDeviceExecutor{nullDeviceExecutor}
+    m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
@@ -136,7 +136,7 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
-    m_nullDeviceExecutor{nullDeviceExecutor},
+    std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
     std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
     ExecutionContext executionContext)
     :
@@ -167,7 +167,7 @@ StorageHelperCreator::StorageHelperCreator(
     m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
-    m_nullDeviceExecutor{nullDeviceExecutor}
+    m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
