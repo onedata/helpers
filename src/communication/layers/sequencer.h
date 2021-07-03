@@ -175,6 +175,14 @@ public:
      */
     void connect();
 
+    void stop()
+    {
+        cancelPeriodicMessageRequest();
+        LowerLayer::stop();
+    }
+
+    void schedulePeriodicMessageRequest();
+
 private:
     void sendMessageStreamReset();
 
@@ -185,8 +193,7 @@ private:
         const uint64_t streamId, const uint64_t seqNum);
 
     void periodicMessageRequest();
-
-    void schedulePeriodicMessageRequest();
+    void cancelPeriodicMessageRequest();
 
     std::vector<std::pair<uint64_t, uint64_t>> getStreamSequenceNumbers();
 
@@ -249,7 +256,6 @@ void Sequencer<LowerLayer, Scheduler>::connect()
 {
     LowerLayer::connect();
     sendMessageStreamReset();
-    schedulePeriodicMessageRequest();
 }
 
 template <class LowerLayer, class Scheduler>
@@ -302,6 +308,12 @@ void Sequencer<LowerLayer, Scheduler>::schedulePeriodicMessageRequest()
         m_scheduler->schedule(STREAM_MSG_REQ_WINDOW,
             std::bind(&Sequencer<LowerLayer, Scheduler>::periodicMessageRequest,
                 this));
+}
+
+template <class LowerLayer, class Scheduler>
+void Sequencer<LowerLayer, Scheduler>::cancelPeriodicMessageRequest()
+{
+    m_cancelPeriodicMessageRequest();
 }
 
 template <class LowerLayer, class Scheduler>

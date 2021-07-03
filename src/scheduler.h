@@ -146,6 +146,7 @@ public:
     }
 
 private:
+    const int m_threadNumber;
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
 };
 

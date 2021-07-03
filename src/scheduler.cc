@@ -15,12 +15,23 @@
 namespace one {
 
 Scheduler::Scheduler(const int threadNumber)
-    : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(threadNumber,
+    : m_threadNumber{threadNumber}
+    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(threadNumber,
           std::make_shared<one::helpers::StorageWorkerFactory>("sched_t"))}
 {
 }
 
-void Scheduler::prepareForDaemonize() { LOG_FCALL(); }
+void Scheduler::prepareForDaemonize()
+{
+    LOG_FCALL();
+    m_executor->join();
+    m_executor->stop();
+}
 
-void Scheduler::restartAfterDaemonize() { LOG_FCALL(); }
+void Scheduler::restartAfterDaemonize()
+{
+    LOG_FCALL();
+    m_executor = std::make_shared<folly::IOThreadPoolExecutor>(m_threadNumber,
+        std::make_shared<one::helpers::StorageWorkerFactory>("sched_t"));
+}
 } // namespace one
