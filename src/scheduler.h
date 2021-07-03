@@ -9,10 +9,8 @@
 #ifndef HELPERS_SCHEDULER_H
 #define HELPERS_SCHEDULER_H
 
-#include <asio/io_service.hpp>
-#include <asio/post.hpp>
-#include <asio/steady_timer.hpp>
-#include <asio/ts/executor.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/futures/Future.h>
 
 #include <chrono>
 #include <cstdint>
@@ -39,7 +37,7 @@ public:
      * Destructor.
      * Stops the scheduler and joins worker threads.
      */
-    virtual ~Scheduler();
+    virtual ~Scheduler() = default;
 
     void prepareForDaemonize();
     void restartAfterDaemonize();
@@ -50,7 +48,7 @@ public:
      */
     template <typename F> void post(F &&task)
     {
-        asio::post(m_ioService, std::forward<F>(task));
+        m_executor->add(std::forward<F>(task));
     }
 
     /**
@@ -91,18 +89,23 @@ public:
     std::function<void()> schedule(
         const std::chrono::duration<Rep, Period> after, F &&task)
     {
-        using namespace std::placeholders;
-        const auto timer =
-            std::make_shared<asio::steady_timer>(m_ioService, after);
+        auto f = std::make_shared<folly::Future<folly::Unit>>(
+            folly::via(m_executor.get())
+                .delayed(after)
+                .then(
+                    [e = std::weak_ptr<folly::IOThreadPoolExecutor>(m_executor),
+                        t = std::forward<F>(task)]() {
+                        if (auto executor = e.lock()) {
+                            t();
+                        }
+                    }));
 
-        timer->async_wait([task, timer](auto ec) {
-            if (!ec)
-                task();
-        });
-
-        return [timer = std::weak_ptr<asio::steady_timer>{timer}] {
-            if (auto t = timer.lock())
-                t->cancel();
+        return [f = std::move(f)]() mutable {
+            try {
+                f->cancel();
+            }
+            catch (folly::FutureCancellation &) {
+            }
         };
     }
 
@@ -143,14 +146,7 @@ public:
     }
 
 private:
-    void start();
-    void stop();
-
-    const int m_threadNumber;
-    std::vector<std::thread> m_workers;
-    asio::io_service m_ioService{m_threadNumber};
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork =
-        asio::make_work_guard(m_ioService);
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
 };
 
 } // namespace one

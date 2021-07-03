@@ -55,13 +55,14 @@ public:
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               NULL_DEVICE_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("null_t"))}
+        , m_scheduler{std::make_shared<one::Scheduler>(1)}
         , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
               one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
                   latencyMax, timeoutProbability, std::move(filter),
                   std::vector<std::pair<long int, long int>>{}, 0.0, 1024,
                   m_executor),
-              *m_scheduler,
+              m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
                   one::helpers::buffering::BufferLimits{}))}

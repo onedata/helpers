@@ -55,13 +55,14 @@ public:
     WriteBuffer(const std::size_t writeBufferMinSize,
         const std::size_t writeBufferMaxSize,
         const std::chrono::seconds writeBufferFlushDelay, FileHandle &handle,
-        Scheduler &scheduler, std::shared_ptr<ReadCache> readCache)
+        std::shared_ptr<Scheduler> scheduler,
+        std::shared_ptr<ReadCache> readCache)
         : m_writeBufferMinSize{writeBufferMinSize}
         , m_writeBufferMaxSize{writeBufferMaxSize}
         , m_writeBufferFlushDelay{writeBufferFlushDelay}
         , m_handle{handle}
-        , m_scheduler{scheduler}
-        , m_readCache{readCache}
+        , m_scheduler{std::move(scheduler)}
+        , m_readCache{std::move(readCache)}
     {
         LOG_FCALL() << LOG_FARG(writeBufferMinSize)
                     << LOG_FARG(writeBufferMaxSize)
@@ -137,7 +138,7 @@ public:
     {
         LOG_FCALL();
 
-        m_cancelFlushSchedule = m_scheduler.schedule(m_writeBufferFlushDelay,
+        m_cancelFlushSchedule = m_scheduler->schedule(m_writeBufferFlushDelay,
             [s = std::weak_ptr<WriteBuffer>(shared_from_this())] {
                 if (auto self = s.lock()) {
                     std::unique_lock<FiberMutex> lock{self->m_mutex};
@@ -269,7 +270,7 @@ private:
     std::chrono::seconds m_writeBufferFlushDelay;
 
     FileHandle &m_handle;
-    Scheduler &m_scheduler;
+    std::shared_ptr<Scheduler> m_scheduler;
     std::shared_ptr<ReadCache> m_readCache;
 
     std::function<void()> m_cancelFlushSchedule;

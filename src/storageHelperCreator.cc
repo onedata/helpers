@@ -168,7 +168,7 @@ StorageHelperCreator::StorageHelperCreator(
     ,
 #endif
     m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
-    , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
+    , m_scheduler{std::make_shared<Scheduler>(bufferSchedulerWorkers)}
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
           buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
@@ -330,11 +330,11 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
                     proxyBufferLimits.writeBufferMaxSize);
 
             return std::make_shared<buffering::BufferAgent>(proxyBufferLimits,
-                std::move(helper), *m_scheduler, m_bufferMemoryLimitGuard);
+                std::move(helper), m_scheduler, m_bufferMemoryLimitGuard);
         }
 
         return std::make_shared<buffering::BufferAgent>(m_bufferLimits,
-            std::move(helper), *m_scheduler, m_bufferMemoryLimitGuard);
+            std::move(helper), m_scheduler, m_bufferMemoryLimitGuard);
     }
 
     LOG_DBG(1) << "Created non-buffered helper of type: " << name;

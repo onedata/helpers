@@ -42,7 +42,7 @@ public:
               one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::ProxyHelper>(
                   storageId, m_communicator),
-              *m_scheduler,
+              m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
                   one::helpers::buffering::BufferLimits{}))}
@@ -73,14 +73,16 @@ public:
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
         buf.append(data);
-        return handle->write(offset, std::move(buf), {}).get();
+        return handle->write(offset, std::move(buf), {})
+            .then([handle](int size) { return size; })
+            .get();
     }
 
     std::string read(one::helpers::FileHandlePtr handle, int offset, int size)
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([&](const folly::IOBufQueue &buf) {
+            .then([handle](const folly::IOBufQueue &buf) {
                 std::string data;
                 buf.appendToString(data);
                 return data;

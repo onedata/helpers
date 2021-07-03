@@ -107,7 +107,7 @@ class BufferAgent;
 class BufferedFileHandle : public FileHandle {
 public:
     BufferedFileHandle(folly::fbstring fileId, FileHandlePtr wrappedHandle,
-        const BufferLimits &bl, Scheduler &scheduler,
+        const BufferLimits &bl, std::shared_ptr<Scheduler> scheduler,
         std::shared_ptr<BufferAgent> bufferAgent,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 
@@ -208,7 +208,7 @@ public:
 private:
     FileHandlePtr m_wrappedHandle;
     BufferLimits m_bufferLimits;
-    Scheduler &m_scheduler;
+    std::shared_ptr<Scheduler> m_scheduler;
     std::shared_ptr<ReadCache> m_readCache;
     std::shared_ptr<WriteBuffer> m_writeBuffer;
     std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
@@ -218,11 +218,11 @@ class BufferAgent : public StorageHelper,
                     public std::enable_shared_from_this<BufferAgent> {
 public:
     BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
-        Scheduler &scheduler,
+        std::shared_ptr<Scheduler> scheduler,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
         : m_bufferLimits{std::move(bufferLimits)}
         , m_helper{std::move(helper)}
-        , m_scheduler{scheduler}
+        , m_scheduler{std::move(scheduler)}
         , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
     {
         LOG_FCALL() << LOG_FARG(bufferLimits.readBufferMinSize)
@@ -245,7 +245,7 @@ public:
             .then(
                 [fileId, agent = shared_from_this(), bl = m_bufferLimits,
                     memoryLimitGuard = m_bufferMemoryLimitGuard,
-                    &scheduler = m_scheduler](FileHandlePtr handle) {
+                    scheduler = m_scheduler](FileHandlePtr handle) {
                     if (memoryLimitGuard->reserveBuffers(
                             bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
                         return static_cast<FileHandlePtr>(
@@ -430,7 +430,7 @@ public:
 private:
     BufferLimits m_bufferLimits;
     StorageHelperPtr m_helper;
-    Scheduler &m_scheduler;
+    std::shared_ptr<Scheduler> m_scheduler;
     std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
 };
 

@@ -203,7 +203,7 @@ private:
 #endif
 
     std::shared_ptr<folly::IOExecutor> m_nullDeviceExecutor;
-    std::unique_ptr<Scheduler> m_scheduler;
+    std::shared_ptr<Scheduler> m_scheduler;
 
     buffering::BufferLimits m_bufferLimits;
     std::shared_ptr<buffering::BufferAgentsMemoryLimitGuard>
