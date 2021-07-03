@@ -16,16 +16,13 @@
 
 #include <boost/thread/once.hpp>
 #include <boost/variant.hpp>
-#include <folly/Executor.h>
+#include <folly/executors/IOExecutor.h>
 #include <fuse.h>
 
 #include <chrono>
 #include <random>
 
 #undef signal_set
-
-#include "asioExecutor.h"
-#include <asio.hpp>
 
 namespace one {
 namespace helpers {
@@ -358,10 +355,10 @@ class NullDeviceHelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    NullDeviceHelperFactory(asio::io_service &service)
-        : m_service{service}
+    NullDeviceHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
@@ -409,12 +406,11 @@ public:
             simulatedFilesystemGrowSpeed,
             std::get<1>(simulatedFilesystemParametersParsed)
                 .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            std::make_shared<AsioExecutor>(m_service), std::move(timeout),
-            executionContext);
+            m_executor, std::move(timeout), executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 } // namespace helpers

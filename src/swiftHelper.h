@@ -9,7 +9,6 @@
 #ifndef HELPERS_SWIFT_HELPER_H
 #define HELPERS_SWIFT_HELPER_H
 
-#include "asioExecutor.h"
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
 
@@ -17,6 +16,8 @@
 #include "Swift/Container.h"
 #include "Swift/HTTPIO.h"
 #include "Swift/Object.h"
+
+#include <folly/executors/IOExecutor.h>
 
 #include <mutex>
 #include <vector>
@@ -33,10 +34,10 @@ class SwiftHelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    SwiftHelperFactory(asio::io_service &service)
-        : m_service{service}
+    SwiftHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
@@ -66,12 +67,11 @@ public:
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
                 userName, password, std::move(timeout), storagePathType),
-            std::make_shared<AsioExecutor>(m_service), blockSize,
-            executionContext);
+            m_executor, blockSize, executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 /**

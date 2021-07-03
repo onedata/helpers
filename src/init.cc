@@ -14,7 +14,6 @@
 #include "monitoring/monitoringConfiguration.h"
 #include <folly/Singleton.h>
 #include <folly/ssl/Init.h>
-#include <spdlog/cfg/argv.h>
 
 #include <array>
 

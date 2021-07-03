@@ -9,13 +9,13 @@
 #ifndef HELPERS_S3_HELPER_H
 #define HELPERS_S3_HELPER_H
 
-#include "asioExecutor.h"
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/S3Errors.h>
+#include <folly/executors/IOExecutor.h>
 
 #include <map>
 #include <sstream>
@@ -38,10 +38,10 @@ class S3HelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    S3HelperFactory(asio::io_service &service)
-        : m_service{service}
+    S3HelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{executor}
     {
     }
 
@@ -97,12 +97,11 @@ public:
                 secretKey, maximumCanonicalObjectSize,
                 parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
                 scheme == "https", std::move(timeout), storagePathType),
-            std::make_shared<AsioExecutor>(m_service), blockSize,
-            executionContext);
+            m_executor, blockSize, executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 /**

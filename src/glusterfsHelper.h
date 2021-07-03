@@ -11,10 +11,7 @@
 
 #include "helpers/storageHelper.h"
 
-#include "asioExecutor.h"
-
-#include <asio.hpp>
-#include <folly/Executor.h>
+#include <folly/executors/IOExecutor.h>
 #include <glusterfs/api/glfs-handles.h>
 #include <glusterfs/api/glfs.h>
 
@@ -144,6 +141,8 @@ public:
         Timeout timeout = ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
+    virtual ~GlusterFSHelper() = default;
+
     folly::fbstring name() const { return GLUSTERFS_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
@@ -254,10 +253,10 @@ class GlusterFSHelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    GlusterFSHelperFactory(asio::io_service &service)
-        : m_service{service}
+    GlusterFSHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
@@ -291,13 +290,12 @@ public:
             parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
 
         return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
-            port, volume, transport, xlatorOptions,
-            std::make_shared<AsioExecutor>(m_service), std::move(timeout),
-            executionContext);
+            port, volume, transport, xlatorOptions, m_executor,
+            std::move(timeout), executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 } // namespace helpers

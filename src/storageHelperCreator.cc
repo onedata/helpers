@@ -53,17 +53,18 @@ constexpr std::size_t kProxyHelperMaximumWriteBufferSize = 52'428'800;
 
 StorageHelperCreator::StorageHelperCreator(
 #if WITH_CEPH
-    asio::io_service &cephService, asio::io_service &cephRadosService,
+    std::shared_ptr<folly::IOExecutor> cephExecutor,
+    std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
 #endif
-    asio::io_service &dioService,
+    std::shared_ptr<folly::IOExecutor> dioExecutor,
 #if WITH_S3
-    asio::io_service &s3Service,
+    std::shared_ptr<folly::IOExecutor> s3Executor,
 #endif
 #if WITH_SWIFT
-    asio::io_service &swiftService,
+    std::shared_ptr<folly::IOExecutor> swiftExecutor,
 #endif
 #if WITH_GLUSTERFS
-    asio::io_service &glusterfsService,
+    std::shared_ptr<folly::IOExecutor> glusterfsExecutor,
 #endif
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> webDAVExecutor,
@@ -71,28 +72,28 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
-    asio::io_service &nullDeviceService,
+    std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
     communication::Communicator &communicator,
     std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
     ExecutionContext executionContext)
     :
 #if WITH_CEPH
-    m_cephService{cephService}
-    , m_cephRadosService{cephRadosService}
+    m_cephExecutor{std::move(cephExecutor)}
+    , m_cephRadosExecutor{std::move(cephRadosExecutor)}
     ,
 #endif
-    m_dioService{dioService}
+    m_dioExecutor{std::move(dioExecutor)}
     ,
 #if WITH_S3
-    m_s3Service{s3Service}
+    m_s3Executor{std::move(s3Executor)}
     ,
 #endif
 #if WITH_SWIFT
-    m_swiftService{swiftService}
+    m_swiftExecutor{std::move(swiftExecutor)}
     ,
 #endif
 #if WITH_GLUSTERFS
-    m_glusterfsService{glusterfsService}
+    m_glusterfsExecutor{std::move(glusterfsExecutor)}
     ,
 #endif
 #if WITH_WEBDAV
@@ -103,7 +104,7 @@ StorageHelperCreator::StorageHelperCreator(
     m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
-    m_nullDeviceService{nullDeviceService}
+    m_nullDeviceExecutor{nullDeviceExecutor}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
@@ -116,17 +117,18 @@ StorageHelperCreator::StorageHelperCreator(
 
 StorageHelperCreator::StorageHelperCreator(
 #if WITH_CEPH
-    asio::io_service &cephService, asio::io_service &cephRadosService,
+    std::shared_ptr<folly::IOExecutor> cephExecutor,
+    std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
 #endif
-    asio::io_service &dioService,
+    std::shared_ptr<folly::IOExecutor> dioExecutor,
 #if WITH_S3
-    asio::io_service &s3Service,
+    std::shared_ptr<folly::IOExecutor> s3Executor,
 #endif
 #if WITH_SWIFT
-    asio::io_service &swiftService,
+    std::shared_ptr<folly::IOExecutor> swiftExecutor,
 #endif
 #if WITH_GLUSTERFS
-    asio::io_service &glusterfsService,
+    std::shared_ptr<folly::IOExecutor> glusterfsExecutor,
 #endif
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> webDAVExecutor,
@@ -134,26 +136,27 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
-    asio::io_service &nullDeviceService, std::size_t bufferSchedulerWorkers,
-    buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
+    m_nullDeviceExecutor{nullDeviceExecutor},
+    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
+    ExecutionContext executionContext)
     :
 #if WITH_CEPH
-    m_cephService{cephService}
-    , m_cephRadosService{cephRadosService}
+    m_cephExecutor{std::move(cephExecutor)}
+    , m_cephRadosExecutor{std::move(cephRadosExecutor)}
     ,
 #endif
-    m_dioService{dioService}
+    m_dioExecutor{std::move(dioExecutor)}
     ,
 #if WITH_S3
-    m_s3Service{s3Service}
+    m_s3Executor{std::move(s3Executor)}
     ,
 #endif
 #if WITH_SWIFT
-    m_swiftService{swiftService}
+    m_swiftExecutor{std::move(swiftExecutor)}
     ,
 #endif
 #if WITH_GLUSTERFS
-    m_glusterfsService{glusterfsService}
+    m_glusterfsExecutor{std::move(glusterfsExecutor)}
     ,
 #endif
 #if WITH_WEBDAV
@@ -164,7 +167,7 @@ StorageHelperCreator::StorageHelperCreator(
     m_xrootdExecutor{std::move(xrootdExecutor)}
     ,
 #endif
-    m_nullDeviceService{nullDeviceService}
+    m_nullDeviceExecutor{nullDeviceExecutor}
     , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
     , m_bufferLimits{bufferLimits}
     , m_bufferMemoryLimitGuard{std::make_shared<
@@ -192,18 +195,18 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 
     if (name == POSIX_HELPER_NAME) {
         helper =
-            PosixHelperFactory{m_dioService}.createStorageHelperWithOverride(
+            PosixHelperFactory{m_dioExecutor}.createStorageHelperWithOverride(
                 args, overrideParams, m_executionContext);
     }
 
 #if WITH_CEPH
     if (name == CEPH_HELPER_NAME)
         helper =
-            CephHelperFactory{m_cephService}.createStorageHelperWithOverride(
+            CephHelperFactory{m_cephExecutor}.createStorageHelperWithOverride(
                 args, overrideParams, m_executionContext);
 
     if (name == CEPHRADOS_HELPER_NAME)
-        helper = CephRadosHelperFactory{m_cephRadosService}
+        helper = CephRadosHelperFactory{m_cephRadosExecutor}
                      .createStorageHelperWithOverride(
                          args, overrideParams, m_executionContext);
 #endif
@@ -230,10 +233,10 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
             bufferedArgs["bufferDepth"] = "2";
 
             auto bufferHelper =
-                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
                     bufferArgs, overrideParams, m_executionContext);
             auto mainHelper =
-                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
                     mainArgs, overrideParams, m_executionContext);
             auto bufferedHelper =
                 BufferedStorageHelperFactory{}.createStorageHelper(
@@ -243,14 +246,14 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
             std::map<folly::fbstring, StorageHelperPtr> routes;
             routes["/.__onedata__archive"] = std::move(bufferedHelper);
             routes["/"] =
-                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
                     args, overrideParams, m_executionContext);
             helper = std::make_shared<StorageRouterHelper>(
                 std::move(routes), m_executionContext);
         }
         else
             helper =
-                S3HelperFactory{m_s3Service}.createStorageHelperWithOverride(
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
                     args, overrideParams, m_executionContext);
     }
 #endif
@@ -258,13 +261,13 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #if WITH_SWIFT
     if (name == SWIFT_HELPER_NAME)
         helper =
-            SwiftHelperFactory{m_swiftService}.createStorageHelperWithOverride(
+            SwiftHelperFactory{m_swiftExecutor}.createStorageHelperWithOverride(
                 args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_GLUSTERFS
     if (name == GLUSTERFS_HELPER_NAME)
-        helper = GlusterFSHelperFactory{m_glusterfsService}
+        helper = GlusterFSHelperFactory{m_glusterfsExecutor}
                      .createStorageHelperWithOverride(
                          args, overrideParams, m_executionContext);
 #endif
@@ -289,7 +292,7 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)
-        helper = NullDeviceHelperFactory{m_nullDeviceService}
+        helper = NullDeviceHelperFactory{m_nullDeviceExecutor}
                      .createStorageHelperWithOverride(
                          args, overrideParams, m_executionContext);
 

@@ -15,7 +15,6 @@
 #include "messages/proxyio/remoteWriteResult.h"
 #include "messages/status.h"
 
-#include <asio/buffer.hpp>
 #include <folly/futures/Future.h>
 
 namespace one {
