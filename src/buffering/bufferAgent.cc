@@ -13,13 +13,14 @@ namespace helpers {
 namespace buffering {
 
 BufferedFileHandle::BufferedFileHandle(folly::fbstring fileId,
-    FileHandlePtr wrappedHandle, const BufferLimits &bl, Scheduler &scheduler,
+    FileHandlePtr wrappedHandle, const BufferLimits &bl,
+    std::shared_ptr<Scheduler> scheduler,
     std::shared_ptr<BufferAgent> bufferAgent,
     std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
     : FileHandle{std::move(fileId), std::move(bufferAgent)}
     , m_wrappedHandle{std::move(wrappedHandle)}
     , m_bufferLimits{bl}
-    , m_scheduler{scheduler}
+    , m_scheduler{std::move(scheduler)}
     , m_readCache{std::make_shared<ReadCache>(bl.readBufferMinSize,
           bl.readBufferMaxSize, bl.readBufferPrefetchDuration,
           bl.prefetchPowerBase, bl.targetLatency, *m_wrappedHandle)}

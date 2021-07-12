@@ -10,14 +10,12 @@
 
 #include "buffering/bufferAgent.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -54,32 +52,24 @@ class BufferedNullDeviceHelperProxy {
 public:
     BufferedNullDeviceHelperProxy(const int latencyMin, const int latencyMax,
         const double timeoutProbability, std::string filter)
-        : m_service{NULL_DEVICE_HELPER_WORKER_THREADS}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              NULL_DEVICE_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("null_t"))}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
         , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
               one::helpers::buffering::BufferLimits{},
               std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
                   latencyMax, timeoutProbability, std::move(filter),
                   std::vector<std::pair<long int, long int>>{}, 0.0, 1024,
-                  std::make_shared<one::AsioExecutor>(m_service)),
-              *m_scheduler,
+                  m_executor),
+              m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
                   one::helpers::buffering::BufferLimits{}))}
     {
-        for (int i = 0; i < NULL_DEVICE_HELPER_WORKER_THREADS; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
     }
 
-    ~BufferedNullDeviceHelperProxy()
-    {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
-    }
+    ~BufferedNullDeviceHelperProxy() {}
 
     BufferedFileHandlePtr open(std::string fileId, int flags)
     {
@@ -115,7 +105,7 @@ public:
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([&](const folly::IOBufQueue &buf) {
+            .then([handle](const folly::IOBufQueue &buf) {
                 std::string data;
                 buf.appendToString(data);
                 return data;
@@ -128,7 +118,9 @@ public:
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
         buf.append(data);
-        return handle->write(offset, std::move(buf), {}).get();
+        return handle->write(offset, std::move(buf), {})
+            .then([handle](int size) { return size; })
+            .get();
     }
 
     void mknod(std::string fileId, mode_t mode, std::vector<Flag> flags)
@@ -151,9 +143,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::Scheduler> m_scheduler;
     std::shared_ptr<one::helpers::buffering::BufferAgent> m_helper;
 };

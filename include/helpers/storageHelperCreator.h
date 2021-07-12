@@ -15,13 +15,9 @@
 #include "communication/communicator.h"
 #endif
 
-#include <asio/io_service.hpp>
 #include <boost/optional.hpp>
-#include <tbb/concurrent_hash_map.h>
-
-#if defined(WITH_WEBDAV) || defined(WITH_XROOTD)
 #include <folly/executors/IOExecutor.h>
-#endif
+#include <tbb/concurrent_hash_map.h>
 
 #include <memory>
 #include <string>
@@ -109,17 +105,18 @@ public:
 #ifdef BUILD_PROXY_IO
     StorageHelperCreator(
 #if WITH_CEPH
-        asio::io_service &cephService, asio::io_service &cephRadosService,
+        std::shared_ptr<folly::IOExecutor> cephExecutor,
+        std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
 #endif
-        asio::io_service &dioService,
+        std::shared_ptr<folly::IOExecutor> dioExecutor,
 #if WITH_S3
-        asio::io_service &kvS3Service,
+        std::shared_ptr<folly::IOExecutor> s3Executor,
 #endif
 #if WITH_SWIFT
-        asio::io_service &kvSwiftService,
+        std::shared_ptr<folly::IOExecutor> swiftExecutor,
 #endif
 #if WITH_GLUSTERFS
-        asio::io_service &glusterfsService,
+        std::shared_ptr<folly::IOExecutor> glusterfsExecutor,
 #endif
 #if WITH_WEBDAV
         std::shared_ptr<folly::IOExecutor> webDAVExecutor,
@@ -127,7 +124,7 @@ public:
 #if WITH_XROOTD
         std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
-        asio::io_service &nullDeviceService,
+        std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
@@ -135,17 +132,18 @@ public:
 #else
     StorageHelperCreator(
 #if WITH_CEPH
-        asio::io_service &cephService, asio::io_service &cephRadosService,
+        std::shared_ptr<folly::IOExecutor> cephExecutor,
+        std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
 #endif
-        asio::io_service &dioService,
+        std::shared_ptr<folly::IOExecutor> dioExecutor,
 #if WITH_S3
-        asio::io_service &kvS3Service,
+        std::shared_ptr<folly::IOExecutor> s3Executor,
 #endif
 #if WITH_SWIFT
-        asio::io_service &kvSwiftService,
+        std::shared_ptr<folly::IOExecutor> swiftExecutor,
 #endif
 #if WITH_GLUSTERFS
-        asio::io_service &glusterfsService,
+        std::shared_ptr<folly::IOExecutor> glusterfsExecutor,
 #endif
 #if WITH_WEBDAV
         std::shared_ptr<folly::IOExecutor> webDAVExecutor,
@@ -153,7 +151,7 @@ public:
 #if WITH_XROOTD
         std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
-        asio::io_service &nullDeviceService,
+        std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
         std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
@@ -184,18 +182,18 @@ public:
 
 private:
 #if WITH_CEPH
-    asio::io_service &m_cephService;
-    asio::io_service &m_cephRadosService;
+    std::shared_ptr<folly::IOExecutor> m_cephExecutor;
+    std::shared_ptr<folly::IOExecutor> m_cephRadosExecutor;
 #endif
-    asio::io_service &m_dioService;
+    std::shared_ptr<folly::IOExecutor> m_dioExecutor;
 #if WITH_S3
-    asio::io_service &m_s3Service;
+    std::shared_ptr<folly::IOExecutor> m_s3Executor;
 #endif
 #if WITH_SWIFT
-    asio::io_service &m_swiftService;
+    std::shared_ptr<folly::IOExecutor> m_swiftExecutor;
 #endif
 #if WITH_GLUSTERFS
-    asio::io_service &m_glusterfsService;
+    std::shared_ptr<folly::IOExecutor> m_glusterfsExecutor;
 #endif
 #if WITH_WEBDAV
     std::shared_ptr<folly::IOExecutor> m_webDAVExecutor;
@@ -204,8 +202,8 @@ private:
     std::shared_ptr<folly::IOExecutor> m_xrootdExecutor;
 #endif
 
-    asio::io_service &m_nullDeviceService;
-    std::unique_ptr<Scheduler> m_scheduler;
+    std::shared_ptr<folly::IOExecutor> m_nullDeviceExecutor;
+    std::shared_ptr<Scheduler> m_scheduler;
 
     buffering::BufferLimits m_bufferLimits;
     std::shared_ptr<buffering::BufferAgentsMemoryLimitGuard>

@@ -9,11 +9,11 @@
 #ifndef HELPERS_CEPHRADOS_HELPER_H
 #define HELPERS_CEPHRADOS_HELPER_H
 
-#include "asioExecutor.h"
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
 
 #include <folly/ThreadLocal.h>
+#include <folly/executors/IOExecutor.h>
 #include <rados/librados.hpp>
 
 #include <map>
@@ -33,8 +33,8 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    CephRadosHelperFactory(asio::io_service &service)
-        : m_service{service}
+    CephRadosHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
@@ -67,12 +67,11 @@ public:
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
                 userName, key, std::move(timeout), storagePathType),
-            std::make_shared<AsioExecutor>(m_service), blockSize,
-            executionContext);
+            m_executor, blockSize, executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 struct CephRadosCtx {

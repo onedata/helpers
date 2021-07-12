@@ -8,14 +8,12 @@
 
 #include "cephRadosHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <folly/ThreadName.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -24,6 +22,7 @@
 
 using namespace boost::python;
 using one::helpers::StoragePathType;
+using one::helpers::StorageWorkerFactory;
 
 class ReleaseGIL {
 public:
@@ -41,30 +40,17 @@ public:
     CephRadosHelperProxy(std::string monHost, std::string username,
         std::string key, std::string poolName, int threadNumber,
         std::size_t blockSize, StoragePathType storagePathType)
-        : m_service{threadNumber}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              threadNumber, std::make_shared<StorageWorkerFactory>("rados_t"))}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::CephRadosHelper>("ceph", monHost,
                   poolName, username, key, std::chrono::seconds{20},
                   storagePathType),
-              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
+              m_executor, blockSize)}
     {
-        std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
-            std::thread t{[=] {
-                folly::setThreadName("CRHProxy");
-                m_service.run();
-            }};
-
-            return t;
-        });
     }
 
-    ~CephRadosHelperProxy()
-    {
-        m_service.stop();
-        for (auto &t : m_workers)
-            t.join();
-    }
+    ~CephRadosHelperProxy() {}
 
     void unlink(std::string fileId, int size)
     {
@@ -77,10 +63,12 @@ public:
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
             .then([&](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+                return handle->read(offset, size)
+                    .then([handle](folly::IOBufQueue buf) {
+                        std::string data;
+                        buf.appendToString(data);
+                        return data;
+                    });
             })
             .get();
     }
@@ -92,7 +80,8 @@ public:
             .then([&](one::helpers::FileHandlePtr handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
-                return handle->write(offset, std::move(buf), {}).get();
+                return handle->write(offset, std::move(buf), {})
+                    .then([handle](int size) { return size; });
             })
             .get();
     }
@@ -104,9 +93,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::StorageHelper> m_helper;
 };
 

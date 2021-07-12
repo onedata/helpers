@@ -227,8 +227,9 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
                                       s = std::weak_ptr<GlusterFSFileHandle>{
                                           shared_from_this()}]() mutable {
         auto self = s.lock();
-        if (!self)
+        if (!self) {
             return makeFuturePosixException<std::size_t>(ECANCELED);
+        }
 
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);

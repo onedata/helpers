@@ -13,7 +13,7 @@
 
 #include "communication/communicator.h"
 
-#include <asio/io_service.hpp>
+#include <folly/executors/IOExecutor.h>
 
 #include <cstdint>
 
