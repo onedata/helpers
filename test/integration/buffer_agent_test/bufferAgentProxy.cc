@@ -11,7 +11,6 @@
 #include "buffering/bufferAgent.h"
 #include "communication/communicator.h"
 
-#include <asio/buffer.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>

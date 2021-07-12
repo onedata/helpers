@@ -11,8 +11,6 @@
 
 #include "proxyIOResponse.h"
 
-#include <asio/buffer.hpp>
-
 #include <memory>
 #include <string>
 

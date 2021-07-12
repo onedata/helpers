@@ -10,7 +10,6 @@
 
 #include "helpers/storageHelper.h"
 
-#include "asioExecutor.h"
 #include "helpers/logging.h"
 
 namespace one {
