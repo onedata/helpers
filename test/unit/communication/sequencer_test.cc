@@ -169,6 +169,7 @@ TEST_F(SequencerTest,
     EXPECT_CALL(sequencer.mock, connect());
     sequencer.setScheduler(scheduler);
     sequencer.connect();
+    sequencer.schedulePeriodicMessageRequest();
 }
 
 TEST_F(SequencerTest, sequencerShouldSendMessageStreamResetOnInitialization)
@@ -177,6 +178,7 @@ TEST_F(SequencerTest, sequencerShouldSendMessageStreamResetOnInitialization)
     EXPECT_CALL(sequencer.mock, connect());
     sequencer.setScheduler(scheduler);
     sequencer.connect();
+    sequencer.schedulePeriodicMessageRequest();
 }
 
 TEST_F(SequencerTest, sequencerShouldSendMessageRequestMessage)

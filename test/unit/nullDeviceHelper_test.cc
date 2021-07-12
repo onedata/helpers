@@ -38,8 +38,9 @@ struct NullDeviceHelperTest : public ::testing::Test {
 
 TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
 {
-    asio::io_service ioService;
-    NullDeviceHelperFactory factory{ioService};
+    NullDeviceHelperFactory factory{
+        std::make_shared<folly::IOThreadPoolExecutor>(
+            1, std::make_shared<StorageWorkerFactory>("null_t"))};
 
     Params empty;
 

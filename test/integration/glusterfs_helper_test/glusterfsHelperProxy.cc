@@ -8,14 +8,12 @@
 
 #include "glusterfsHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -50,23 +48,13 @@ public:
     GlusterFSHelperProxy(std::string mountPoint, uid_t uid, gid_t gid,
         std::string hostname, int port, std::string volume,
         std::string transport, std::string xlatorOptions)
-        : m_service{GLUSTERFS_HELPER_WORKER_THREADS}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              GLUSTERFS_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("gluster_t"))}
         , m_helper{std::make_shared<one::helpers::GlusterFSHelper>(mountPoint,
               uid, gid, hostname, port, volume, transport, xlatorOptions,
-              std::make_shared<one::AsioExecutor>(m_service))}
+              m_executor)}
     {
-        for (int i = 0; i < GLUSTERFS_HELPER_WORKER_THREADS; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
-    }
-
-    ~GlusterFSHelperProxy()
-    {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
     }
 
     void open(std::string fileId, int flags)
@@ -83,10 +71,12 @@ public:
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
             .then([&, helper = m_helper](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+                return handle->read(offset, size)
+                    .then([handle](folly::IOBufQueue &&buf) {
+                        std::string data;
+                        buf.appendToString(data);
+                        return data;
+                    });
             })
             .get();
     }
@@ -98,7 +88,8 @@ public:
             .then([&, helper = m_helper](one::helpers::FileHandlePtr handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
-                return handle->write(offset, std::move(buf), {}).get();
+                return handle->write(offset, std::move(buf), {})
+                    .then([handle](auto size) { return size; });
             })
             .get();
     }
@@ -222,9 +213,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::GlusterFSHelper> m_helper;
 };
 

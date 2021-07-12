@@ -8,14 +8,12 @@
 
 #include "nullDeviceHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -51,8 +49,9 @@ public:
         const double timeoutProbability, std::string filter,
         std::string simulatedFilesystemParameters,
         float simulatedFilesystemGrowSpeed)
-        : m_service{NULL_DEVICE_HELPER_WORKER_THREADS}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              NULL_DEVICE_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("null_t"))}
     {
         auto simulatedFilesystemParams =
             NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
@@ -64,20 +63,10 @@ public:
             simulatedFilesystemGrowSpeed,
             std::get<1>(simulatedFilesystemParams)
                 .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            std::make_shared<one::AsioExecutor>(m_service));
-
-        for (int i = 0; i < NULL_DEVICE_HELPER_WORKER_THREADS; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
+            m_executor);
     }
 
-    ~NullDeviceHelperProxy()
-    {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
-    }
+    ~NullDeviceHelperProxy() {}
 
     void open(std::string fileId, int flags)
     {
@@ -91,11 +80,13 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+            .then([&, helper = m_helper](one::helpers::FileHandlePtr handle) {
+                return handle->read(offset, size)
+                    .then([handle](folly::IOBufQueue &&buf) {
+                        std::string data;
+                        buf.appendToString(data);
+                        return data;
+                    });
             })
             .get();
     }
@@ -108,7 +99,7 @@ public:
         // so in case it doesn't exist we have to create it first to be
         // compatible with other helpers' test cases.
         auto mknodLambda = [&] {
-            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0).get();
+            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
         auto writeLambda = [&] {
             return m_helper->open(fileId, O_WRONLY, {})
@@ -116,19 +107,18 @@ public:
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
-                    return handle->write(offset, std::move(buf), {}).get();
-                })
-                .get();
+                    return handle->write(offset, std::move(buf), {})
+                        .then([handle](auto size) { return size; });
+                });
         };
 
         return m_helper->access(fileId, 0)
             .then(writeLambda)
             .onError([mknodLambda = mknodLambda, writeLambda = writeLambda,
-                         executor = std::make_shared<one::AsioExecutor>(
-                             m_service)](std::exception const &e) {
+                         executor = m_executor,
+                         helper = m_helper](std::exception const &e) {
                 return folly::via(executor.get(), mknodLambda)
-                    .then(writeLambda)
-                    .get();
+                    .then(writeLambda);
             })
             .get();
     }
@@ -252,9 +242,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::NullDeviceHelper> m_helper;
 };
 

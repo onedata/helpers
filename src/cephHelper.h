@@ -11,11 +11,9 @@
 
 #include "helpers/storageHelper.h"
 
-#include "asioExecutor.h"
 #include "helpers/logging.h"
 
-#include <asio.hpp>
-#include <folly/Executor.h>
+#include <folly/executors/IOExecutor.h>
 #include <rados/librados.hpp>
 #include <radosstriper/libradosstriper.hpp>
 
@@ -175,8 +173,8 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    CephHelperFactory(asio::io_service &service)
-        : m_service{service}
+    CephHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
         LOG_FCALL();
     }
@@ -205,12 +203,11 @@ public:
                     << LOG_FARG(key);
 
         return std::make_shared<CephHelper>(clusterName, monHost, poolName,
-            userName, key, std::make_shared<AsioExecutor>(m_service),
-            std::move(timeout), executionContext);
+            userName, key, m_executor, std::move(timeout), executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 } // namespace helpers

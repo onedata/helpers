@@ -20,12 +20,12 @@
 #define XATTR_SIZE_MAX (64 * 1024)
 #endif
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/lexical_cast.hpp>
 #include <folly/FBString.h>
 #include <folly/FBVector.h>
+#include <folly/executors/IOExecutor.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/SharedPromise.h>
 #include <folly/io/IOBufQueue.h>
@@ -269,7 +269,7 @@ Ret getParam(const Params &params, const folly::fbstring &key)
     catch (const std::out_of_range &) {
         throw MissingParameterException{key};
     }
-    catch (const boost::bad_lexical_cast) {
+    catch (const boost::bad_lexical_cast &) {
         throw BadParameterException{key, params.at(key)};
     }
 }
@@ -289,7 +289,7 @@ Ret getParam(const Params &params, const folly::fbstring &key, Def &&def)
 
         return std::forward<Def>(def);
     }
-    catch (const boost::bad_lexical_cast) {
+    catch (const boost::bad_lexical_cast &) {
         throw BadParameterException{key, params.at(key)};
     }
 }
@@ -614,6 +614,51 @@ private:
     std::shared_ptr<StorageHelperParamsPromise> m_params;
     mutable std::mutex m_paramsMutex;
     const ExecutionContext m_executionContext;
+};
+
+/**
+ * Initializer for storage helper workers based on folly ThreadPool.
+ */
+class StorageWorkerFactory : public folly::ThreadFactory {
+public:
+    explicit StorageWorkerFactory(folly::fbstring name)
+        : m_name{std::move(name)}
+        , m_id{0}
+    {
+    }
+
+    std::thread newThread(folly::Func &&func) override
+    {
+        auto t = std::thread(
+            [f = std::move(func),
+                n = fmt::format("{}-{}", m_name, m_id++)]() mutable {
+                folly::setThreadName(n);
+                f();
+            });
+
+        setCPUAffinity(t);
+
+        return t;
+    }
+
+private:
+    /**
+     * Set CPU affinity for a given thread to all available CPU cores.
+     */
+    void setCPUAffinity(std::thread &t)
+    {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        for (unsigned int cpuid = 0;
+             cpuid < std::thread::hardware_concurrency(); cpuid++) {
+            CPU_SET(cpuid, &cpuset);
+        }
+
+        pthread_setaffinity_np(t.native_handle(), sizeof(cpu_set_t), &cpuset);
+    };
+
+    folly::fbstring m_name;
+    std::atomic<uint64_t> m_id;
 };
 
 } // namespace helpers

@@ -17,7 +17,7 @@
 
 #include <boost/filesystem/path.hpp>
 #include <boost/variant.hpp>
-#include <folly/Executor.h>
+#include <folly/executors/IOExecutor.h>
 #include <folly/io/IOBufQueue.h>
 
 #include <fuse.h>
@@ -30,11 +30,6 @@
 #include <queue>
 #include <string>
 #include <unordered_map>
-
-#undef signal_set
-
-#include "asioExecutor.h"
-#include <asio.hpp>
 
 namespace one {
 namespace helpers {
@@ -280,8 +275,8 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    PosixHelperFactory(asio::io_service &service)
-        : m_service{service}
+    PosixHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{executor}
     {
     }
 
@@ -297,12 +292,12 @@ public:
             ExecutionContext::ONEPROVIDER) override
     {
         return std::make_shared<PosixHelper>(
-            PosixHelperParams::create(parameters),
-            std::make_shared<AsioExecutor>(m_service), executionContext);
+            PosixHelperParams::create(parameters), m_executor,
+            executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 } // namespace helpers

@@ -10,9 +10,6 @@
 #include "posixHelper.h"
 #include "s3Helper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <aws/s3/S3Client.h>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
@@ -20,6 +17,7 @@
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
 #include <folly/ThreadName.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <algorithm>
 #include <thread>
@@ -82,31 +80,18 @@ public:
         std::string bucketName, std::string accessKey, std::string secretKey,
         int threadNumber, std::size_t blockSize,
         StoragePathType storagePathType)
-        : m_service{threadNumber}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              threadNumber, std::make_shared<StorageWorkerFactory>("s3_t"))}
         , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
                   std::move(secretKey), 2 * 1024 * 1024, 0664, 0775,
                   scheme == "https", std::chrono::seconds{20}, storagePathType),
-              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
+              m_executor, blockSize)}
     {
-        std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
-            std::thread t{[=] {
-                folly::setThreadName("S3HelperProxy");
-                m_service.run();
-            }};
-
-            return t;
-        });
     }
 
-    ~S3HelperProxy()
-    {
-        m_service.stop();
-        for (auto &t : m_workers)
-            t.join();
-    }
+    ~S3HelperProxy() {}
 
     void access(std::string fileId)
     {
@@ -192,9 +177,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::StorageHelper> m_helper;
 };
 

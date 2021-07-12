@@ -10,14 +10,12 @@
 #include "keyValueAdapter.h"
 #include "s3Helper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -82,8 +80,8 @@ public:
     BufferedStorageHelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
         int threadNumber, int blockSize)
-        : m_service{threadNumber}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              threadNumber, std::make_shared<StorageWorkerFactory>("buffer_t"))}
     {
         auto bufferStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
@@ -91,7 +89,7 @@ public:
                     accessKey, secretKey, std::numeric_limits<size_t>::max(),
                     0664, 0775, scheme == "https", std::chrono::seconds{20},
                     StoragePathType::FLAT),
-                std::make_shared<one::AsioExecutor>(m_service), blockSize);
+                m_executor, blockSize);
 
         auto mainStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
@@ -99,24 +97,14 @@ public:
                     accessKey, secretKey, std::numeric_limits<size_t>::max(),
                     0664, 0775, scheme == "https", std::chrono::seconds{20},
                     StoragePathType::CANONICAL),
-                std::make_shared<one::AsioExecutor>(m_service), 0);
+                m_executor, 0);
 
         m_helper = std::make_shared<one::helpers::BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
             ExecutionContext::ONECLIENT, ".__onedata__buffer");
-
-        for (int i = 0; i < threadNumber; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
     }
 
-    ~BufferedStorageHelperProxy()
-    {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
-    }
+    ~BufferedStorageHelperProxy() {}
 
     void open(std::string fileId, int flags)
     {
@@ -214,9 +202,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::BufferedStorageHelper> m_helper;
 };
 
