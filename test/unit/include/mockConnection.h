@@ -33,8 +33,6 @@ struct MockConnection {
 
     std::string host;
     unsigned short port = 0;
-    asio::io_service *ioService;
-    asio::ssl::context *context = nullptr;
     std::function<void(std::string)> onMessage;
     std::function<void(one::communication::Connection &)> onReady;
     std::function<std::string()> getHandshake;
@@ -75,8 +73,6 @@ one::communication::ConnectionPool::ConnectionFactory
 createMockConnectionFactory(MockConnection &mockConnection)
 {
     return [&](std::string host, const unsigned short port,
-               asio::io_service &ioService,
-               std::shared_ptr<asio::ssl::context> context,
                std::function<void(std::string)> onMessage,
                std::function<void(one::communication::Connection &)> onReady,
                std::function<std::string()> getHandshake,
@@ -84,8 +80,6 @@ createMockConnectionFactory(MockConnection &mockConnection)
                std::function<void(std::error_code)> onHandshakeDone) {
         mockConnection.host = std::move(host);
         mockConnection.port = port;
-        mockConnection.ioService = &ioService;
-        mockConnection.context = context.get();
         mockConnection.onMessage = std::move(onMessage);
         mockConnection.onReady = std::move(onReady);
         mockConnection.getHandshake = std::move(getHandshake);

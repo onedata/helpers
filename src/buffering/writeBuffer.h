@@ -18,7 +18,6 @@
 #include "messages/proxyio/remoteWriteResult.h"
 #include "scheduler.h"
 
-#include <asio/buffer.hpp>
 #include <folly/FBString.h>
 #include <folly/FBVector.h>
 #include <folly/fibers/Baton.h>
