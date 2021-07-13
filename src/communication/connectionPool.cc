@@ -8,7 +8,6 @@
 
 #include "connectionPool.h"
 
-#include "cert/certificateData.h"
 #include "codec/clprotoHandshakeResponseHandler.h"
 #include "codec/clprotoMessageHandler.h"
 #include "codec/clprotoUpgradeResponseHandler.h"

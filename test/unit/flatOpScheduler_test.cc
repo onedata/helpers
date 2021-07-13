@@ -6,16 +6,15 @@
  * 'LICENSE.txt'
  */
 
-#include "asioExecutor.h"
 #include "flatOpScheduler.h"
 #include "testUtils.h"
 
-#include <asio.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/variant.hpp>
 #include <boost/variant/apply_visitor.hpp>
 #include <folly/Executor.h>
 #include <folly/ThreadName.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/futures/Promise.h>
 #include <gtest/gtest.h>
 
@@ -71,36 +70,17 @@ struct OpExec : public boost::static_visitor<> {
 
 struct FlatOpSchedulerTest : public ::testing::Test {
     FlatOpSchedulerTest()
-        : m_executor{std::make_shared<AsioExecutor>(m_ioService)}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(50)}
     {
     }
 
     ~FlatOpSchedulerTest() {}
 
-    void SetUp() override
-    {
-        for (std::size_t i = 0; i < 50; i++) {
-            m_poolWorkers.emplace_back([&, tid = i] {
-                folly::setThreadName("FOPS-" + std::to_string(tid));
-                m_ioService.run();
-            });
-        }
-    }
+    void SetUp() override {}
 
-    void TearDown() override
-    {
-        m_ioService.stop();
-        for (auto &t : m_poolWorkers)
-            t.join();
+    void TearDown() override {}
 
-        m_poolWorkers.clear();
-    }
-
-    asio::io_service m_ioService;
-    asio::executor_work_guard<asio::io_service::executor_type> m_work{
-        asio::make_work_guard(m_ioService)};
-    std::vector<std::thread> m_poolWorkers;
-    std::shared_ptr<AsioExecutor> m_executor;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
 };
 
 TEST_F(FlatOpSchedulerTest, flatOpSchedulerShouldExecuteAllOps)
