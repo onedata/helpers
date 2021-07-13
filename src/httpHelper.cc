@@ -725,6 +725,8 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     , m_resultBody{std::make_unique<folly::IOBufQueue>(
           folly::IOBufQueue::cacheChainLength())}
 {
+    constexpr auto kHTTPMaxRequestsPerSession = 64U;
+
     auto p =
         std::dynamic_pointer_cast<HTTPHelperParams>(helper->params().get());
 
@@ -738,7 +740,10 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
         m_request.getHeaders().add("Accept", "*/*");
     }
     if (m_request.getHeaders().getNumberOfValues("Connection") == 0u) {
-        m_request.getHeaders().add("Connection", "Keep-Alive");
+        if (m_session->session->getNumTxnServed() < kHTTPMaxRequestsPerSession)
+            m_request.getHeaders().add("Connection", "Keep-Alive");
+        else
+            m_request.getHeaders().add("Connection", "Close");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0u) {
         m_request.getHeaders().add("Host",
