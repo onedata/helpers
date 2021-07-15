@@ -27,6 +27,7 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
 
     constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
     constexpr auto kDefaultConnectionPoolSize = 10u;
+    constexpr auto kDefaultMaxRequestsPerSession = 0u;
     // constexpr auto kDefaultMaximumPoolSize = 0u;
     constexpr auto kDefaultAccessTokenTTL = 0u;
 
@@ -45,6 +46,8 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
         parameters, "accessTokenTTL", kDefaultAccessTokenTTL);
     const auto connectionPoolSize = getParam<uint32_t>(
         parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
+    const auto maxRequestsPerSession = getParam<uint32_t>(
+        parameters, "maxRequestsPerSession", kDefaultMaxRequestsPerSession);
     const auto fileMode = getParam(parameters, "fileMode", "0664");
     const auto dirMode = getParam(parameters, "dirMode", "0775");
 
@@ -54,7 +57,8 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
     LOG_FCALL() << LOG_FARG(endpoint) << LOG_FARG(verifyServerCertificateStr)
                 << LOG_FARG(credentials) << LOG_FARG(credentialsTypeStr)
                 << LOG_FARG(authorizationHeader) << LOG_FARG(accessTokenTTL)
-                << LOG_FARG(connectionPoolSize);
+                << LOG_FARG(connectionPoolSize)
+                << LOG_FARG(maxRequestsPerSession);
 
     Poco::URI endpointUrl;
 
@@ -147,6 +151,7 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
     m_accessToken = accessToken;
     m_accessTokenTTL = std::chrono::seconds{accessTokenTTL};
     m_connectionPoolSize = connectionPoolSize;
+    m_maxRequestsPerSession = maxRequestsPerSession;
     m_createdOn = std::chrono::system_clock::now();
     m_testTokenRefreshMode = (testTokenRefreshMode == "true");
     m_fileMode = parsePosixPermissions(fileMode);
@@ -192,6 +197,11 @@ std::chrono::seconds HTTPHelperParams::accessTokenTTL() const
 uint32_t HTTPHelperParams::connectionPoolSize() const
 {
     return m_connectionPoolSize;
+}
+
+uint32_t HTTPHelperParams::maxRequestsPerSession() const
+{
+    return m_maxRequestsPerSession;
 }
 
 std::chrono::system_clock::time_point HTTPHelperParams::createdOn() const

@@ -48,6 +48,8 @@ public:
 
     uint32_t connectionPoolSize() const;
 
+    uint32_t maxRequestsPerSession() const;
+
     std::chrono::system_clock::time_point createdOn() const;
 
     bool testTokenRefreshMode() const;
@@ -66,6 +68,7 @@ private:
     folly::fbstring m_accessToken;
     std::chrono::seconds m_accessTokenTTL;
     uint32_t m_connectionPoolSize;
+    uint32_t m_maxRequestsPerSession;
     std::chrono::system_clock::time_point m_createdOn;
     mode_t m_fileMode;
     mode_t m_dirMode;
