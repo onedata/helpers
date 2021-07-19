@@ -2,7 +2,7 @@
  [{description, "Onedata helpers"},
   {vsn, "0.1.0"},
   {registered, []},
-  {applications, []},
+  {applications, [kernel, stdlib]},
   {env,[]},
   {modules, []},
   {maintainers, []},

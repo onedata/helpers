@@ -16,6 +16,8 @@
 #include "codec/packetLogger.h"
 #include "exception.h"
 
+#include <openssl/ssl.h>
+
 #include <algorithm>
 #include <array>
 #include <boost/filesystem.hpp>
@@ -29,6 +31,40 @@
 
 namespace one {
 namespace communication {
+
+#if defined(DEBUG_SSL_CONNECTION)
+void log_ssl_info_callback(const SSL *s, int where, int ret)
+{
+    const char *str;
+    int w;
+
+    w = where & ~SSL_ST_MASK;
+
+    if ((w & SSL_ST_CONNECT) != 0)
+        str = "SSL_connect";
+    else if ((w & SSL_ST_ACCEPT) != 0)
+        str = "SSL_accept";
+    else
+        str = "undefined";
+
+    if ((where & SSL_CB_LOOP) != 0) {
+        LOG(ERROR) << str << ":" << SSL_state_string_long(s);
+    }
+    else if ((where & SSL_CB_ALERT) != 0) {
+        str = (where & SSL_CB_READ) ? "read" : "write";
+        LOG(ERROR) << "SSL3 alert " << str << ":"
+                   << SSL_alert_type_string_long(ret) << ":"
+                   << SSL_alert_desc_string_long(ret);
+    }
+    else if ((where & SSL_CB_EXIT) != 0) {
+        if (ret == 0)
+            LOG(ERROR) << str << ":failed in " << SSL_state_string_long(s);
+        else if (ret < 0) {
+            LOG(ERROR) << str << ":error in " << SSL_state_string_long(s);
+        }
+    }
+}
+#endif
 
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const std::size_t /*workersNumber*/, std::string host, const uint16_t port,
@@ -135,6 +171,13 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
     // NOLINTNEXTLINE
     SSL_CTX_set_session_cache_mode(
         sslCtx, SSL_CTX_get_session_cache_mode(sslCtx) | SSL_SESS_CACHE_CLIENT);
+
+    // Limit the protocol to TLS1.2 as folly does not yet support 1.3
+    SSL_CTX_set_max_proto_version(sslCtx, TLS1_2_VERSION);
+
+#if defined(DEBUG_SSL_CONNECTION)
+    SSL_CTX_set_info_callback(sslCtx, log_ssl_info_callback);
+#endif
 
     return context;
 }
