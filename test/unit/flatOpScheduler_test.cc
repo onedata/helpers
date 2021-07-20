@@ -78,7 +78,7 @@ struct FlatOpSchedulerTest : public ::testing::Test {
 
     void SetUp() override {}
 
-    void TearDown() override {}
+    void TearDown() override { m_executor->join(); }
 
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
 };

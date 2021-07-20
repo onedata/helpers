@@ -53,7 +53,7 @@ find_package(OpenSSL 1.1.0 REQUIRED)
 
 # Setup Folly
 message(STATUS "Checking for Folly...")
-option(FOLLY_SHARED "Link folly as shared library" OFF)
+option(FOLLY_SHARED "Link folly as shared library" ON)
 find_package(Folly REQUIRED)
 find_package(Wangle REQUIRED)
 find_library(LIBEVENT_LIBRARY event)

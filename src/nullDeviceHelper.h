@@ -87,6 +87,10 @@ private:
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
+    template <typename T, typename F>
+    folly::Future<T> simulateStorageIssues(
+        folly::fbstring operationName, F &&func);
+
     void initOpScheduler();
 
     struct ReadOp {
@@ -244,9 +248,11 @@ public:
 
     int randomLatency();
 
-    bool simulateTimeout(const std::string &operationName);
+    folly::Future<folly::Unit> simulateTimeout(
+        const std::string &operationName);
 
-    void simulateLatency(const std::string &operationName);
+    folly::Future<folly::Unit> simulateLatency(
+        const std::string &operationName);
 
     bool isSimulatedFilesystem() const;
 
@@ -319,7 +325,70 @@ public:
      */
     size_t simulatedFilesystemFileDist(const std::vector<std::string> &path);
 
+    bool storageIssuesEnabled() const noexcept;
+
+    template <typename T, typename F>
+    folly::Future<T> simulateStorageIssues(
+        folly::fbstring operationName, F &&func);
+
 private:
+    folly::Future<struct stat> getattrImpl(const folly::fbstring &fileId);
+
+    folly::Future<folly::Unit> accessImpl(
+        const folly::fbstring &fileId, const int mask);
+
+    folly::Future<folly::fbvector<folly::fbstring>> readdirImpl(
+        const folly::fbstring &fileId, off_t offset, size_t count);
+
+    folly::Future<folly::fbstring> readlinkImpl(const folly::fbstring &fileId);
+
+    folly::Future<folly::Unit> mknodImpl(const folly::fbstring &fileId,
+        const mode_t unmaskedMode, const FlagsSet &flags, const dev_t rdev);
+
+    folly::Future<folly::Unit> mkdirImpl(
+        const folly::fbstring &fileId, const mode_t mode);
+
+    folly::Future<folly::Unit> unlinkImpl(
+        const folly::fbstring &fileId, const size_t currentSize);
+
+    folly::Future<folly::Unit> rmdirImpl(const folly::fbstring &fileId);
+
+    folly::Future<folly::Unit> symlinkImpl(
+        const folly::fbstring &from, const folly::fbstring &to);
+
+    folly::Future<folly::Unit> renameImpl(
+        const folly::fbstring &from, const folly::fbstring &to);
+
+    folly::Future<folly::Unit> linkImpl(
+        const folly::fbstring &from, const folly::fbstring &to);
+
+    folly::Future<folly::Unit> chmodImpl(
+        const folly::fbstring &fileId, const mode_t mode);
+
+    folly::Future<folly::Unit> chownImpl(
+        const folly::fbstring &fileId, const uid_t uid, const gid_t gid);
+
+    folly::Future<folly::Unit> truncateImpl(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize);
+
+    folly::Future<FileHandlePtr> openImpl(const folly::fbstring &fileId,
+        const int flags, const Params &openParams);
+
+    folly::Future<folly::fbstring> getxattrImpl(
+        const folly::fbstring &fileId, const folly::fbstring &name);
+
+    folly::Future<folly::Unit> setxattrImpl(const folly::fbstring &fileId,
+        const folly::fbstring &name, const folly::fbstring &value, bool create,
+        bool replace);
+
+    folly::Future<folly::Unit> removexattrImpl(
+        const folly::fbstring &fileId, const folly::fbstring &name);
+
+    folly::Future<folly::fbvector<folly::fbstring>> listxattrImpl(
+        const folly::fbstring &fileId);
+
+    const int m_latencyMin;
+    const int m_latencyMax;
     std::mt19937 m_randomGenerator(std::random_device());
     std::function<int()> m_latencyGenerator;
     std::function<double()> m_timeoutGenerator;
@@ -381,10 +450,10 @@ public:
         ExecutionContext executionContext =
             ExecutionContext::ONEPROVIDER) override
     {
-        const auto latencyMin = getParam<int>(parameters, "latencyMin", 0.0);
-        const auto latencyMax = getParam<int>(parameters, "latencyMax", 0.0);
+        const auto latencyMin = getParam<int>(parameters, "latencyMin", 0);
+        const auto latencyMax = getParam<int>(parameters, "latencyMax", 0);
         const auto timeoutProbability =
-            getParam<double>(parameters, "timeoutProbability", 0.0);
+            getParam<double>(parameters, "timeoutProbability", (double)0.0);
         const auto &filter = getParam<folly::fbstring, folly::fbstring>(
             parameters, "filter", "*");
         const auto &simulatedFilesystemParameters =
