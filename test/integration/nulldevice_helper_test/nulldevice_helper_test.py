@@ -114,7 +114,7 @@ def simulatedGrowingFilesystemServer(request):
 
     request.addfinalizer(fin)
 
-    return Server(0, 0, 0.0, "*", "4-4:0-1", 0.1)
+    return Server(0, 0, 0.0, "*", "4-4:0-1", 0.5)
 
 
 @pytest.fixture
@@ -393,5 +393,5 @@ def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFile
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) < 4+4
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/1", 0, 10)) == 0
     time.sleep(9)
-    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) == 4
+    assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) >= 4+4
     assert simulatedGrowingFilesystemStorageHelper.getattr("/0/0").st_size == 1024
