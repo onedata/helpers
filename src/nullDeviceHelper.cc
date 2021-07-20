@@ -74,17 +74,9 @@ template <typename T, typename F>
 folly::Future<T> NullDeviceFileHandle::simulateStorageIssues(
     folly::fbstring operationName, F &&func)
 {
-    return folly::via(m_executor.get(),
-        [operationName,
-            helper = std::dynamic_pointer_cast<NullDeviceHelper>(helper())] {
-            return helper->simulateLatency(operationName.toStdString());
-        })
-        .then([operationName,
-                  helper =
-                      std::dynamic_pointer_cast<NullDeviceHelper>(helper())] {
-            return helper->simulateTimeout(operationName.toStdString());
-        })
-        .then([func = std::forward<F>(func)] { return func(); });
+    return std::dynamic_pointer_cast<NullDeviceHelper>(helper())
+        ->simulateStorageIssues<T, F>(
+            std::move(operationName), std::forward<F>(func));
 }
 
 NullDeviceFileHandle::OpExec::OpExec(
@@ -285,6 +277,8 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     std::shared_ptr<folly::Executor> executor, Timeout timeout,
     ExecutionContext executionContext)
     : StorageHelper{executionContext}
+    , m_latencyMin{latencyMin}
+    , m_latencyMax{latencyMax}
     , m_latencyGenerator{std::bind(
           std::uniform_int_distribution<>(latencyMin, latencyMax),
           std::default_random_engine(std::random_device{}()))}
@@ -327,18 +321,27 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     simulatedFilesystemEntryCount();
 }
 
+bool NullDeviceHelper::storageIssuesEnabled() const noexcept
+{
+    return (m_latencyMax > 0.0) || (m_timeoutProbability > 0.0);
+}
+
 template <typename T, typename F>
 folly::Future<T> NullDeviceHelper::simulateStorageIssues(
     folly::fbstring operationName, F &&func)
 {
-    return folly::via(m_executor.get(),
-        [this, operationName, self = shared_from_this()] {
-            return simulateLatency(operationName.toStdString());
-        })
-        .then([this, operationName, self = shared_from_this()] {
-            return simulateTimeout(operationName.toStdString());
-        })
-        .then([func = std::forward<F>(func)] { return func(); });
+    if (storageIssuesEnabled())
+        return folly::via(m_executor.get(),
+            [this, operationName] {
+                return simulateLatency(operationName.toStdString());
+            })
+            .then([this, operationName] {
+                return simulateTimeout(operationName.toStdString());
+            })
+            .then([func = std::forward<F>(func)] { return func(); });
+
+    return folly::via(
+        m_executor.get(), [func = std::forward<F>(func)] { return func(); });
 }
 
 folly::Future<struct stat> NullDeviceHelper::getattr(

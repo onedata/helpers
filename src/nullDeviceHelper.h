@@ -325,11 +325,13 @@ public:
      */
     size_t simulatedFilesystemFileDist(const std::vector<std::string> &path);
 
-private:
+    bool storageIssuesEnabled() const noexcept;
+
     template <typename T, typename F>
     folly::Future<T> simulateStorageIssues(
         folly::fbstring operationName, F &&func);
 
+private:
     folly::Future<struct stat> getattrImpl(const folly::fbstring &fileId);
 
     folly::Future<folly::Unit> accessImpl(
@@ -385,6 +387,8 @@ private:
     folly::Future<folly::fbvector<folly::fbstring>> listxattrImpl(
         const folly::fbstring &fileId);
 
+    const int m_latencyMin;
+    const int m_latencyMax;
     std::mt19937 m_randomGenerator(std::random_device());
     std::function<int()> m_latencyGenerator;
     std::function<double()> m_timeoutGenerator;
@@ -446,10 +450,10 @@ public:
         ExecutionContext executionContext =
             ExecutionContext::ONEPROVIDER) override
     {
-        const auto latencyMin = getParam<int>(parameters, "latencyMin", 0.0);
-        const auto latencyMax = getParam<int>(parameters, "latencyMax", 0.0);
+        const auto latencyMin = getParam<int>(parameters, "latencyMin", 0);
+        const auto latencyMax = getParam<int>(parameters, "latencyMax", 0);
         const auto timeoutProbability =
-            getParam<double>(parameters, "timeoutProbability", 0.0);
+            getParam<double>(parameters, "timeoutProbability", (double)0.0);
         const auto &filter = getParam<folly::fbstring, folly::fbstring>(
             parameters, "filter", "*");
         const auto &simulatedFilesystemParameters =
