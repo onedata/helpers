@@ -61,23 +61,25 @@ public:
     {
         ReleaseGIL guard;
         m_helper->open(fileId, flags, {})
-            .then([&, helper = m_helper](one::helpers::FileHandlePtr handle) {
-                handle->release();
-            });
+            .thenValue(
+                [&, helper = m_helper](one::helpers::FileHandlePtr &&handle) {
+                    handle->release();
+                });
     }
 
     std::string read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
-            .then([&, helper = m_helper](one::helpers::FileHandlePtr handle) {
-                return handle->read(offset, size)
-                    .then([handle](folly::IOBufQueue &&buf) {
-                        std::string data;
-                        buf.appendToString(data);
-                        return data;
-                    });
-            })
+            .thenValue(
+                [&, helper = m_helper](one::helpers::FileHandlePtr &&handle) {
+                    return handle->read(offset, size)
+                        .thenValue([handle](folly::IOBufQueue &&buf) {
+                            std::string data;
+                            buf.appendToString(data);
+                            return data;
+                        });
+                })
             .get();
     }
 
@@ -85,11 +87,12 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_WRONLY | O_CREAT, {})
-            .then([&, helper = m_helper](one::helpers::FileHandlePtr handle) {
+            .thenValue([&, helper = m_helper](
+                           one::helpers::FileHandlePtr &&handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
                 return handle->write(offset, std::move(buf), {})
-                    .then([handle](auto size) { return size; });
+                    .thenValue([handle](auto &&size) { return size; });
             })
             .get();
     }

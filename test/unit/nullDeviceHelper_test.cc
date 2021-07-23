@@ -10,7 +10,7 @@
 #include "testUtils.h"
 
 #include <boost/make_shared.hpp>
-#include <folly/futures/ManualExecutor.h>
+#include <folly/executors/ManualExecutor.h>
 #include <gtest/gtest.h>
 
 #include <tuple>

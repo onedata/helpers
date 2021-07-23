@@ -138,8 +138,9 @@ public:
         // mechanism in `WriteBuffer` will trigger a clear of the readCache if
         // needed. This might be optimized in the future by modifying readcache
         // on write.
-        return m_writeBuffer->fsync().then(
-            [=] { return m_readCache->read(offset, size, continuousSize); });
+        return m_writeBuffer->fsync().thenValue([=](auto && /*unit*/) {
+            return m_readCache->read(offset, size, continuousSize);
+        });
     }
 
     folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
@@ -154,9 +155,9 @@ public:
     {
         LOG_FCALL() << LOG_FARG(isDataSync);
 
-        return m_writeBuffer->fsync().then(
+        return m_writeBuffer->fsync().thenValue(
             [readCache = m_readCache, wrappedHandle = m_wrappedHandle,
-                isDataSync] {
+                isDataSync](auto && /*unit*/) {
                 readCache->clear();
                 return wrappedHandle->fsync(isDataSync);
             });
@@ -164,8 +165,9 @@ public:
 
     folly::Future<folly::Unit> flush() override
     {
-        return m_writeBuffer->fsync().then(
-            [readCache = m_readCache, wrappedHandle = m_wrappedHandle] {
+        return m_writeBuffer->fsync().thenValue(
+            [readCache = m_readCache, wrappedHandle = m_wrappedHandle](
+                auto && /*unit*/) {
                 readCache->clear();
                 return wrappedHandle->flush();
             });
@@ -175,8 +177,9 @@ public:
     {
         LOG_FCALL();
 
-        return m_writeBuffer->fsync().then(
-            [wrappedHandle = m_wrappedHandle] { wrappedHandle->release(); });
+        return m_writeBuffer->fsync().thenValue(
+            [wrappedHandle = m_wrappedHandle](
+                auto && /*unit*/) { wrappedHandle->release(); });
     }
 
     const Timeout &timeout() override { return m_wrappedHandle->timeout(); }
@@ -242,10 +245,10 @@ public:
                     << LOG_FARGM(params);
 
         return m_helper->open(fileId, flags, params)
-            .then(
+            .thenValue(
                 [fileId, agent = shared_from_this(), bl = m_bufferLimits,
                     memoryLimitGuard = m_bufferMemoryLimitGuard,
-                    scheduler = m_scheduler](FileHandlePtr handle) {
+                    scheduler = m_scheduler](FileHandlePtr &&handle) {
                     if (memoryLimitGuard->reserveBuffers(
                             bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
                         return static_cast<FileHandlePtr>(

@@ -10,7 +10,7 @@
 #include "helpers/logging.h"
 #include "helpers/storageHelper.h"
 
-#include <folly/ThreadName.h>
+#include <folly/system/ThreadName.h>
 
 namespace one {
 

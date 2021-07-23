@@ -105,7 +105,7 @@ public:
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([handle](const folly::IOBufQueue &buf) {
+            .thenValue([handle](folly::IOBufQueue &&buf) {
                 std::string data;
                 buf.appendToString(data);
                 return data;
@@ -119,7 +119,7 @@ public:
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
         buf.append(data);
         return handle->write(offset, std::move(buf), {})
-            .then([handle](int size) { return size; })
+            .thenValue([handle](int &&size) { return size; })
             .get();
     }
 

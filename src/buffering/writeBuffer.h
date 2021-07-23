@@ -110,8 +110,9 @@ public:
             // to try to save everything and return an error if not successful.
             pushBuffer();
 
-            return confirmOverThreshold().then(
-                [fileId = m_handle.fileId(), size, offset, timer] {
+            return confirmOverThreshold().thenValue(
+                [fileId = m_handle.fileId(), size, offset, timer](
+                    auto && /*unit*/) {
                     log<read_write_perf>(fileId, "WriteBuffer", "write", offset,
                         size, timer.stop());
                     return size;
@@ -174,18 +175,20 @@ private:
         log_timer<> timer;
 
         m_writeFuture =
-            m_writeFuture
-                .then([s = std::weak_ptr<WriteBuffer>(shared_from_this()),
-                          buffers = std::move(buffers)]() mutable {
+            std::move(m_writeFuture)
+                .thenValue([s = std::weak_ptr<WriteBuffer>(shared_from_this()),
+                               buffers = std::move(buffers)](
+                               auto && /*unit*/) mutable {
                     if (auto self = s.lock())
                         return self->m_handle.multiwrite(std::move(buffers));
 
                     return folly::makeFuture<std::size_t>(std::system_error{
                         std::make_error_code(std::errc::owner_dead)});
                 })
-                .then([startPoint, sentSize, fileId = m_handle.fileId(), timer,
-                          s = std::weak_ptr<WriteBuffer>(shared_from_this())](
-                          std::size_t) {
+                .thenValue([startPoint, sentSize, fileId = m_handle.fileId(),
+                               timer,
+                               s = std::weak_ptr<WriteBuffer>(
+                                   shared_from_this())](auto && /*unused*/) {
                     auto self = s.lock();
                     if (!self)
                         return;
@@ -205,11 +208,13 @@ private:
                     log<read_write_perf>(fileId, "WriteBuffer", "pushBuffers",
                         "-", sentSize, timer.stop());
                 })
-                .then(
-                    [confirmationPromise] { confirmationPromise->setValue(); })
-                .onError([confirmationPromise](folly::exception_wrapper ew) {
-                    confirmationPromise->setException(std::move(ew));
-                });
+                .thenValue([confirmationPromise](auto && /*unit*/) {
+                    confirmationPromise->setValue();
+                })
+                .thenError(folly::tag_t<folly::exception_wrapper>{},
+                    [confirmationPromise](auto &&ew) {
+                        confirmationPromise->setException(std::move(ew));
+                    });
 
         m_confirmationFutures.emplace(
             std::make_pair(sentSize, confirmationPromise->getFuture()));
@@ -243,7 +248,8 @@ private:
         }
 
         return folly::collectAll(confirmFutures)
-            .then([](const std::vector<folly::Try<folly::Unit>> &tries) {
+            .via(m_scheduler->executor().get())
+            .thenValue([](std::vector<folly::Try<folly::Unit>> &&tries) {
                 for (const auto &t : tries) {
                     if (t.hasException())
                         return folly::makeFuture<folly::Unit>(t.exception());

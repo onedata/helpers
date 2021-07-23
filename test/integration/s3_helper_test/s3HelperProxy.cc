@@ -16,8 +16,8 @@
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
-#include <folly/ThreadName.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/system/ThreadName.h>
 
 #include <algorithm>
 #include <thread>
@@ -149,7 +149,7 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 auto buf = handle->read(offset, size).get();
                 std::string data;
                 buf.appendToString(data);
@@ -162,7 +162,7 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
                 return handle->write(offset, std::move(buf), {});

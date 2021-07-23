@@ -109,7 +109,8 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.read");
 
     return simulateStorageIssues<folly::Unit>("read", []() {})
-        .then([this, offset, size, timer = std::move(timer)]() mutable {
+        .thenValue([this, offset, size, timer = std::move(timer)](
+                       auto && /*unit*/) mutable {
             return opScheduler->schedule(
                 ReadOp{{}, offset, size, std::move(timer)});
         });
@@ -161,12 +162,12 @@ folly::Future<std::size_t> NullDeviceFileHandle::write(
         ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nulldevice.write");
 
     return opScheduler->schedule(WriteOp{{}, offset, std::move(buf)})
-        .then([this](std::size_t written) {
+        .thenValue([this](std::size_t &&written) {
             return simulateStorageIssues<std::size_t>(
                 "write", [written] { return written; });
         })
-        .then([writeCb = std::move(writeCb), timer = std::move(timer)](
-                  std::size_t written) {
+        .thenValue([writeCb = std::move(writeCb), timer = std::move(timer)](
+                       std::size_t &&written) {
             if (writeCb)
                 writeCb(written);
             return written;
@@ -217,7 +218,7 @@ folly::Future<folly::Unit> NullDeviceFileHandle::release()
 {
     LOG_FCALL();
     return opScheduler->schedule(ReleaseOp{})
-        .then([self = shared_from_this()]() {
+        .thenValue([self = shared_from_this()](auto && /*unit*/) {
             return self->simulateStorageIssues<folly::Unit>("release", [] {});
         });
 }
@@ -240,9 +241,10 @@ void NullDeviceFileHandle::OpExec::operator()(FlushOp &op) const
 folly::Future<folly::Unit> NullDeviceFileHandle::flush()
 {
     LOG_FCALL();
-    return opScheduler->schedule(FlushOp{}).then([self = shared_from_this()]() {
-        return self->simulateStorageIssues<folly::Unit>("flush", [] {});
-    });
+    return opScheduler->schedule(FlushOp{}).thenValue(
+        [self = shared_from_this()](auto && /*unit*/) {
+            return self->simulateStorageIssues<folly::Unit>("flush", [] {});
+        });
 }
 
 void NullDeviceFileHandle::OpExec::operator()(FsyncOp &op) const
@@ -265,9 +267,10 @@ void NullDeviceFileHandle::OpExec::operator()(FsyncOp &op) const
 folly::Future<folly::Unit> NullDeviceFileHandle::fsync(bool /*isDataSync*/)
 {
     LOG_FCALL();
-    return opScheduler->schedule(FsyncOp{}).then([self = shared_from_this()]() {
-        return self->simulateStorageIssues<folly::Unit>("fsync", [] {});
-    });
+    return opScheduler->schedule(FsyncOp{}).thenValue(
+        [self = shared_from_this()](auto && /*unit*/) {
+            return self->simulateStorageIssues<folly::Unit>("fsync", [] {});
+        });
 }
 
 NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
@@ -331,14 +334,16 @@ folly::Future<T> NullDeviceHelper::simulateStorageIssues(
     folly::fbstring operationName, F &&func)
 {
     if (storageIssuesEnabled())
-        return folly::via(m_executor.get(),
-            [this, operationName] {
+        return folly::makeFuture()
+            .via(m_executor.get())
+            .thenValue([this, operationName](auto && /*unit*/) {
                 return simulateLatency(operationName.toStdString());
             })
-            .then([this, operationName] {
+            .thenValue([this, operationName](auto && /*unit*/) {
                 return simulateTimeout(operationName.toStdString());
             })
-            .then([func = std::forward<F>(func)] { return func(); });
+            .thenValue([func = std::forward<F>(func)](
+                           auto && /*unit*/) { return func(); });
 
     return folly::via(
         m_executor.get(), [func = std::forward<F>(func)] { return func(); });
@@ -522,8 +527,9 @@ folly::Future<struct stat> NullDeviceHelper::getattrImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(
-        m_executor.get(), [this, fileId, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([this, fileId, self = shared_from_this()](auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getattr");
 
             LOG_DBG(2) << "Attempting to stat file " << fileId;
@@ -610,13 +616,15 @@ folly::Future<folly::Unit> NullDeviceHelper::accessImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mask);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.access");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.access");
 
-        LOG_DBG(2) << "Attempting to access file " << fileId;
+            LOG_DBG(2) << "Attempting to access file " << fileId;
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdirImpl(
@@ -624,8 +632,10 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::readdirImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
-    return folly::via(m_executor.get(),
-        [this, fileId, offset, count, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([this, fileId, offset, count, self = shared_from_this()](
+                       auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readdir");
 
             folly::fbvector<folly::fbstring> ret;
@@ -687,18 +697,20 @@ folly::Future<folly::fbstring> NullDeviceHelper::readlinkImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readlink");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.readlink");
 
-        LOG_DBG(2) << "Attempting to read link " << fileId;
+            LOG_DBG(2) << "Attempting to read link " << fileId;
 
-        auto target = folly::fbstring(
-            NULL_DEVICE_HELPER_READLINK_SIZE, NULL_DEVICE_HELPER_CHAR);
+            auto target = folly::fbstring(
+                NULL_DEVICE_HELPER_READLINK_SIZE, NULL_DEVICE_HELPER_CHAR);
 
-        LOG_DBG(2) << "Read link " << fileId << " - resolves to " << target;
+            LOG_DBG(2) << "Read link " << fileId << " - resolves to " << target;
 
-        return folly::makeFuture(std::move(target));
-    });
+            return folly::makeFuture(std::move(target));
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::mknodImpl(
@@ -708,11 +720,13 @@ folly::Future<folly::Unit> NullDeviceHelper::mknodImpl(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(unmaskedMode)
                 << LOG_FARG(flagsToMask(flags));
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.mknod");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.mknod");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::mkdirImpl(
@@ -720,11 +734,13 @@ folly::Future<folly::Unit> NullDeviceHelper::mkdirImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.mkdir");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.mkdir");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::unlinkImpl(
@@ -732,11 +748,13 @@ folly::Future<folly::Unit> NullDeviceHelper::unlinkImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.unlink");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.unlink");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::rmdirImpl(
@@ -744,11 +762,13 @@ folly::Future<folly::Unit> NullDeviceHelper::rmdirImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.rmdir");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.rmdir");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::symlinkImpl(
@@ -756,8 +776,10 @@ folly::Future<folly::Unit> NullDeviceHelper::symlinkImpl(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    return folly::via(
-        m_executor.get(), [from = from, to = to, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([from = from, to = to, self = shared_from_this()](
+                       auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.symlink");
 
             return folly::makeFuture();
@@ -769,8 +791,10 @@ folly::Future<folly::Unit> NullDeviceHelper::renameImpl(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    return folly::via(
-        m_executor.get(), [from = from, to = to, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([from = from, to = to, self = shared_from_this()](
+                       auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.rename");
 
             return folly::makeFuture();
@@ -782,8 +806,10 @@ folly::Future<folly::Unit> NullDeviceHelper::linkImpl(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    return folly::via(
-        m_executor.get(), [from = from, to = to, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([from = from, to = to, self = shared_from_this()](
+                       auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.link");
 
             return folly::makeFuture();
@@ -795,11 +821,13 @@ folly::Future<folly::Unit> NullDeviceHelper::chmodImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.chmod");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.chmod");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::chownImpl(
@@ -807,11 +835,13 @@ folly::Future<folly::Unit> NullDeviceHelper::chownImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.chown");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.chown");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::truncateImpl(
@@ -820,11 +850,13 @@ folly::Future<folly::Unit> NullDeviceHelper::truncateImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.truncate");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.truncate");
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<FileHandlePtr> NullDeviceHelper::openImpl(
@@ -833,9 +865,10 @@ folly::Future<FileHandlePtr> NullDeviceHelper::openImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
 
-    return folly::via(m_executor.get(),
-        [fileId, executor = m_executor, timeout = m_timeout,
-            self = shared_from_this()]() mutable {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, executor = m_executor, timeout = m_timeout,
+                       self = shared_from_this()](auto && /*unit*/) mutable {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.open");
 
             auto handle = NullDeviceFileHandle::create(
@@ -850,8 +883,9 @@ folly::Future<folly::fbstring> NullDeviceHelper::getxattrImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return folly::via(
-        m_executor.get(), [fileId, name, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, name, self = shared_from_this()](auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.getxattr");
 
             return folly::makeFuture(folly::fbstring(
@@ -866,8 +900,10 @@ folly::Future<folly::Unit> NullDeviceHelper::setxattrImpl(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name) << LOG_FARG(value)
                 << LOG_FARG(create) << LOG_FARG(replace);
 
-    return folly::via(m_executor.get(),
-        [fileId, name, value, create, replace, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, name, value, create, replace,
+                       self = shared_from_this()](auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.setxattr");
 
             if (create && replace) {
@@ -883,8 +919,9 @@ folly::Future<folly::Unit> NullDeviceHelper::removexattrImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return folly::via(
-        m_executor.get(), [fileId, name, self = shared_from_this()] {
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, name, self = shared_from_this()](auto && /*unit*/) {
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.removexattr");
 
             return folly::makeFuture();
@@ -896,18 +933,20 @@ folly::Future<folly::fbvector<folly::fbstring>> NullDeviceHelper::listxattrImpl(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return folly::via(m_executor.get(), [fileId, self = shared_from_this()] {
-        ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.listxattr");
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([fileId, self = shared_from_this()](auto && /*unit*/) {
+            ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.listxattr");
 
-        folly::fbvector<folly::fbstring> ret;
+            folly::fbvector<folly::fbstring> ret;
 
-        for (int i = 1; i <= NULL_DEVICE_HELPER_READXATTR_SIZE; i++) {
-            ret.emplace_back(std::string(i, NULL_DEVICE_HELPER_CHAR));
-        }
+            for (int i = 1; i <= NULL_DEVICE_HELPER_READXATTR_SIZE; i++) {
+                ret.emplace_back(std::string(i, NULL_DEVICE_HELPER_CHAR));
+            }
 
-        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
-            std::move(ret));
-    });
+            return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+                std::move(ret));
+        });
 }
 
 int NullDeviceHelper::randomLatency() { return m_latencyGenerator(); }
@@ -927,25 +966,29 @@ bool NullDeviceHelper::applies(const folly::fbstring &operationName)
 folly::Future<folly::Unit> NullDeviceHelper::simulateTimeout(
     const std::string &operationName)
 {
-    return folly::via(m_executor.get(), [this, operationName] {
-        if (applies(operationName) && randomTimeout())
-            throw one::helpers::makePosixException(EAGAIN);
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([this, operationName](auto && /*unit*/) {
+            if (applies(operationName) && randomTimeout())
+                throw one::helpers::makePosixException(EAGAIN);
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 folly::Future<folly::Unit> NullDeviceHelper::simulateLatency(
     const std::string &operationName)
 {
-    return folly::via(m_executor.get(), [this, operationName] {
-        if (applies(operationName)) {
-            return folly::makeFuture().delayed(
-                std::chrono::milliseconds(randomLatency()));
-        }
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([this, operationName](auto && /*unit*/) {
+            if (applies(operationName)) {
+                return folly::makeFuture().delayed(
+                    std::chrono::milliseconds(randomLatency()));
+            }
 
-        return folly::makeFuture();
-    });
+            return folly::makeFuture();
+        });
 }
 
 bool NullDeviceHelper::isSimulatedFilesystem() const

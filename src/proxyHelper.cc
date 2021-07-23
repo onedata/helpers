@@ -48,8 +48,8 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
 
     return m_communicator
         .communicate<messages::proxyio::RemoteData>(std::move(msg))
-        .then([timer = std::move(timer)](
-                  const messages::proxyio::RemoteData &rd) mutable {
+        .thenValue([timer = std::move(timer)](
+                       messages::proxyio::RemoteData &&rd) mutable {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
             buf.append(rd.data());
             LOG_DBG(2) << "Received " << buf.chainLength()
@@ -102,9 +102,9 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
         .communicate<messages::proxyio::RemoteWriteResult>(std::move(msg))
         .within(m_timeout,
             std::system_error{std::make_error_code(std::errc::timed_out)})
-        .then([timer = std::move(timer),
-                  postCallbacks = std::move(postCallbacks)](
-                  const messages::proxyio::RemoteWriteResult &result) mutable {
+        .thenValue([timer = std::move(timer),
+                       postCallbacks = std::move(postCallbacks)](
+                       messages::proxyio::RemoteWriteResult &&result) mutable {
             ONE_METRIC_TIMERCTX_STOP(timer, result.wrote());
 
             LOG_DBG(2) << "Written " << result.wrote() << " bytes";

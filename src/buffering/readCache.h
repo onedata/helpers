@@ -18,12 +18,12 @@
 #include "scheduler.h"
 
 #include <boost/icl/discrete_interval.hpp>
-#include <folly/CallOnce.h>
 #include <folly/FBString.h>
 #include <folly/fibers/TimedMutex.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/SharedPromise.h>
 #include <folly/io/IOBufQueue.h>
+#include <folly/synchronization/CallOnce.h>
 
 #include <atomic>
 #include <chrono>
@@ -210,20 +210,22 @@ private:
         m_cache.emplace_back(
             std::make_shared<ReadData>(offset, size, isPrefetch));
         m_handle.read(offset, size)
-            .then([readData = m_cache.back(), timer, offset, size,
-                      fileId = m_handle.fileId()](folly::IOBufQueue buf) {
-                log<read_write_perf>(fileId, "ReadCache", "prefetch", offset,
-                    size, timer.stop());
+            .thenValue(
+                [readData = m_cache.back(), timer, offset, size,
+                    fileId = m_handle.fileId()](folly::IOBufQueue &&buf) {
+                    log<read_write_perf>(fileId, "ReadCache", "prefetch",
+                        offset, size, timer.stop());
 
-                readData->size = buf.chainLength();
-                readData->buf = std::move(buf);
-                readData->t_ =
-                    std::chrono::steady_clock::now().time_since_epoch();
-                readData->promise.setValue();
-            })
-            .onError([readData = m_cache.back()](folly::exception_wrapper ew) {
-                readData->promise.setException(std::move(ew));
-            });
+                    readData->size = buf.chainLength();
+                    readData->buf = std::move(buf);
+                    readData->t_ =
+                        std::chrono::steady_clock::now().time_since_epoch();
+                    readData->promise.setValue();
+                })
+            .thenError(folly::tag_t<folly::exception_wrapper>{},
+                [readData = m_cache.back()](auto &&ew) {
+                    readData->promise.setException(std::move(ew));
+                });
     }
 
     folly::Future<folly::IOBufQueue> readFromCache(
@@ -262,9 +264,11 @@ private:
 
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([=, s = weak_from_this(),
-                                                      fileId =
-                                                          m_handle.fileId()]() {
+        return readData->promise.getFuture().thenValue([=, s = weak_from_this(),
+                                                           fileId =
+                                                               m_handle
+                                                                   .fileId()](
+                                                           auto && /*unit*/) {
             folly::call_once(readData->measureLatencyFlag, [&] {
                 if (auto self = s.lock()) {
                     const auto latency =

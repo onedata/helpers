@@ -13,9 +13,9 @@
 #include <boost/variant.hpp>
 #include <boost/variant/apply_visitor.hpp>
 #include <folly/Executor.h>
-#include <folly/ThreadName.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/futures/Promise.h>
+#include <folly/system/ThreadName.h>
 #include <gtest/gtest.h>
 
 #include <chrono>

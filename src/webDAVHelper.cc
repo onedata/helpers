@@ -20,6 +20,7 @@
 #include <boost/filesystem.hpp>
 #include <folly/Format.h>
 #include <folly/SocketAddress.h>
+#include <folly/io/SocketOptionMap.h>
 #include <folly/io/async/HHWheelTimer.h>
 #include <folly/io/async/SSLOptions.h>
 #include <glog/stl_logging.h>
@@ -214,10 +215,12 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
     }
 
     return helper->connect(sessionPoolKey)
-        .then([fileId = m_fileId, redirectURL, offset, size, retryCount,
-                  timer = std::move(timer),
-                  helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
-                  self = shared_from_this()](WebDAVSession *session) mutable {
+        .thenValue([fileId = m_fileId, redirectURL, offset, size, retryCount,
+                       timer = std::move(timer),
+                       helper =
+                           std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
+                       self = shared_from_this()](
+                       WebDAVSession *session) mutable {
             auto getRequest =
                 std::make_shared<WebDAVGET>(helper.get(), session);
 
@@ -225,50 +228,59 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
                 getRequest->setRedirectURL(redirectURL);
 
             return (*getRequest)(fileId, offset, size)
-                .onError([fileId, self, offset, size, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV read request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->read(offset, size, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([self, helper, offset, size, retryCount](
-                             std::system_error &e) {
-                    if (e.code().value() == ERANGE) {
-                        return folly::makeFuture<folly::IOBufQueue>(
-                            folly::IOBufQueue(
-                                folly::IOBufQueue::cacheChainLength()));
-                    }
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, offset, size, retryCount](auto &&redirect) {
+                        LOG_DBG(2) << "Redirecting WebDAV read request of file "
+                                   << fileId << " to: " << redirect.location;
+                        return self->read(offset, size, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [self, helper, evb = session->evb, offset, size,
+                        retryCount](auto &&e) {
+                        if (e.code().value() == ERANGE) {
+                            return folly::makeFuture<folly::IOBufQueue>(
+                                folly::IOBufQueue(
+                                    folly::IOBufQueue::cacheChainLength()));
+                        }
 
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.read.retries");
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([self, offset, size, retryCount]() {
-                                return self->read(offset, size, retryCount - 1);
-                            });
-                    }
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.read.retries");
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([self, offset, size, retryCount](
+                                               auto /*unit*/) {
+                                    return self->read(
+                                        offset, size, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::IOBufQueue>(
-                        e.code().value());
-                })
-                .onError([self, helper, offset, size, retryCount](
-                             const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.read.retries");
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([self, offset, size, retryCount]() {
-                                return self->read(offset, size, retryCount - 1);
-                            });
-                    }
+                        return makeFuturePosixException<folly::IOBufQueue>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [self, helper, evb = session->evb, offset, size,
+                        retryCount](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.read.retries");
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([self, offset, size, retryCount](
+                                               auto && /*unit*/) {
+                                    return self->read(
+                                        offset, size, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::IOBufQueue>(EIO);
-                })
-                .then([timer = std::move(timer), getRequest, helper](
-                          folly::IOBufQueue &&buf) {
+                        return makeFuturePosixException<folly::IOBufQueue>(EIO);
+                    })
+                .thenValue([timer = std::move(timer), getRequest, helper](
+                               folly::IOBufQueue &&buf) {
                     ONE_METRIC_TIMERCTX_STOP(timer, buf.chainLength());
                     return std::move(buf);
                 });
@@ -279,7 +291,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     return write(offset, std::move(buf), kWebDAVRetryCount)
-        .then([writeCb = std::move(writeCb)](std::size_t written) {
+        .thenValue([writeCb = std::move(writeCb)](std::size_t &&written) {
             if (writeCb)
                 writeCb(written);
             return written;
@@ -303,11 +315,12 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
     }
 
     return helper->connect(sessionPoolKey)
-        .then([fileId = m_fileId, offset, buf = std::move(buf),
-                  timer = std::move(timer), retryCount, redirectURL,
-                  helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
-                  s = std::weak_ptr<WebDAVFileHandle>{shared_from_this()}](
-                  WebDAVSession *session) mutable {
+        .thenValue([fileId = m_fileId, offset, buf = std::move(buf),
+                       timer = std::move(timer), retryCount, redirectURL,
+                       helper =
+                           std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
+                       s = std::weak_ptr<WebDAVFileHandle>{shared_from_this()}](
+                       WebDAVSession *session) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<std::size_t>(ECANCELED);
@@ -347,54 +360,61 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
                     : (*std::dynamic_pointer_cast<WebDAVPUT>(request))(
                           fileId, offset, std::move(iobuf));
 
-                return req
-                    .then(session->evb,
-                        [size, timer = std::move(timer), helper, request,
-                            fileId]() {
-                            ONE_METRIC_TIMERCTX_STOP(timer, size);
-                            return size;
+                return std::move(req)
+                    .via(session->evb)
+                    .thenValue([size, timer = std::move(timer), helper, request,
+                                   fileId](auto && /*unit*/) {
+                        ONE_METRIC_TIMERCTX_STOP(timer, size);
+                        return size;
+                    })
+                    .thenError(folly::tag_t<WebDAVFoundException>{},
+                        [fileId, self, offset, queue, retryCount](
+                            auto &&redirect) {
+                            LOG_DBG(2)
+                                << "Redirecting WebDAV write request of file "
+                                << fileId << " to: " << redirect.location;
+                            return self->write(offset, std::move(*queue),
+                                retryCount - 1, Poco::URI(redirect.location));
                         })
-                    .onError([fileId, self, offset, queue, retryCount](
-                                 const WebDAVFoundException &redirect) {
-                        LOG_DBG(2)
-                            << "Redirecting WebDAV write request of file "
-                            << fileId << " to: " << redirect.location;
-                        return self->write(offset, std::move(*queue),
-                            retryCount - 1, Poco::URI(redirect.location));
-                    })
-                    .onError([self, offset, queue, retryCount](
-                                 std::system_error &e) mutable {
-                        if (shouldRetryError(e.code().value()) &&
-                            retryCount > 0) {
+                    .thenError(folly::tag_t<std::system_error>{},
+                        [self, evb = session->evb, offset, queue, retryCount](
+                            auto &&e) mutable {
+                            if (shouldRetryError(e.code().value()) &&
+                                retryCount > 0) {
 
-                            ONE_METRIC_COUNTER_INC(
-                                "comp.helpers.mod.webdav.write.retries");
-                            return folly::makeFuture()
-                                .delayed(retryDelay(retryCount))
-                                .then([self, offset, retryCount,
-                                          queue = std::move(queue)]() {
-                                    return self->write(offset,
-                                        std::move(*queue), retryCount - 1);
-                                });
-                        }
-                        return makeFuturePosixException<std::size_t>(
-                            e.code().value());
-                    })
-                    .onError([self, offset, queue, retryCount](
-                                 const proxygen::HTTPException & /*unused*/) {
-                        if (retryCount > 0) {
+                                ONE_METRIC_COUNTER_INC(
+                                    "comp.helpers.mod.webdav.write.retries");
+                                return folly::makeSemiFuture()
+                                    .via(evb)
+                                    .delayed(retryDelay(retryCount))
+                                    .thenValue([self, offset, retryCount,
+                                                   queue = std::move(queue)](
+                                                   auto && /*unit*/) {
+                                        return self->write(offset,
+                                            std::move(*queue), retryCount - 1);
+                                    });
+                            }
+                            return makeFuturePosixException<std::size_t>(
+                                e.code().value());
+                        })
+                    .thenError(folly::tag_t<proxygen::HTTPException>{},
+                        [self, evb = session->evb, offset, queue, retryCount](
+                            auto && /*unused*/) {
+                            if (retryCount > 0) {
 
-                            ONE_METRIC_COUNTER_INC(
-                                "comp.helpers.mod.webdav.write.retries");
-                            return folly::makeFuture()
-                                .delayed(retryDelay(retryCount))
-                                .then([self, offset, retryCount, queue]() {
-                                    return self->write(offset,
-                                        std::move(*queue), retryCount - 1);
-                                });
-                        }
-                        return makeFuturePosixException<std::size_t>(EIO);
-                    });
+                                ONE_METRIC_COUNTER_INC(
+                                    "comp.helpers.mod.webdav.write.retries");
+                                return folly::makeSemiFuture()
+                                    .via(evb)
+                                    .delayed(retryDelay(retryCount))
+                                    .thenValue([self, offset, retryCount,
+                                                   queue](auto && /*unit*/) {
+                                        return self->write(offset,
+                                            std::move(*queue), retryCount - 1);
+                                    });
+                            }
+                            return makeFuturePosixException<std::size_t>(EIO);
+                        });
             }
 
             return makeFuturePosixException<std::size_t>(ENOTSUP);
@@ -493,9 +513,9 @@ folly::Future<folly::Unit> WebDAVHelper::access(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, timer = std::move(timer), retryCount,
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, timer = std::move(timer), retryCount,
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -505,45 +525,54 @@ folly::Future<folly::Unit> WebDAVHelper::access(const folly::fbstring &fileId,
             folly::fbvector<folly::fbstring> propFilter;
 
             return (*request)(fileId, 0, propFilter)
-                .then(session->evb,
-                    [](PAPtr<pxml::Document> && /*multistatus*/) {
-                        return folly::makeFuture();
+                .via(session->evb)
+                .thenValue([](PAPtr<pxml::Document> && /*multistatus*/) {
+                    return folly::makeFuture();
+                })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV access request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->access(fileId, {}, retryCount - 1,
+                            Poco::URI(redirect.location));
                     })
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV access request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->access(fileId, {}, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.access.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->access(fileId, {}, retryCount - 1);
-                            });
-                    }
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.access.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->access(
+                                        fileId, {}, retryCount - 1);
+                                });
+                        }
 
-                    LOG_DBG(2) << "Received access error " << e.code().value();
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.access.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->access(fileId, {}, retryCount - 1);
-                            });
-                    }
+                        LOG_DBG(2)
+                            << "Received access error " << e.code().value();
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.access.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->access(
+                                        fileId, {}, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(EIO);
-                });
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
         });
 }
 
@@ -567,9 +596,9 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, timer = std::move(timer), retryCount,
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, timer = std::move(timer), retryCount,
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<struct stat>(ECANCELED);
@@ -579,108 +608,115 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
             folly::fbvector<folly::fbstring> propFilter;
 
             return (*request)(fileId, 0, propFilter)
-                .then(session->evb,
-                    [&nsMap = self->m_nsMap, fileId, request,
-                        fileMode = self->P()->fileMode(),
-                        dirMode = self->P()->dirMode()](
-                        PAPtr<pxml::Document> &&multistatus) {
-                        struct stat attrs {
-                        };
+                .via(session->evb)
+                .thenValue([&nsMap = self->m_nsMap, fileId, request,
+                               fileMode = self->P()->fileMode(),
+                               dirMode = self->P()->dirMode()](
+                               PAPtr<pxml::Document> &&multistatus) {
+                    struct stat attrs {
+                    };
 
-                        auto resourceType = multistatus->getNodeByPathNS(
-                            "d:multistatus/d:response/d:propstat/d:prop/"
-                            "d:resourcetype",
-                            nsMap);
+                    auto resourceType = multistatus->getNodeByPathNS(
+                        "d:multistatus/d:response/d:propstat/d:prop/"
+                        "d:resourcetype",
+                        nsMap);
 
-                        if (!resourceType->hasChildNodes()) {
-                            // Regular file
-                            attrs.st_mode = S_IFREG | fileMode;
+                    if (!resourceType->hasChildNodes()) {
+                        // Regular file
+                        attrs.st_mode = S_IFREG | fileMode;
+                    }
+                    else {
+                        // Collection
+                        attrs.st_mode = S_IFDIR | dirMode;
+                    }
+
+                    auto getLastModified = multistatus->getNodeByPathNS(
+                        "d:multistatus/d:response/d:propstat/d:prop/"
+                        "d:getlastmodified",
+                        nsMap);
+
+                    if (getLastModified != nullptr) {
+                        int timeZoneDifferential = 0;
+                        auto dateStr = getLastModified->innerText();
+                        auto dateTime = Poco::DateTimeParser::parse(
+                            Poco::DateTimeFormat::RFC1123_FORMAT, dateStr,
+                            timeZoneDifferential);
+
+                        attrs.st_atim.tv_sec = attrs.st_mtim.tv_sec =
+                            attrs.st_ctim.tv_sec =
+                                dateTime.timestamp().epochTime();
+                        attrs.st_atim.tv_nsec = attrs.st_mtim.tv_nsec =
+                            attrs.st_ctim.tv_nsec = 0;
+                    }
+
+                    auto getContentLength = multistatus->getNodeByPathNS(
+                        "d:multistatus/d:response/d:propstat/d:prop/"
+                        "d:getcontentlength",
+                        nsMap);
+
+                    if ((getContentLength != nullptr) &&
+                        !getContentLength->innerText().empty()) {
+                        try {
+                            attrs.st_size =
+                                std::stoi(getContentLength->innerText());
                         }
-                        else {
-                            // Collection
-                            attrs.st_mode = S_IFDIR | dirMode;
-                        }
+                        catch (const std::invalid_argument &e) {
+                            LOG(ERROR) << "Failed to parse resource content "
+                                          "length: '"
+                                       << getContentLength->innerText()
+                                       << "' for resource: " << fileId;
 
-                        auto getLastModified = multistatus->getNodeByPathNS(
-                            "d:multistatus/d:response/d:propstat/d:prop/"
-                            "d:getlastmodified",
-                            nsMap);
-
-                        if (getLastModified != nullptr) {
-                            int timeZoneDifferential = 0;
-                            auto dateStr = getLastModified->innerText();
-                            auto dateTime = Poco::DateTimeParser::parse(
-                                Poco::DateTimeFormat::RFC1123_FORMAT, dateStr,
-                                timeZoneDifferential);
-
-                            attrs.st_atim.tv_sec = attrs.st_mtim.tv_sec =
-                                attrs.st_ctim.tv_sec =
-                                    dateTime.timestamp().epochTime();
-                            attrs.st_atim.tv_nsec = attrs.st_mtim.tv_nsec =
-                                attrs.st_ctim.tv_nsec = 0;
-                        }
-
-                        auto getContentLength = multistatus->getNodeByPathNS(
-                            "d:multistatus/d:response/d:propstat/d:prop/"
-                            "d:getcontentlength",
-                            nsMap);
-
-                        if ((getContentLength != nullptr) &&
-                            !getContentLength->innerText().empty()) {
-                            try {
-                                attrs.st_size =
-                                    std::stoi(getContentLength->innerText());
-                            }
-                            catch (const std::invalid_argument &e) {
-                                LOG(ERROR)
-                                    << "Failed to parse resource content "
-                                       "length: '"
-                                    << getContentLength->innerText()
-                                    << "' for resource: " << fileId;
-
-                                attrs.st_size = 0;
-                            }
-                        }
-                        else {
                             attrs.st_size = 0;
                         }
+                    }
+                    else {
+                        attrs.st_size = 0;
+                    }
 
-                        return attrs;
+                    return attrs;
+                })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV getattr request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->getattr(fileId, retryCount - 1,
+                            Poco::URI(redirect.location));
                     })
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV getattr request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->getattr(
-                        fileId, retryCount - 1, Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.getattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->getattr(fileId, retryCount - 1);
-                            });
-                    }
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.getattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->getattr(
+                                        fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<struct stat>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.getattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->getattr(fileId, retryCount - 1);
-                            });
-                    }
+                        return makeFuturePosixException<struct stat>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.getattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->getattr(
+                                        fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<struct stat>(EIO);
-                });
+                        return makeFuturePosixException<struct stat>(EIO);
+                    });
         });
 }
 
@@ -706,9 +742,9 @@ folly::Future<folly::Unit> WebDAVHelper::unlink(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -716,41 +752,49 @@ folly::Future<folly::Unit> WebDAVHelper::unlink(const folly::fbstring &fileId,
             auto request = std::make_shared<WebDAVDELETE>(self.get(), session);
 
             return (*request)(fileId)
-                .then(session->evb, [request]() { return folly::makeFuture(); })
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV unlink request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->unlink(fileId, {}, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.unlink.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->unlink(fileId, retryCount - 1);
-                            });
-                    }
+                .via(session->evb)
+                .thenValue(
+                    [request](auto && /*unit*/) { return folly::makeFuture(); })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV unlink request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->unlink(fileId, {}, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.unlink.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->unlink(fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.unlink.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->unlink(fileId, retryCount - 1);
-                            });
-                    }
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.unlink.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->unlink(fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(EIO);
-                });
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
         });
 }
 
@@ -774,9 +818,9 @@ folly::Future<folly::Unit> WebDAVHelper::rmdir(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -784,40 +828,48 @@ folly::Future<folly::Unit> WebDAVHelper::rmdir(const folly::fbstring &fileId,
             auto request = std::make_shared<WebDAVDELETE>(self.get(), session);
 
             return (*request)(fileId)
-                .then(session->evb, [request]() { return folly::makeFuture(); })
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV rmdir request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->rmdir(
-                        fileId, retryCount - 1, Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.rmdir.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->rmdir(fileId, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.rmdir.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->rmdir(fileId, retryCount - 1);
-                            });
-                    }
+                .via(session->evb)
+                .thenValue(
+                    [request](auto && /*unit*/) { return folly::makeFuture(); })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV rmdir request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->rmdir(fileId, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.rmdir.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->rmdir(fileId, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.rmdir.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->rmdir(fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(EIO);
-                });
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
         });
 }
 
@@ -851,9 +903,10 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, retryCount, timer = std::move(timer), size, currentSize,
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, retryCount, timer = std::move(timer), size,
+                       currentSize,
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -862,50 +915,61 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
 
             if (size == 0) {
                 return (*request)(fileId, size, folly::IOBuf::create(0))
-                    .then(session->evb,
-                        [request]() { return folly::makeFuture(); });
+                    .via(session->evb)
+                    .thenValue([request](auto && /*unit*/) {
+                        return folly::makeFuture();
+                    });
             }
 
             auto fillBuf = folly::IOBuf::create(size - currentSize);
             for (auto i = 0ul; i < static_cast<size_t>(size) - currentSize; i++)
                 fillBuf->writableData()[i] = 0;
             return (*request)(fileId, size, std::move(fillBuf))
-                .then(session->evb, [request]() { return folly::makeFuture(); })
-                .onError([fileId, size, currentSize, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV truncate request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->truncate(fileId, size, currentSize,
-                        retryCount - 1, Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.truncate.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->truncate(
-                                    fileId, size, currentSize, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.truncate.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->truncate(
-                                    fileId, size, currentSize, retryCount - 1);
-                            });
-                    }
+                .via(session->evb)
+                .thenValue(
+                    [request](auto && /*unit*/) { return folly::makeFuture(); })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, size, currentSize, self, retryCount](
+                        auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV truncate request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->truncate(fileId, size, currentSize,
+                            retryCount - 1, Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.truncate.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->truncate(fileId, size,
+                                        currentSize, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.truncate.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->truncate(fileId, size,
+                                        currentSize, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(EIO);
-                });
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
         });
 }
 
@@ -931,9 +995,9 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -941,56 +1005,64 @@ folly::Future<folly::Unit> WebDAVHelper::mknod(const folly::fbstring &fileId,
             auto request = std::make_shared<WebDAVPUT>(self.get(), session);
 
             return (*request)(fileId, 0, std::make_unique<folly::IOBuf>())
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV mknod request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->mknod(fileId, {}, {}, {}, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([self, fileId, retryCount](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        return self->mknod(fileId, {}, {}, {});
-                    }
-
-                    if (e.code().value() == EPERM && retryCount > 0) {
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
                         LOG_DBG(2)
-                            << "Received EPERM when creating file " << fileId
-                            << " - could be missing parent directory...";
-
-                        // EPERM during mknod can be returned in case some
-                        // directory on the path doesn't exist, if this is the
-                        // case, return ENOENT instead
-                        Poco::StringTokenizer pathElements(fileId.toStdString(),
-                            "/",
-                            Poco::StringTokenizer::TOK_IGNORE_EMPTY |
-                                Poco::StringTokenizer::TOK_TRIM);
-                        folly::fbstring tempPath = "/";
-                        std::vector<folly::Future<struct stat>> futs;
-                        for (auto i = 0ul; i < pathElements.count() - 1; i++) {
-                            if (pathElements[i].empty())
-                                continue;
-                            tempPath += pathElements[i] + "/";
-                            futs.emplace_back(self->getattr(tempPath));
+                            << "Redirecting WebDAV mknod request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->mknod(fileId, {}, {}, {}, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [self, evb = session->evb, fileId, retryCount](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            return self->mknod(fileId, {}, {}, {});
                         }
-                        return folly::collectAll(futs).then(
-                            [](const std::vector<folly::Try<struct stat>>
-                                    &tries) {
-                                for (const auto &t : tries) {
-                                    if (t.hasException())
-                                        return makeFuturePosixException<
-                                            folly::Unit>(ENOENT);
-                                }
 
-                                return makeFuturePosixException<folly::Unit>(
-                                    EPERM);
-                            });
-                    }
+                        if (e.code().value() == EPERM && retryCount > 0) {
+                            LOG_DBG(2)
+                                << "Received EPERM when creating file "
+                                << fileId
+                                << " - could be missing parent directory...";
 
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .then(session->evb, [request] { return folly::makeFuture(); });
+                            // EPERM during mknod can be returned in case some
+                            // directory on the path doesn't exist, if this is
+                            // the case, return ENOENT instead
+                            Poco::StringTokenizer pathElements(
+                                fileId.toStdString(), "/",
+                                Poco::StringTokenizer::TOK_IGNORE_EMPTY |
+                                    Poco::StringTokenizer::TOK_TRIM);
+                            folly::fbstring tempPath = "/";
+                            std::vector<folly::Future<struct stat>> futs;
+                            for (auto i = 0ul; i < pathElements.count() - 1;
+                                 i++) {
+                                if (pathElements[i].empty())
+                                    continue;
+                                tempPath += pathElements[i] + "/";
+                                futs.emplace_back(self->getattr(tempPath));
+                            }
+                            return folly::collectAll(futs).via(evb).thenValue(
+                                [](std::vector<folly::Try<struct stat>>
+                                        &&tries) {
+                                    for (const auto &t : tries) {
+                                        if (t.hasException())
+                                            return makeFuturePosixException<
+                                                folly::Unit>(ENOENT);
+                                    }
+
+                                    return makeFuturePosixException<
+                                        folly::Unit>(EPERM);
+                                });
+                        }
+
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .via(session->evb)
+                .thenValue([request](auto && /*unit*/) {
+                    return folly::makeFuture();
+                });
         });
 }
 
@@ -1018,9 +1090,9 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -1028,47 +1100,55 @@ folly::Future<folly::Unit> WebDAVHelper::mkdir(const folly::fbstring &fileId,
             auto request = std::make_shared<WebDAVMKCOL>(self.get(), session);
 
             return (*request)(fileId)
-                .then(session->evb, [request]() { return folly::makeFuture(); })
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV mkdir request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->mkdir(fileId, {}, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (e.code().value() == ENOTSUP) {
-                        // Some WebDAV implementations return MethodNotAllowed
-                        // error in case the collection at given path already
-                        // exists
-                        return folly::makeFuture();
-                    }
+                .via(session->evb)
+                .thenValue(
+                    [request](auto && /*unit*/) { return folly::makeFuture(); })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV mkdir request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->mkdir(fileId, {}, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (e.code().value() == ENOTSUP) {
+                            // Some WebDAV implementations return
+                            // MethodNotAllowed error in case the collection at
+                            // given path already exists
+                            return folly::makeFuture();
+                        }
 
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.mkdir.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->mkdir(fileId, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.mkdir.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->mkdir(fileId, retryCount - 1);
-                            });
-                    }
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.mkdir.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->mkdir(fileId, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.mkdir.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->mkdir(fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(EIO);
-                });
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
         });
 }
 
@@ -1094,9 +1174,9 @@ folly::Future<folly::Unit> WebDAVHelper::rename(const folly::fbstring &from,
     }
 
     return connect(sessionPoolKey)
-        .then([from, to, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([from, to, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -1104,40 +1184,50 @@ folly::Future<folly::Unit> WebDAVHelper::rename(const folly::fbstring &from,
             auto request = std::make_shared<WebDAVMOVE>(self.get(), session);
 
             return (*request)(from, to)
-                .then(session->evb, [request]() { return folly::makeFuture(); })
-                .onError([from, to, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV rename request of file "
-                               << from << " to: " << redirect.location;
-                    return self->rename(
-                        from, to, retryCount - 1, Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.rename.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->rename(from, to, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<folly::Unit>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.rename.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->rename(from, to, retryCount - 1);
-                            });
-                    }
+                .via(session->evb)
+                .thenValue(
+                    [request](auto && /*unit*/) { return folly::makeFuture(); })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [from, to, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV rename request of file "
+                            << from << " to: " << redirect.location;
+                        return self->rename(from, to, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.rename.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->rename(
+                                        from, to, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.rename.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->rename(
+                                        from, to, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<folly::Unit>(EIO);
-                });
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
         });
 }
 
@@ -1166,9 +1256,9 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, offset, count, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, offset, count, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<
@@ -1179,129 +1269,134 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
             folly::fbvector<folly::fbstring> propFilter;
 
             return (*request)(fileId, 1, propFilter)
-                .then(session->evb,
-                    [&nsMap = self->m_nsMap, offset, count,
-                        endpointPath =
-                            std::string(self->P()->endpoint().getPath()),
-                        fileId, request](PAPtr<pxml::Document> &&multistatus) {
-                        try {
-                            PAPtr<pxml::NodeList> responses =
-                                multistatus->getElementsByTagNameNS(
-                                    kNSDAV, "response");
+                .via(session->evb)
+                .thenValue([&nsMap = self->m_nsMap, offset, count,
+                               endpointPath =
+                                   std::string(self->P()->endpoint().getPath()),
+                               fileId,
+                               request](PAPtr<pxml::Document> &&multistatus) {
+                    try {
+                        PAPtr<pxml::NodeList> responses =
+                            multistatus->getElementsByTagNameNS(
+                                kNSDAV, "response");
 
-                            folly::fbvector<folly::fbstring> result;
+                        folly::fbvector<folly::fbstring> result;
 
-                            Poco::StringTokenizer fileIdElements(
-                                fileId.toStdString(), "/",
+                        Poco::StringTokenizer fileIdElements(
+                            fileId.toStdString(), "/",
+                            Poco::StringTokenizer::TOK_IGNORE_EMPTY |
+                                Poco::StringTokenizer::TOK_TRIM);
+
+                        auto entryCount = responses->length();
+
+                        if (static_cast<size_t>(offset) >= entryCount)
+                            return result;
+
+                        result.reserve(responses->length());
+
+                        auto directoryPath = ensureCollectionPath(fileId);
+
+                        auto rootPath =
+                            buildRootPath(endpointPath, fileId.toStdString());
+
+                        for (auto i = 0ul; i < entryCount; i++) {
+                            auto response = responses->item(i);
+                            if (response == nullptr ||
+                                !response->hasChildNodes())
+                                continue;
+
+                            nsMap.declarePrefix("d", kNSDAV);
+                            auto href =
+                                response->getNodeByPathNS("d:href", nsMap);
+
+                            if (href == nullptr)
+                                continue;
+
+                            Poco::StringTokenizer pathElements(
+                                href->innerText(), "/",
                                 Poco::StringTokenizer::TOK_IGNORE_EMPTY |
                                     Poco::StringTokenizer::TOK_TRIM);
 
-                            auto entryCount = responses->length();
+                            Poco::StringTokenizer rootElements(rootPath, "/",
+                                Poco::StringTokenizer::TOK_IGNORE_EMPTY |
+                                    Poco::StringTokenizer::TOK_TRIM);
 
-                            if (static_cast<size_t>(offset) >= entryCount)
-                                return result;
-
-                            result.reserve(responses->length());
-
-                            auto directoryPath = ensureCollectionPath(fileId);
-
-                            auto rootPath = buildRootPath(
-                                endpointPath, fileId.toStdString());
-
-                            for (auto i = 0ul; i < entryCount; i++) {
-                                auto response = responses->item(i);
-                                if (response == nullptr ||
-                                    !response->hasChildNodes())
-                                    continue;
-
-                                nsMap.declarePrefix("d", kNSDAV);
-                                auto href =
-                                    response->getNodeByPathNS("d:href", nsMap);
-
-                                if (href == nullptr)
-                                    continue;
-
-                                Poco::StringTokenizer pathElements(
-                                    href->innerText(), "/",
-                                    Poco::StringTokenizer::TOK_IGNORE_EMPTY |
-                                        Poco::StringTokenizer::TOK_TRIM);
-
-                                Poco::StringTokenizer rootElements(rootPath,
-                                    "/",
-                                    Poco::StringTokenizer::TOK_IGNORE_EMPTY |
-                                        Poco::StringTokenizer::TOK_TRIM);
-
-                                if (pathElements.count() > 0 &&
-                                    (rootElements.count() !=
-                                        pathElements.count())) {
-                                    auto pa =
-                                        pathElements[pathElements.count() - 1];
-                                    LOG_DBG(3)
-                                        << "WebDAV::readdir: Added '" << pa
-                                        << "' to response dir list. (rootPath "
-                                           "= "
-                                        << rootPath << ")";
-                                    result.emplace_back(std::move(pa));
-                                }
+                            if (pathElements.count() > 0 &&
+                                (rootElements.count() !=
+                                    pathElements.count())) {
+                                auto pa =
+                                    pathElements[pathElements.count() - 1];
+                                LOG_DBG(3)
+                                    << "WebDAV::readdir: Added '" << pa
+                                    << "' to response dir list. (rootPath "
+                                       "= "
+                                    << rootPath << ")";
+                                result.emplace_back(std::move(pa));
                             }
-
-                            std::sort(result.begin(), result.end());
-
-                            if ((offset > 0) || (count < entryCount)) {
-                                folly::fbvector<folly::fbstring> subResult;
-                                std::copy_n(result.begin() + offset,
-                                    std::min<size_t>(
-                                        count, result.size() - offset),
-                                    std::back_inserter(subResult));
-                                return subResult;
-                            }
-
-                            return result;
                         }
-                        catch (std::exception &e) {
-                            LOG(ERROR) << "Invalid response from server when "
-                                          "trying to "
-                                          "read directory "
-                                       << fileId << ": " << e.what();
-                            throw makePosixException(EIO);
+
+                        std::sort(result.begin(), result.end());
+
+                        if ((offset > 0) || (count < entryCount)) {
+                            folly::fbvector<folly::fbstring> subResult;
+                            std::copy_n(result.begin() + offset,
+                                std::min<size_t>(count, result.size() - offset),
+                                std::back_inserter(subResult));
+                            return subResult;
                         }
+
+                        return result;
+                    }
+                    catch (std::exception &e) {
+                        LOG(ERROR) << "Invalid response from server when "
+                                      "trying to "
+                                      "read directory "
+                                   << fileId << ": " << e.what();
+                        throw makePosixException(EIO);
+                    }
+                })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, offset, count, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV readdir request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->readdir(fileId, offset, count,
+                            retryCount - 1, Poco::URI(redirect.location));
                     })
-                .onError([fileId, offset, count, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV readdir request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->readdir(fileId, offset, count, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.readdir.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->readdir(
-                                    fileId, offset, count, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<
-                        folly::fbvector<folly::fbstring>>(e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.readdir.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->readdir(
-                                    fileId, offset, count, retryCount - 1);
-                            });
-                    }
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.readdir.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->readdir(
+                                        fileId, offset, count, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<
+                            folly::fbvector<folly::fbstring>>(e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.readdir.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->readdir(
+                                        fileId, offset, count, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<
-                        folly::fbvector<folly::fbstring>>(EIO);
-                });
+                        return makeFuturePosixException<
+                            folly::fbvector<folly::fbstring>>(EIO);
+                    });
         });
 }
 
@@ -1327,9 +1422,9 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, name, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, name, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::fbstring>(ECANCELED);
@@ -1339,76 +1434,81 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
             folly::fbvector<folly::fbstring> propFilter;
 
             return (*request)(fileId, 0, propFilter)
-                .then(session->evb,
-                    [&nsMap = self->m_nsMap, fileId, name, request](
-                        PAPtr<pxml::Document> &&multistatus) {
-                        std::string nameEncoded;
-                        Poco::URI::encode(name.toStdString(), "", nameEncoded);
-                        auto attributeNode = multistatus->getNodeByPathNS(
-                            folly::sformat(
-                                "d:multistatus/d:response/d:propstat/d:prop/"
-                                "o:{}",
-                                nameEncoded),
-                            nsMap);
+                .via(session->evb)
+                .thenValue([&nsMap = self->m_nsMap, fileId, name, request](
+                               PAPtr<pxml::Document> &&multistatus) {
+                    std::string nameEncoded;
+                    Poco::URI::encode(name.toStdString(), "", nameEncoded);
+                    auto attributeNode = multistatus->getNodeByPathNS(
+                        folly::sformat(
+                            "d:multistatus/d:response/d:propstat/d:prop/"
+                            "o:{}",
+                            nameEncoded),
+                        nsMap);
 
-                        folly::fbstring result;
+                    folly::fbstring result;
 
-                        if ((attributeNode != nullptr) &&
-                            (attributeNode->childNodes()->length() == 1)) {
-                            auto attributeValueNode =
-                                attributeNode->firstChild();
-                            if ((attributeValueNode != nullptr) &&
-                                (attributeValueNode->nodeType() ==
-                                    pxml::Node::TEXT_NODE)) {
-                                result = attributeNode->innerText();
-                            }
-                            else {
-                                LOG(WARNING) << "Unprocessable " << name
-                                             << " property value returned for "
-                                             << fileId;
-                            }
+                    if ((attributeNode != nullptr) &&
+                        (attributeNode->childNodes()->length() == 1)) {
+                        auto attributeValueNode = attributeNode->firstChild();
+                        if ((attributeValueNode != nullptr) &&
+                            (attributeValueNode->nodeType() ==
+                                pxml::Node::TEXT_NODE)) {
+                            result = attributeNode->innerText();
                         }
                         else {
-                            throw makePosixException(ENODATA);
+                            LOG(WARNING)
+                                << "Unprocessable " << name
+                                << " property value returned for " << fileId;
+                        }
+                    }
+                    else {
+                        throw makePosixException(ENODATA);
+                    }
+
+                    return result;
+                })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, name, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV getxattr request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->getxattr(fileId, name, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.getxattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->getxattr(
+                                        fileId, name, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<folly::fbstring>(
+                            e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.getxattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->getxattr(
+                                        fileId, name, retryCount - 1);
+                                });
                         }
 
-                        return result;
-                    })
-                .onError([fileId, name, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV getxattr request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->getxattr(fileId, name, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.getxattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->getxattr(
-                                    fileId, name, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<folly::fbstring>(
-                        e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.getxattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->getxattr(
-                                    fileId, name, retryCount - 1);
-                            });
-                    }
-
-                    return makeFuturePosixException<folly::fbstring>(EIO);
-                });
+                        return makeFuturePosixException<folly::fbstring>(EIO);
+                    });
         });
 }
 
@@ -1428,7 +1528,7 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.setxattr");
 
     if (P()->testTokenRefreshMode()) {
-        return connect().then([] {});
+        return connect().thenValue([](auto && /*unit*/) {});
     }
 
     auto sessionPoolKey = WebDAVSessionPoolKey{};
@@ -1439,9 +1539,9 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, name, value, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, name, value, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -1450,41 +1550,48 @@ folly::Future<folly::Unit> WebDAVHelper::setxattr(const folly::fbstring &fileId,
                 std::make_shared<WebDAVPROPPATCH>(self.get(), session);
 
             return (*request)(fileId, name, value, false)
-                .then(session->evb, [fileId, name, request]() {})
-                .onError([fileId, name, value, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2) << "Redirecting WebDAV setxattr request of file "
-                               << fileId << " to: " << redirect.location;
-                    return self->setxattr(fileId, name, value, {}, {},
-                        retryCount - 1, Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.setxattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->setxattr(fileId, name, value, {},
-                                    {}, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException(e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.setxattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->setxattr(fileId, name, value, {},
-                                    {}, retryCount - 1);
-                            });
-                    }
+                .via(session->evb)
+                .thenValue([fileId, name, request](auto && /*unit*/) {})
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, name, value, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV setxattr request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->setxattr(fileId, name, value, {}, {},
+                            retryCount - 1, Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.setxattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->setxattr(fileId, name, value,
+                                        {}, {}, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException(e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.setxattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->setxattr(fileId, name, value,
+                                        {}, {}, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException(EIO);
-                });
+                        return makeFuturePosixException(EIO);
+                    });
         });
 }
 
@@ -1504,7 +1611,7 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
         ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.removexattr");
 
     if (P()->testTokenRefreshMode()) {
-        return connect().then([] {});
+        return connect().thenValue([](auto && /*unit*/) {});
     }
 
     auto sessionPoolKey = WebDAVSessionPoolKey{};
@@ -1515,9 +1622,9 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, name, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, name, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -1526,42 +1633,48 @@ folly::Future<folly::Unit> WebDAVHelper::removexattr(
                 std::make_shared<WebDAVPROPPATCH>(self.get(), session);
 
             return (*request)(fileId, name, "", true)
-                .then(session->evb, [fileId, name, request]() {})
-                .onError([fileId, name, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2)
-                        << "Redirecting WebDAV removexattr request of file "
-                        << fileId << " to: " << redirect.location;
-                    return self->removexattr(fileId, name, retryCount - 1,
-                        Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.removexatr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->removexattr(
-                                    fileId, name, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException(e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.removexattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->removexattr(
-                                    fileId, name, retryCount - 1);
-                            });
-                    }
+                .via(session->evb)
+                .thenValue([fileId, name, request](auto && /*unit*/) {})
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, name, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV removexattr request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->removexattr(fileId, name, retryCount - 1,
+                            Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.removexatr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->removexattr(
+                                        fileId, name, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException(e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.removexattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->removexattr(
+                                        fileId, name, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException(EIO);
-                });
+                        return makeFuturePosixException(EIO);
+                    });
         });
 }
 
@@ -1588,9 +1701,9 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
     }
 
     return connect(sessionPoolKey)
-        .then([fileId, retryCount, timer = std::move(timer),
-                  s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
-                  WebDAVSession *session) {
+        .thenValue([fileId, retryCount, timer = std::move(timer),
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       WebDAVSession *session) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<
@@ -1601,64 +1714,70 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
             folly::fbvector<folly::fbstring> propFilter;
 
             return (*request)(fileId, 0, propFilter)
-                .then(session->evb,
-                    [&nsMap = self->m_nsMap, fileId, request](
-                        PAPtr<pxml::Document> &&multistatus) {
-                        folly::fbvector<folly::fbstring> result;
+                .via(session->evb)
+                .thenValue([&nsMap = self->m_nsMap, fileId, request](
+                               PAPtr<pxml::Document> &&multistatus) {
+                    folly::fbvector<folly::fbstring> result;
 
-                        auto prop = multistatus->getNodeByPathNS(
-                            "d:multistatus/d:response/d:propstat/d:prop",
-                            nsMap);
+                    auto prop = multistatus->getNodeByPathNS(
+                        "d:multistatus/d:response/d:propstat/d:prop", nsMap);
 
-                        if (prop != nullptr) {
-                            for (auto i = 0ul; i < prop->childNodes()->length();
-                                 i++) {
-                                auto property = prop->childNodes()->item(i);
+                    if (prop != nullptr) {
+                        for (auto i = 0ul; i < prop->childNodes()->length();
+                             i++) {
+                            auto property = prop->childNodes()->item(i);
 
-                                // Filter out Onedata extended attributes
-                                if (property->namespaceURI() == kNSOnedata) {
-                                    result.emplace_back(property->localName());
-                                }
+                            // Filter out Onedata extended attributes
+                            if (property->namespaceURI() == kNSOnedata) {
+                                result.emplace_back(property->localName());
                             }
                         }
+                    }
 
-                        return result;
+                    return result;
+                })
+                .thenError(folly::tag_t<WebDAVFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting WebDAV listxattr request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->listxattr(fileId, retryCount - 1,
+                            Poco::URI(redirect.location));
                     })
-                .onError([fileId, self, retryCount](
-                             const WebDAVFoundException &redirect) {
-                    LOG_DBG(2)
-                        << "Redirecting WebDAV listxattr request of file "
-                        << fileId << " to: " << redirect.location;
-                    return self->listxattr(
-                        fileId, retryCount - 1, Poco::URI(redirect.location));
-                })
-                .onError([=](std::system_error &e) {
-                    if (shouldRetryError(e.code().value()) && retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.listxattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->listxattr(fileId, retryCount - 1);
-                            });
-                    }
-                    return makeFuturePosixException<
-                        folly::fbvector<folly::fbstring>>(e.code().value());
-                })
-                .onError([=](const proxygen::HTTPException & /*unused*/) {
-                    if (retryCount > 0) {
-                        ONE_METRIC_COUNTER_INC(
-                            "comp.helpers.mod.webdav.listxattr.retries")
-                        return folly::makeFuture()
-                            .delayed(retryDelay(retryCount))
-                            .then([=]() {
-                                return self->listxattr(fileId, retryCount - 1);
-                            });
-                    }
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=, evb = session->evb](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.listxattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->listxattr(
+                                        fileId, retryCount - 1);
+                                });
+                        }
+                        return makeFuturePosixException<
+                            folly::fbvector<folly::fbstring>>(e.code().value());
+                    })
+                .thenError(folly::tag_t<proxygen::HTTPException>{},
+                    [=, evb = session->evb](auto && /*unused*/) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.webdav.listxattr.retries")
+                            return folly::makeSemiFuture()
+                                .via(evb)
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->listxattr(
+                                        fileId, retryCount - 1);
+                                });
+                        }
 
-                    return makeFuturePosixException<
-                        folly::fbvector<folly::fbstring>>(EIO);
-                });
+                        return makeFuturePosixException<
+                            folly::fbvector<folly::fbstring>>(EIO);
+                    });
         });
 }
 
@@ -1690,9 +1809,10 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
                       "10ms. In case this message shows frequently, consider "
                       "increasing connectionPoolSize for the given storage.";
         const auto kWebDAVIdleSessionWaitDelay = 10ul;
-        return folly::makeFuture()
+        return folly::makeSemiFuture()
+            .via(webDAVSession->evb)
             .delayed(std::chrono::milliseconds(kWebDAVIdleSessionWaitDelay))
-            .then([this, key]() { return connect(key); });
+            .thenValue([this, key](auto && /*unit*/) { return connect(key); });
     }
 
     assert(webDAVSession != nullptr);
@@ -1705,9 +1825,11 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
         webDAVSession->reset();
     }
 
-    return folly::via(webDAVSession->evb,
-        [this, evb = webDAVSession->evb, webDAVSession,
-            s = std::weak_ptr<WebDAVHelper>{shared_from_this()}]() mutable {
+    return folly::makeSemiFuture()
+        .via(webDAVSession->evb)
+        .thenValue([this, evb = webDAVSession->evb, webDAVSession,
+                       s = std::weak_ptr<WebDAVHelper>{shared_from_this()}](
+                       auto && /*unit*/) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<WebDAVSession *>(ECANCELED);
@@ -1749,7 +1871,7 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
 
                 LOG_DBG(2) << "Connecting to " << host << ":" << port;
 
-                static const folly::AsyncSocket::OptionMap socketOptions{
+                static const folly::SocketOptionMap socketOptions{
                     {{SOL_SOCKET, SO_REUSEADDR}, 1}};
 
                 if (scheme == "https") {
@@ -1787,8 +1909,9 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
                 }
             }
 
-            return webDAVSession->connectionPromise->getFuture().then(
-                evb, [webDAVSession]() mutable {
+            return webDAVSession->connectionPromise->getFuture()
+                .via(evb)
+                .thenValue([webDAVSession](auto && /*unit*/) mutable {
                     return folly::makeFuture<WebDAVSession *>(
                         std::move(webDAVSession)); // NOLINT
                 });
@@ -2059,7 +2182,7 @@ folly::Future<folly::IOBufQueue> WebDAVGET::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then(
+    return startTransaction().thenValue(
         [self = shared_from_this()](proxygen::HTTPTransaction *txn) {
             txn->sendHeaders(self->m_request);
             txn->sendEOM();
@@ -2125,7 +2248,7 @@ folly::Future<folly::Unit> WebDAVPUT::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then(
+    return startTransaction().thenValue(
         [this, buf = std::move(buf)](proxygen::HTTPTransaction *txn) mutable {
             txn->sendHeaders(m_request);
             txn->sendBody(std::move(buf));
@@ -2180,7 +2303,7 @@ folly::Future<folly::Unit> WebDAVPATCH::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then(
+    return startTransaction().thenValue(
         [this, buf = std::move(buf)](proxygen::HTTPTransaction *txn) mutable {
             txn->sendHeaders(m_request);
             txn->sendBody(std::move(buf));
@@ -2230,7 +2353,7 @@ folly::Future<folly::Unit> WebDAVMKCOL::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then([this](proxygen::HTTPTransaction *txn) {
+    return startTransaction().thenValue([this](proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
         txn->sendEOM();
         return m_resultPromise.getFuture();
@@ -2276,8 +2399,9 @@ folly::Future<PAPtr<pxml::Document>> WebDAVPROPFIND::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then(
-        eventBase(), [this](proxygen::HTTPTransaction *txn) {
+    return startTransaction()
+        .via(eventBase())
+        .thenValue([this](proxygen::HTTPTransaction *txn) {
             txn->sendHeaders(m_request);
             txn->sendEOM();
             return m_resultPromise.getFuture();
@@ -2412,13 +2536,14 @@ folly::Future<folly::Unit> WebDAVPROPPATCH::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then([this, body = std::move(propUpdateString)](
-                                       proxygen::HTTPTransaction *txn) {
-        txn->sendHeaders(m_request);
-        txn->sendBody(folly::IOBuf::copyBuffer(body));
-        txn->sendEOM();
-        return m_resultPromise.getFuture();
-    });
+    return startTransaction().thenValue(
+        [this, body = std::move(propUpdateString)](
+            proxygen::HTTPTransaction *txn) {
+            txn->sendHeaders(m_request);
+            txn->sendBody(folly::IOBuf::copyBuffer(body));
+            txn->sendEOM();
+            return m_resultPromise.getFuture();
+        });
 }
 
 void WebDAVPROPPATCH::onHeadersComplete(
@@ -2506,7 +2631,7 @@ folly::Future<folly::Unit> WebDAVDELETE::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then([this](proxygen::HTTPTransaction *txn) {
+    return startTransaction().thenValue([this](proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
         txn->sendEOM();
         return m_resultPromise.getFuture();
@@ -2550,7 +2675,7 @@ folly::Future<folly::Unit> WebDAVMOVE::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then([this](proxygen::HTTPTransaction *txn) {
+    return startTransaction().thenValue([this](proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
         txn->sendEOM();
         return m_resultPromise.getFuture();
@@ -2594,7 +2719,7 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
 
     m_destructionGuard = shared_from_this();
 
-    return startTransaction().then([this](proxygen::HTTPTransaction *txn) {
+    return startTransaction().thenValue([this](proxygen::HTTPTransaction *txn) {
         txn->sendHeaders(m_request);
         txn->sendEOM();
         return m_resultPromise.getFuture();

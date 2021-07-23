@@ -422,7 +422,7 @@ folly::Future<std::size_t> PosixFileHandle::write(
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.posix.write");
     return opScheduler
         ->schedule(WriteOp{{}, offset, std::move(buf), std::move(timer)})
-        .then([writeCb = std::move(writeCb)](std::size_t written) {
+        .thenValue([writeCb = std::move(writeCb)](std::size_t &&written) {
             if (writeCb)
                 writeCb(written);
             return written;

@@ -42,6 +42,11 @@ public:
     void prepareForDaemonize();
     void restartAfterDaemonize();
 
+    std::shared_ptr<folly::IOThreadPoolExecutor> executor()
+    {
+        return m_executor;
+    }
+
     /**
      * Runs a task asynchronously in @c Scheduler's thread pool.
      * @param task The task to execute.
@@ -92,9 +97,9 @@ public:
         auto f = std::make_shared<folly::Future<folly::Unit>>(
             folly::via(m_executor.get())
                 .delayed(after)
-                .then(
+                .thenValue(
                     [e = std::weak_ptr<folly::IOThreadPoolExecutor>(m_executor),
-                        t = std::forward<F>(task)]() {
+                        t = std::forward<F>(task)](auto && /*unit*/) {
                         if (auto executor = e.lock()) {
                             t();
                         }
