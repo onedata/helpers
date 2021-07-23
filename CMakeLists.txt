@@ -163,7 +163,7 @@ endif(WITH_GLUSTERFS)
 
 # WebDAV libraries
 if(WITH_WEBDAV)
-    find_library(PROXYGEN_LIBRARY proxygenlib REQUIRED)
+    find_library(PROXYGEN_LIBRARY proxygen REQUIRED)
     add_definitions(-DWITH_WEBDAV=1)
 else(WITH_WEBDAV)
     add_definitions(-DWITH_WEBDAV=0)
