@@ -15,6 +15,7 @@
 #include "messages/pong.h"
 #include "testUtils.h"
 
+#include <folly/executors/GlobalExecutor.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -36,6 +37,11 @@ struct LowerLayer {
         std::function<void(const std::error_code &ec, ServerMessagePtr)>;
 
     LowerLayer &mock = static_cast<LowerLayer &>(*this);
+
+    std::shared_ptr<folly::Executor> executor()
+    {
+        return folly::getIOExecutor();
+    }
 
     MOCK_METHOD2(sendProxy, void(clproto::ClientMessage, int));
 

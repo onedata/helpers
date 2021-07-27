@@ -65,12 +65,12 @@ auto AsyncResponder<LowerLayer>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
     return LowerLayer::setOnMessageCallback(
-        [onMessageCallback = std::move(onMessageCallback)](
+        [onMessageCallback = std::move(onMessageCallback),
+            exec = LowerLayer::executor().get()](
             ServerMessagePtr serverMsg) mutable {
-            folly::getIOExecutor()->add(
-                [&, serverMsg = std::move(serverMsg)]() mutable {
-                    onMessageCallback(std::move(serverMsg));
-                });
+            exec->add([&, serverMsg = std::move(serverMsg)]() mutable {
+                onMessageCallback(std::move(serverMsg));
+            });
         });
 }
 

@@ -67,7 +67,7 @@ void log_ssl_info_callback(const SSL *s, int where, int ret)
 #endif
 
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
-    const std::size_t /*workersNumber*/, std::string host, const uint16_t port,
+    const std::size_t workersNumber, std::string host, const uint16_t port,
     const bool verifyServerCertificate, const bool clprotoUpgrade,
     const bool clprotoHandshake, const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
@@ -78,7 +78,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_clprotoUpgrade{clprotoUpgrade}
     , m_clprotoHandshake{clprotoHandshake}
     , m_connected{false}
-    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(1)}
+    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(workersNumber)}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
@@ -197,7 +197,7 @@ void ConnectionPool::connect()
             })
             .thenError(folly::tag_t<folly::exception_wrapper>{},
                 [this](auto &&ew) {
-                    return folly::makeFuture()
+                    return folly::makeSemiFuture()
                         .via(m_executor.get())
                         .thenValue([this](auto && /*unit*/) { return close(); })
                         .thenValue(
@@ -338,9 +338,10 @@ void ConnectionPool::send(
 
     client->getPipeline()
         ->write(message)
-        .via(m_executor.get())
+        .via(folly::getCPUExecutor().get())
         .thenValue(
             [callback](auto && /*unit*/) { callback(std::error_code{}); })
+        .via(m_executor.get())
         .thenValue([this, client](auto && /*unit*/) {
             m_idleConnections.emplace(client); // NOLINT
             LOG_DBG(3) << "Message sent";

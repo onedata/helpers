@@ -238,6 +238,11 @@ public:
 
     folly::fbstring name() const override { return m_helper->name(); }
 
+    std::shared_ptr<folly::Executor> executor() override
+    {
+        return m_helper->executor();
+    }
+
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &params) override
     {

@@ -62,6 +62,7 @@ public:
         , m_handle{handle}
         , m_scheduler{std::move(scheduler)}
         , m_readCache{std::move(readCache)}
+        , m_writeFuture{handle.helper()->executor().get()}
     {
         LOG_FCALL() << LOG_FARG(writeBufferMinSize)
                     << LOG_FARG(writeBufferMaxSize)
@@ -211,13 +212,18 @@ private:
                 .thenValue([confirmationPromise](auto && /*unit*/) {
                     confirmationPromise->setValue();
                 })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [confirmationPromise](auto &&e) {
+                        confirmationPromise->setException(std::move(e));
+                    })
                 .thenError(folly::tag_t<folly::exception_wrapper>{},
                     [confirmationPromise](auto &&ew) {
                         confirmationPromise->setException(std::move(ew));
                     });
 
-        m_confirmationFutures.emplace(
-            std::make_pair(sentSize, confirmationPromise->getFuture()));
+        m_confirmationFutures.emplace(std::make_pair(sentSize,
+            confirmationPromise->getSemiFuture().via(
+                m_handle.helper()->executor().get())));
     }
 
     folly::Future<folly::Unit> confirmOverThreshold()
@@ -247,12 +253,13 @@ private:
             m_confirmationFutures.pop();
         }
 
-        return folly::collectAll(confirmFutures)
-            .via(m_scheduler->executor().get())
+        return folly::collectAll(std::move(confirmFutures))
+            .via(m_handle.helper()->executor().get())
             .thenValue([](std::vector<folly::Try<folly::Unit>> &&tries) {
                 for (const auto &t : tries) {
-                    if (t.hasException())
+                    if (t.hasException()) {
                         return folly::makeFuture<folly::Unit>(t.exception());
+                    }
                 }
 
                 return folly::makeFuture();
@@ -288,7 +295,7 @@ private:
 
     FiberMutex m_mutex;
     std::size_t m_pendingConfirmation = 0;
-    folly::Future<folly::Unit> m_writeFuture = folly::makeFuture();
+    folly::Future<folly::Unit> m_writeFuture;
     std::queue<std::pair<off_t, folly::Future<folly::Unit>>>
         m_confirmationFutures;
 };

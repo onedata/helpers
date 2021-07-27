@@ -161,8 +161,9 @@ void Status::throwOnError() const
     if (!m_code)
         return;
 
-    if (m_description)
+    if (m_description) {
         throw std::system_error{m_code, m_description.get()};
+    }
 
     throw std::system_error{m_code};
 }

@@ -61,6 +61,8 @@ public:
         return one::helpers::ASYNC_OPS_TIMEOUT;
     }
 
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
+
 private:
     std::shared_ptr<folly::Executor> m_executor;
     std::atomic<bool> &m_wasSimultaneous;
@@ -158,6 +160,7 @@ protected:
 
         auto wrappedHelper =
             std::make_shared<StorageHelper>(executor, wasSimultaneous);
+
         helper = std::make_shared<one::helpers::buffering::BufferAgent>(
             limits, wrappedHelper, scheduler, std::move(memoryLimitGuard));
     }

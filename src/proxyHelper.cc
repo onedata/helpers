@@ -43,11 +43,12 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.proxy.read");
 
-    LOG_DBG(2) << "Attempting to read " << size << " bytes from file "
+    LOG(ERROR) << "Attempting to read " << size << " bytes from file "
                << m_fileId;
 
     return m_communicator
         .communicate<messages::proxyio::RemoteData>(std::move(msg))
+        .via(m_communicator.executor().get())
         .thenValue([timer = std::move(timer)](
                        messages::proxyio::RemoteData &&rd) mutable {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
@@ -100,6 +101,7 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
 
     return m_communicator
         .communicate<messages::proxyio::RemoteWriteResult>(std::move(msg))
+        .via(m_communicator.executor().get())
         .within(m_timeout,
             std::system_error{std::make_error_code(std::errc::timed_out)})
         .thenValue([timer = std::move(timer),
@@ -140,9 +142,13 @@ folly::Future<FileHandlePtr> ProxyHelper::open(
     LOG_DBG(2) << "Attempting to open file " << fileId << " with flags "
                << LOG_OCT(flags);
 
-    return folly::makeFuture(static_cast<FileHandlePtr>(
-        std::make_shared<ProxyFileHandle>(fileId, m_storageId, openParams,
-            m_communicator, shared_from_this(), m_timeout)));
+    return folly::makeSemiFuture()
+        .via(m_communicator.executor().get())
+        .thenValue([&, this](auto && /*unit*/) {
+            return std::dynamic_pointer_cast<FileHandle>(
+                std::make_shared<ProxyFileHandle>(fileId, m_storageId,
+                    openParams, m_communicator, shared_from_this(), m_timeout));
+        });
 }
 
 } // namespace helpers
