@@ -94,7 +94,7 @@ public:
                     if (ec) {
                         LOG(ERROR) << "Handshake error: " << ec.message() << "("
                                    << ec.value() << ")";
-                        promise->setException(std::system_error{ec});
+                        promise->setException(std::system_error {ec});
                     }
                     else
                         promise->setValue();
@@ -126,7 +126,7 @@ public:
             if (ec) {
                 LOG(ERROR) << "Reply error: " << ec.message() << "("
                            << ec.value() << ")";
-                promise->setException(std::system_error{ec});
+                promise->setException(std::system_error {ec});
             }
             else
                 promise->setValue();
@@ -165,18 +165,19 @@ public:
                 LOG(ERROR) << "Communicate error: " << ec.message() << "("
                            << ec.value() << ")";
 
-                promise->setException(std::system_error{ec});
+                promise->setException(std::system_error {ec});
             }
             else {
                 promise->setWith(
                     [protoMessage = std::move(protoMessage)]() mutable {
-                        return SvrMsg{std::move(protoMessage)};
+                        return SvrMsg {std::move(protoMessage)};
                     });
             }
         };
 
-        LowerLayer::communicate(
-            messages::serialize(std::move(msg)), std::move(callback), retries);
+        // NOLINTNEXTLINE
+        LowerLayer::communicate(messages::serialize(std::move(msg)),
+            std::move(callback), retries);
 
         return future;
     }
@@ -196,7 +197,7 @@ auto Translator<LowerLayer>::send(
         if (ec) {
             LOG(ERROR) << "Send error: " << ec.message() << "(" << ec.value()
                        << ")";
-            promise->setException(std::system_error{ec});
+            promise->setException(std::system_error {ec});
         }
         else
             promise->setValue();
@@ -225,7 +226,7 @@ decltype(auto) wait(
     assert(timeout > 0ms);
     return std::forward<Future>(future)
         .within(timeout,
-            std::system_error{std::make_error_code(std::errc::timed_out)})
+            std::system_error {std::make_error_code(std::errc::timed_out)})
         .get();
 }
 

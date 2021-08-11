@@ -182,7 +182,7 @@ public:
         std::shared_ptr<folly::Executor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
-    folly::fbstring name() const { return POSIX_HELPER_NAME; };
+    folly::fbstring name() const override { return POSIX_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -276,7 +276,7 @@ public:
      * @param service @c io_service that will be used for some async operations.
      */
     PosixHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
-        : m_executor{executor}
+        : m_executor{std::move(executor)}
     {
     }
 

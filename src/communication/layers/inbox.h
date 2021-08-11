@@ -142,7 +142,7 @@ void Inbox<LowerLayer>::communicate(
             if (message->has_fuse_request()) {
                 auto fuseRequest = message->fuse_request();
                 if (fuseRequest.has_file_request()) {
-                    auto fileRequest = fuseRequest.file_request();
+                    const auto &fileRequest = fuseRequest.file_request();
                     auto fileRequestCase = fileRequest.file_request_case();
                     messageName = "fuse_request.file_request." +
                         fileRequest.GetDescriptor()

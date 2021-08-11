@@ -204,13 +204,13 @@ static inline std::string print_stacktrace()
     char **symbollist = backtrace_symbols(addrlist, addrlen);
 
     // allocate string which will be filled with the demangled function name
-    size_t funcnamesize = 256;
-    char *funcname = (char *)malloc(funcnamesize);
+    size_t funcnamesize = 256; // NOLINT
+    char *funcname = (char *)malloc(funcnamesize); // NOLINT
 
     // iterate over the returned symbol lines. skip the first, it is the
     // address of this function.
     for (int i = 1; i < addrlen; i++) {
-        char *begin_name = 0, *begin_offset = 0, *end_offset = 0;
+        char *begin_name = 0, *begin_offset = 0, *end_offset = 0; // NOLINT
 
         // find parentheses and +address offset surrounding the mangled name:
         // ./module(function+0x15c) [0x8048a6d]
@@ -260,8 +260,8 @@ static inline std::string print_stacktrace()
 
     return out.str();
 }
-}
-}
+} // logging
+} // one
 
 // Definition of custom spdlog based loggers
 namespace one {
