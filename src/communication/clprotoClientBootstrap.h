@@ -50,7 +50,7 @@ public:
 
     bool connected();
 
-    bool handshakeDone();
+    bool handshakeDone() const;
 
     void setEOFCallback(std::function<void(void)> eofCallback);
 

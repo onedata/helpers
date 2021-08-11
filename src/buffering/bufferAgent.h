@@ -223,7 +223,7 @@ public:
     BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
         std::shared_ptr<Scheduler> scheduler,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
-        : m_bufferLimits{std::move(bufferLimits)}
+        : m_bufferLimits{bufferLimits}
         , m_helper{std::move(helper)}
         , m_scheduler{std::move(scheduler)}
         , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
@@ -253,12 +253,12 @@ public:
             .thenValue(
                 [fileId, agent = shared_from_this(), bl = m_bufferLimits,
                     memoryLimitGuard = m_bufferMemoryLimitGuard,
-                    scheduler = m_scheduler](FileHandlePtr &&handle) {
+                    scheduler = m_scheduler](FileHandlePtr &&handle) mutable {
                     if (memoryLimitGuard->reserveBuffers(
                             bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
                         return static_cast<FileHandlePtr>(
                             std::make_shared<BufferedFileHandle>(
-                                std::move(fileId), std::move(handle), bl,
+                                fileId, std::move(handle), bl,
                                 scheduler, std::move(agent), memoryLimitGuard));
                     }
 
@@ -268,7 +268,7 @@ public:
                         << " due to exhausted overall buffer limit by already "
                            "opened files.";
 
-                    return handle;
+                    return std::move(handle);
                 });
     }
 
@@ -442,7 +442,7 @@ private:
     std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
 };
 
-} // namespace proxyio
+} // namespace buffering
 } // namespace helpers
 } // namespace one
 

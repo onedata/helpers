@@ -56,13 +56,13 @@ public:
         const std::chrono::seconds writeBufferFlushDelay, FileHandle &handle,
         std::shared_ptr<Scheduler> scheduler,
         std::shared_ptr<ReadCache> readCache)
-        : m_writeBufferMinSize{writeBufferMinSize}
-        , m_writeBufferMaxSize{writeBufferMaxSize}
-        , m_writeBufferFlushDelay{writeBufferFlushDelay}
-        , m_handle{handle}
-        , m_scheduler{std::move(scheduler)}
-        , m_readCache{std::move(readCache)}
-        , m_writeFuture{handle.helper()->executor().get()}
+        : m_writeBufferMinSize {writeBufferMinSize}
+        , m_writeBufferMaxSize {writeBufferMaxSize}
+        , m_writeBufferFlushDelay {writeBufferFlushDelay}
+        , m_handle {handle}
+        , m_scheduler {std::move(scheduler)}
+        , m_readCache {std::move(readCache)}
+        , m_writeFuture {handle.helper()->executor().get()}
     {
         LOG_FCALL() << LOG_FARG(writeBufferMinSize)
                     << LOG_FARG(writeBufferMaxSize)
@@ -86,7 +86,7 @@ public:
 
         log_timer<> timer;
 
-        std::unique_lock<FiberMutex> lock{m_mutex};
+        std::unique_lock<FiberMutex> lock {m_mutex};
 
         m_cancelFlushSchedule();
         scheduleFlush();
@@ -130,7 +130,7 @@ public:
     {
         LOG_FCALL();
 
-        std::unique_lock<FiberMutex> lock{m_mutex};
+        std::unique_lock<FiberMutex> lock {m_mutex};
         pushBuffer();
         return confirmAll();
     }
@@ -142,7 +142,7 @@ public:
         m_cancelFlushSchedule = m_scheduler->schedule(m_writeBufferFlushDelay,
             [s = std::weak_ptr<WriteBuffer>(shared_from_this())] {
                 if (auto self = s.lock()) {
-                    std::unique_lock<FiberMutex> lock{self->m_mutex};
+                    std::unique_lock<FiberMutex> lock {self->m_mutex};
                     self->pushBuffer();
                     self->scheduleFlush();
                 }
@@ -183,7 +183,7 @@ private:
                     if (auto self = s.lock())
                         return self->m_handle.multiwrite(std::move(buffers));
 
-                    return folly::makeFuture<std::size_t>(std::system_error{
+                    return folly::makeFuture<std::size_t>(std::system_error {
                         std::make_error_code(std::errc::owner_dead)});
                 })
                 .thenValue([startPoint, sentSize, fileId = m_handle.fileId(),
@@ -200,7 +200,8 @@ private:
                             .count();
 
                     if (duration > 0) {
-                        auto bandwidth = sentSize * 1'000'000'000 / duration;
+                        constexpr auto kBillion = 1'000'000'000ULL;
+                        auto bandwidth = sentSize * kBillion / duration;
                         self->m_bps = (self->m_bps * 1 + bandwidth * 2) / 3;
                     }
 
@@ -212,13 +213,15 @@ private:
                 .thenValue([confirmationPromise](auto && /*unit*/) {
                     confirmationPromise->setValue();
                 })
-                .thenError(folly::tag_t<std::system_error>{},
+                .thenError(folly::tag_t<std::system_error> {},
                     [confirmationPromise](auto &&e) {
-                        confirmationPromise->setException(std::move(e));
+                        confirmationPromise->setException(
+                            std::forward<decltype(e)>(e));
                     })
-                .thenError(folly::tag_t<folly::exception_wrapper>{},
+                .thenError(folly::tag_t<folly::exception_wrapper> {},
                     [confirmationPromise](auto &&ew) {
-                        confirmationPromise->setException(std::move(ew));
+                        confirmationPromise->setException(
+                            std::forward<decltype(ew)>(ew));
                     });
 
         m_confirmationFutures.emplace(std::make_pair(sentSize,
@@ -274,7 +277,8 @@ private:
 
     std::size_t calculateConfirmThreshold()
     {
-        return 6 * calculateFlushThreshold();
+        constexpr auto kThresholdMultiplier = 6;
+        return kThresholdMultiplier * calculateFlushThreshold();
     }
 
     std::size_t m_writeBufferMinSize;
@@ -291,7 +295,7 @@ private:
     off_t m_nextOffset = 0;
     folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
         m_buffers;
-    std::atomic<std::size_t> m_bps{0};
+    std::atomic<std::size_t> m_bps {0};
 
     FiberMutex m_mutex;
     std::size_t m_pendingConfirmation = 0;
@@ -300,7 +304,7 @@ private:
         m_confirmationFutures;
 };
 
-} // namespace proxyio
+} // namespace buffering
 } // namespace helpers
 } // namespace one
 

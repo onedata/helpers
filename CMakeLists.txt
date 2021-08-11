@@ -289,7 +289,11 @@ if(CLANG_TIDY)
     add_custom_target(clang-tidy COMMAND ${CLANG_TIDY}
         -export-fixes clang-tidy-suggested-fixes.yaml
         -j ${CLANG_TIDY_PARALLEL_JOBS}
-        -extra-arg=-DTBB_USE_GLIBCXX_VERSION=50400
+        -extra-arg="-DTBB_USE_GLIBCXX_VERSION=50400"
+        #-extra-arg="-DFOLLY_USE_JEMALLOC=0"
+        #-extra-arg="-DFOLLY_SANITIZE=0"
+        #-extra-arg="-DJEMALLOC_EXPORT=__declspec\(nothrow\)"
+        #-extra-arg="-D__THROW="
         ${CLANG_TIDY_SOURCES})
 else(CLANG_TIDY)
     message(STATUS "run-clang-tidy script not found - target clang-tidy not available")

@@ -588,7 +588,7 @@ folly::Future<folly::Unit> CephHelper::connect()
 
 int CephHelper::removeStriperLocks(const folly::fbstring &fileId)
 {
-    int exclusive;
+    int exclusive{0};
     std::string tag;
     std::list<librados::locker_t> lockers;
 

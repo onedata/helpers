@@ -178,12 +178,8 @@ folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
             locks->insert(acc, m_fileId);
             auto g = folly::makeGuard([&]() mutable { locks->erase(acc); });
 
-            if (size == 0) {
-                folly::makeFuture<std::size_t>(static_cast<std::size_t>(
-                    helper->modifyObject(m_fileId, std::move(buf), offset)));
-            }
-            else {
-                folly::makeFuture<std::size_t>(static_cast<std::size_t>(
+            if (size > 0) {
+                return folly::makeFuture<std::size_t>(static_cast<std::size_t>(
                     helper->modifyObject(m_fileId, std::move(buf), offset)));
             }
 

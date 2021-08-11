@@ -529,8 +529,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
 
             LOG_DBG(2) << "Attempting to read directory " << filePath;
 
-            DIR *dir;
-            struct dirent *dp;
+            DIR *dir{nullptr};
+            struct dirent *dp{nullptr};
             dir = retry([&]() { return opendir(filePath.c_str()); },
                 [](DIR *d) {
                     return d != nullptr ||
@@ -634,7 +634,7 @@ folly::Future<folly::Unit> PosixHelper::mknod(const folly::fbstring &fileId,
             if (!userCTX.valid())
                 return makeFuturePosixException(EDOM);
 
-            int res;
+            int res{0};
 
             /* On Linux this could just be 'mknod(path, mode, rdev)' but
                this is more portable */

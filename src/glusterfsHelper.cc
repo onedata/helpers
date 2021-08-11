@@ -585,8 +585,8 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
     return connect().thenValue([this, filePath = root(fileId), offset, count,
                                    uid = m_uid, gid = m_gid](auto && /*unit*/) {
         folly::fbvector<folly::fbstring> ret;
-        glfs_fd_t *dir;
-        struct dirent *dp;
+        glfs_fd_t *dir{nullptr};
+        struct dirent *dp{nullptr};
 
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);

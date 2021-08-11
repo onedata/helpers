@@ -283,7 +283,7 @@ bool CLProtoClientBootstrap::connected()
     return getPipeline()->getTransport()->good();
 }
 
-bool CLProtoClientBootstrap::handshakeDone() { return m_handshakeDone; }
+bool CLProtoClientBootstrap::handshakeDone() const { return m_handshakeDone; }
 
 uint32_t CLProtoClientBootstrap::connectionId() const { return m_connectionId; }
 } // namespace communication

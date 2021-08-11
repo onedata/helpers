@@ -31,7 +31,7 @@ namespace cert {
 class CertificateData;
 } // namespace cert
 
-namespace {
+namespace detail {
 const auto kDefaultProviderTimeout = 120ul;
 }
 
@@ -68,7 +68,7 @@ public:
         std::string host, uint16_t port, bool verifyServerCertificate,
         bool clprotoUpgrade = true, bool clprotoHandshake = true,
         const std::chrono::seconds providerTimeout = std::chrono::seconds{
-            kDefaultProviderTimeout});
+        detail::kDefaultProviderTimeout});
 
     ConnectionPool(const ConnectionPool &) = delete;
     ConnectionPool &operator=(const ConnectionPool &) = delete;
