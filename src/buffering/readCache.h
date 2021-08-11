@@ -40,8 +40,8 @@ class ReadCache : public std::enable_shared_from_this<ReadCache> {
     struct ReadData {
         ReadData(
             const off_t offset_, const std::size_t size_, const bool isPrefetch)
-            : offset {offset_}
-            , size {size_}
+            : offset{offset_}
+            , size{size_}
         {
             if (!isPrefetch)
                 folly::call_once(measureLatencyFlag, [] {});
@@ -49,12 +49,12 @@ class ReadCache : public std::enable_shared_from_this<ReadCache> {
 
         std::chrono::steady_clock::time_point t() const
         {
-            return std::chrono::steady_clock::time_point {t_.load()};
+            return std::chrono::steady_clock::time_point{t_.load()};
         }
 
         off_t offset;
         std::atomic<std::size_t> size;
-        std::atomic<std::chrono::steady_clock::duration> t_ {
+        std::atomic<std::chrono::steady_clock::duration> t_{
             std::chrono::steady_clock::duration::max()};
         folly::once_flag measureLatencyFlag;
         folly::IOBufQueue buf;
@@ -66,12 +66,12 @@ public:
         std::chrono::seconds readBufferPrefetchDuration,
         double prefetchPowerBase, std::chrono::nanoseconds targetLatency,
         FileHandle &handle)
-        : m_readBufferMinSize {readBufferMinSize}
-        , m_readBufferMaxSize {readBufferMaxSize}
-        , m_cacheDuration {readBufferPrefetchDuration * 2}
-        , m_prefetchPowerBase {prefetchPowerBase}
-        , m_targetLatency {static_cast<std::size_t>(targetLatency.count())}
-        , m_handle {handle}
+        : m_readBufferMinSize{readBufferMinSize}
+        , m_readBufferMaxSize{readBufferMaxSize}
+        , m_cacheDuration{readBufferPrefetchDuration * 2}
+        , m_prefetchPowerBase{prefetchPowerBase}
+        , m_targetLatency{static_cast<std::size_t>(targetLatency.count())}
+        , m_handle{handle}
     {
         LOG_FCALL() << LOG_FARG(readBufferMinSize)
                     << LOG_FARG(readBufferMaxSize)
@@ -84,7 +84,7 @@ public:
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
         DCHECK(continuousSize >= size);
 
-        std::unique_lock<FiberMutex> lock {m_mutex};
+        std::unique_lock<FiberMutex> lock{m_mutex};
         if (m_clear) {
             LOG_DBG(2) << "Clearing cache for file " << m_handle.fileId();
             m_cache.clear();
@@ -133,7 +133,7 @@ public:
     {
         LOG_FCALL();
 
-        std::unique_lock<FiberMutex> lock {m_mutex};
+        std::unique_lock<FiberMutex> lock{m_mutex};
         m_clear = true;
     }
 
@@ -222,12 +222,12 @@ private:
                         std::chrono::steady_clock::now().time_since_epoch();
                     readData->promise.setValue();
                 })
-            .thenError(folly::tag_t<std::system_error> {},
+            .thenError(folly::tag_t<std::system_error>{},
                 [readData = m_cache.back()](auto &&e) {
                     readData->promise.setException(
                         std::forward<decltype(e)>(e));
                 })
-            .thenError(folly::tag_t<folly::exception_wrapper> {},
+            .thenError(folly::tag_t<folly::exception_wrapper>{},
                 [readData = m_cache.back()](auto &&ew) {
                     readData->promise.setException(
                         std::forward<decltype(ew)>(ew));
@@ -291,7 +291,7 @@ private:
                     }
                 });
 
-                folly::IOBufQueue buf {folly::IOBufQueue::cacheChainLength()};
+                folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 if (readData->buf.empty() ||
                     static_cast<off_t>(readData->offset +
                         readData->buf.chainLength()) < offset) {
@@ -370,12 +370,12 @@ private:
 
     double m_prefetchCoeff = 1.0;
     std::size_t m_blockSize = 0;
-    std::atomic<std::size_t> m_latency {m_targetLatency * 2};
+    std::atomic<std::size_t> m_latency{m_targetLatency * 2};
 
     FiberMutex m_mutex;
     std::deque<std::shared_ptr<ReadData>> m_cache;
-    bool m_clear {false};
-    std::chrono::steady_clock::time_point m_lastCacheRefresh {};
+    bool m_clear{false};
+    std::chrono::steady_clock::time_point m_lastCacheRefresh{};
 };
 
 } // namespace buffering

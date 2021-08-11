@@ -68,7 +68,7 @@ public:
         std::string host, uint16_t port, bool verifyServerCertificate,
         bool clprotoUpgrade = true, bool clprotoHandshake = true,
         const std::chrono::seconds providerTimeout = std::chrono::seconds{
-        detail::kDefaultProviderTimeout});
+            detail::kDefaultProviderTimeout});
 
     ConnectionPool(const ConnectionPool &) = delete;
     ConnectionPool &operator=(const ConnectionPool &) = delete;

@@ -257,9 +257,9 @@ public:
                     if (memoryLimitGuard->reserveBuffers(
                             bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
                         return static_cast<FileHandlePtr>(
-                            std::make_shared<BufferedFileHandle>(
-                                fileId, std::move(handle), bl,
-                                scheduler, std::move(agent), memoryLimitGuard));
+                            std::make_shared<BufferedFileHandle>(fileId,
+                                std::move(handle), bl, scheduler,
+                                std::move(agent), memoryLimitGuard));
                     }
 
                     LOG_DBG(1)
