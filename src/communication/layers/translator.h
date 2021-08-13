@@ -152,7 +152,7 @@ public:
     {
         LOG_FCALL() << LOG_FARG(retries);
 
-        LOG(ERROR) << "Communicating clproto message: {" << msg.toString()
+        LOG_DBG(4) << "Communicating clproto message: {" << msg.toString()
                    << "}";
 
         auto promise = std::make_shared<folly::Promise<SvrMsg>>();

@@ -43,7 +43,7 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.proxy.read");
 
-    LOG(ERROR) << "Attempting to read " << size << " bytes from file "
+    LOG_DBG(2) << "Attempting to read " << size << " bytes from file "
                << m_fileId;
 
     return m_communicator
