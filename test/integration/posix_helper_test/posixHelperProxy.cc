@@ -61,7 +61,7 @@ public:
             ExecutionContext::ONECLIENT);
     }
 
-    ~PosixHelperProxy() {}
+    ~PosixHelperProxy() { m_executor->join(); }
 
     void open(std::string fileId, int flags)
     {
@@ -256,7 +256,7 @@ public:
     std::string mountpoint() { return m_helper->mountPoint().c_str(); }
 
 private:
-    std::shared_ptr<folly::IOExecutor> m_executor;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
     std::shared_ptr<one::helpers::PosixHelper> m_helper;
 };
 
