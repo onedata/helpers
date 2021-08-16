@@ -149,8 +149,8 @@ public:
 
     std::string communicateReceive()
     {
-        return m_future
-            ->within(10s,
+        return std::move(*m_future)
+            .within(10s,
                 std::system_error{std::make_error_code(std::errc::timed_out)})
             .get()
             .protocolMsg()

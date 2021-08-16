@@ -43,14 +43,14 @@ public:
     CLProtoClientBootstrap(
         uint32_t id, bool performCLProtoUpgrade, bool performCLProtoHandshake);
 
-    void makePipeline(std::shared_ptr<folly::AsyncSocket> socket) override;
+    void makePipeline(std::shared_ptr<folly::AsyncTransport> socket) override;
 
     folly::Future<folly::Unit> connect(
         const folly::fbstring &host, int port, size_t reconnectAttempt = 0);
 
     bool connected();
 
-    bool handshakeDone();
+    bool handshakeDone() const;
 
     void setEOFCallback(std::function<void(void)> eofCallback);
 

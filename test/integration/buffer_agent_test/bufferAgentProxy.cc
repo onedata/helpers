@@ -35,7 +35,7 @@ class BufferAgentProxy {
 public:
     BufferAgentProxy(
         std::string storageId, std::string host, const unsigned short port)
-        : m_communicator{5, 2, host, port, false, true, false}
+        : m_communicator{1, 1, host, port, false, true, false}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
         , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
               one::helpers::buffering::BufferLimits{},
@@ -71,9 +71,9 @@ public:
     {
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-        buf.append(data);
+        buf.append(std::move(data));
         return handle->write(offset, std::move(buf), {})
-            .then([handle](int size) { return size; })
+            .thenValue([handle](int &&size) { return size; })
             .get();
     }
 
@@ -81,9 +81,9 @@ public:
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([handle](const folly::IOBufQueue &buf) {
+            .thenTry([handle](folly::Try<folly::IOBufQueue> buf) {
                 std::string data;
-                buf.appendToString(data);
+                std::move(buf.value()).appendToString(data);
                 return data;
             })
             .get();
@@ -92,6 +92,10 @@ public:
     void release(one::helpers::FileHandlePtr handle)
     {
         ReleaseGIL guard;
+
+        assert(m_communicator.executor().get() ==
+            handle->helper()->executor().get());
+
         handle->release().get();
     }
 

@@ -56,6 +56,7 @@ message(STATUS "Checking for Folly...")
 option(FOLLY_SHARED "Link folly as shared library" ON)
 find_package(Folly REQUIRED)
 find_package(Wangle REQUIRED)
+find_package(Fizz REQUIRED)
 find_library(LIBEVENT_LIBRARY event)
 find_library(IBERTY_LIBRARY iberty)
 find_library(DOUBLE_CONVERSION_LIBRARY double-conversion)
@@ -64,6 +65,7 @@ set(FOLLY_LIBRARIES
     ${LIBEVENT_LIBRARY}
     ${IBERTY_LIBRARY}
     ${WANGLE_LIBRARY}
+    ${FIZZ_LIBRARY}
     ${DOUBLE_CONVERSION_LIBRARY})
 
 # Setup Boost
@@ -163,7 +165,7 @@ endif(WITH_GLUSTERFS)
 
 # WebDAV libraries
 if(WITH_WEBDAV)
-    find_library(PROXYGEN_LIBRARY proxygenlib REQUIRED)
+    find_library(PROXYGEN_LIBRARY proxygen REQUIRED)
     add_definitions(-DWITH_WEBDAV=1)
 else(WITH_WEBDAV)
     add_definitions(-DWITH_WEBDAV=0)
@@ -287,7 +289,11 @@ if(CLANG_TIDY)
     add_custom_target(clang-tidy COMMAND ${CLANG_TIDY}
         -export-fixes clang-tidy-suggested-fixes.yaml
         -j ${CLANG_TIDY_PARALLEL_JOBS}
-        -extra-arg=-DTBB_USE_GLIBCXX_VERSION=50400
+        -extra-arg="-DTBB_USE_GLIBCXX_VERSION=50400"
+        #-extra-arg="-DFOLLY_USE_JEMALLOC=0"
+        #-extra-arg="-DFOLLY_SANITIZE=0"
+        #-extra-arg="-DJEMALLOC_EXPORT=__declspec\(nothrow\)"
+        #-extra-arg="-D__THROW="
         ${CLANG_TIDY_SOURCES})
 else(CLANG_TIDY)
     message(STATUS "run-clang-tidy script not found - target clang-tidy not available")

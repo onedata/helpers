@@ -284,7 +284,7 @@ folly::IOBufQueue S3Helper::getObject(
                     outcomePromise.setValue(std::move(getObjectOutcome));
                 },
                 nullptr);
-            return outcomeFuture.get();
+            return std::move(outcomeFuture).get();
         },
         std::bind(S3RetryCondition<Aws::S3::Model::GetObjectOutcome>,
             std::placeholders::_1, "GetObject"));
@@ -389,7 +389,7 @@ std::size_t S3Helper::putObject(
                 nullptr);
 
             // NOLINTNEXTLINE
-            return outcomeFuture.get();
+            return std::move(outcomeFuture).get();
         },
         std::bind(S3RetryCondition<PutObjectOutcome>, std::placeholders::_1,
             "PutObject"));
@@ -539,7 +539,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
                     },
                     nullptr);
 
-                return outcomeFuture.get();
+                return std::move(outcomeFuture).get();
             },
             std::bind(S3RetryCondition<DeleteObjectsOutcome>,
                 std::placeholders::_1, "DeleteObjects"));
@@ -641,7 +641,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
             },
             nullptr);
 
-        auto uploadPartOutcome = outcomeFuture.get();
+        auto uploadPartOutcome = std::move(outcomeFuture).get();
         // NOLINTNEXTLINE
 
         throwOnError("UploadPartCopyAsync", uploadPartOutcome);
@@ -728,7 +728,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                     outcomePromise.setValue(std::move(listObjectsOutcome));
                 },
                 nullptr);
-            return outcomeFuture.get();
+            return std::move(outcomeFuture).get();
         },
         std::bind(S3RetryCondition<ListObjectsOutcome>, std::placeholders::_1,
             "ListObjects"));
@@ -846,7 +846,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
                     outcomePromise.setValue(std::move(listObjectsOutcome));
                 },
                 nullptr);
-            return outcomeFuture.get();
+            return std::move(outcomeFuture).get();
         },
         std::bind(S3RetryCondition<ListObjectsOutcome>, std::placeholders::_1,
             "ListObjects"));

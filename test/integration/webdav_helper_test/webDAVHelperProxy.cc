@@ -102,10 +102,10 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 return handle->read(offset, size);
             })
-            .then([](folly::IOBufQueue &&buf) {
+            .thenValue([](folly::IOBufQueue &&buf) {
                 std::string data;
                 buf.appendToString(data);
                 return data;
@@ -117,17 +117,17 @@ public:
     {
         ReleaseGIL guard;
 
-        auto mknodLambda = [&] {
+        auto mknodLambda = [&](auto && /*unit*/) {
             return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
-        auto writeLambda = [&] {
+        auto writeLambda = [&](auto && /*unit*/) {
             return m_helper->open(fileId, O_WRONLY, {})
-                .then([&](one::helpers::FileHandlePtr handle) {
+                .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
                     return handle->write(offset, std::move(buf), {})
-                        .then([handle](std::size_t size) {
+                        .thenValue([handle](std::size_t &&size) {
                             handle->flush();
                             return size;
                         });
@@ -135,12 +135,16 @@ public:
         };
 
         return m_helper->access(fileId, 0)
-            .then(writeLambda)
-            .onError([mknodLambda = std::move(mknodLambda),
-                         writeLambda = std::move(writeLambda),
-                         executor = m_executor](std::exception const &e) {
-                return mknodLambda().then(writeLambda);
-            })
+            .thenValue(writeLambda)
+            .thenError(folly::tag_t<std::exception>{},
+                [mknodLambda = std::move(mknodLambda),
+                    writeLambda = std::move(writeLambda),
+                    executor = m_executor](auto &&e) {
+                    return folly::makeSemiFuture()
+                        .via(executor.get())
+                        .thenValue(mknodLambda)
+                        .thenValue(writeLambda);
+                })
             .get();
     }
 

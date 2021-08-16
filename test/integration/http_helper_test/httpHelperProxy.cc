@@ -70,10 +70,10 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 return handle->read(offset, size);
             })
-            .then([](folly::IOBufQueue &&buf) {
+            .thenValue([](folly::IOBufQueue &&buf) {
                 std::string data;
                 buf.appendToString(data);
                 return data;

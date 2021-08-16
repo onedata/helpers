@@ -422,7 +422,7 @@ folly::Future<std::size_t> PosixFileHandle::write(
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.posix.write");
     return opScheduler
         ->schedule(WriteOp{{}, offset, std::move(buf), std::move(timer)})
-        .then([writeCb = std::move(writeCb)](std::size_t written) {
+        .thenValue([writeCb = std::move(writeCb)](std::size_t &&written) {
             if (writeCb)
                 writeCb(written);
             return written;
@@ -529,8 +529,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
 
             LOG_DBG(2) << "Attempting to read directory " << filePath;
 
-            DIR *dir;
-            struct dirent *dp;
+            DIR *dir{nullptr};
+            struct dirent *dp{nullptr};
             dir = retry([&]() { return opendir(filePath.c_str()); },
                 [](DIR *d) {
                     return d != nullptr ||
@@ -634,7 +634,7 @@ folly::Future<folly::Unit> PosixHelper::mknod(const folly::fbstring &fileId,
             if (!userCTX.valid())
                 return makeFuturePosixException(EDOM);
 
-            int res;
+            int res{0};
 
             /* On Linux this could just be 'mknod(path, mode, rdev)' but
                this is more portable */

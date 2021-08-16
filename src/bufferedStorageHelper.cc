@@ -32,20 +32,21 @@ folly::Future<folly::IOBufQueue> BufferedStorageFileHandle::read(
 {
     return m_bufferStorageHandle->helper()
         ->getattr(m_bufferStorageHandle->fileId())
-        .then([this, offset, size](const auto && /*attr*/) {
+        .thenValue([this, offset, size](const auto && /*attr*/) {
             return m_bufferStorageHandle->read(offset, size);
         })
-        .onError([this, offset, size](const std::system_error & /*e*/) {
-            return m_mainStorageHandle->read(offset, size);
-        });
+        .thenError(folly::tag_t<std::system_error>{},
+            [this, offset, size](auto && /*e*/) {
+                return m_mainStorageHandle->read(offset, size);
+            });
 }
 
 folly::Future<std::size_t> BufferedStorageFileHandle::write(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
     return loadBufferBlocks(offset, buf.chainLength())
-        .then([this, offset, buf = std::move(buf),
-                  writeCb = std::move(writeCb)]() mutable {
+        .thenValue([this, offset, buf = std::move(buf),
+                       writeCb = std::move(writeCb)](auto && /*unit*/) mutable {
             return m_bufferStorageHandle->write(
                 offset, std::move(buf), std::move(writeCb));
         });
@@ -92,22 +93,25 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
         // main storage
         auto fut =
             m_bufferStorageHelper->getattr(blockFileId)
-                .then([](auto && /*attr*/) {
+                .thenValue([](auto && /*attr*/) {
                     // Ignore blocks not existent on main storage
                     return folly::makeFuture<std::size_t>(0);
                 })
-                .onError([this, blockOffset, blockSize](
-                             const std::system_error & /*e*/) {
-                    return m_mainStorageHandle->read(blockOffset, blockSize)
-                        .then([this, blockOffset](folly::IOBufQueue &&buf) {
-                            return m_bufferStorageHandle->write(
-                                blockOffset, std::move(buf), {});
-                        })
-                        .onError([](const std::system_error & /*e*/) {
-                            // Ignore blocks not existent on main storage
-                            return folly::makeFuture<std::size_t>(0);
-                        });
-                });
+                .thenError(folly::tag_t<std::system_error>{},
+                    [this, blockOffset, blockSize](auto && /*e*/) {
+                        return m_mainStorageHandle->read(blockOffset, blockSize)
+                            .thenValue(
+                                [this, blockOffset](folly::IOBufQueue &&buf) {
+                                    return m_bufferStorageHandle->write(
+                                        blockOffset, std::move(buf), {});
+                                })
+                            .thenError(folly::tag_t<std::system_error>{},
+                                [](auto && /*e*/) {
+                                    // Ignore blocks not existent on main
+                                    // storage
+                                    return folly::makeFuture<std::size_t>(0);
+                                });
+                    });
 
         futs.emplace_back(std::move(fut));
 
@@ -115,8 +119,11 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
         blockOffset = blockNumber * blockSize;
     }
 
+    auto executor = m_bufferStorageHelper->executor().get();
+
     return folly::collectAll(futs.begin(), futs.end())
-        .then([](const std::vector<folly::Try<std::size_t>> &res) {
+        .via(executor)
+        .thenValue([](const std::vector<folly::Try<std::size_t>> &res) {
             std::for_each(res.begin(), res.end(),
                 [](const auto &v) { v.throwIfFailed(); });
             return folly::makeFuture();
@@ -143,7 +150,9 @@ folly::Future<std::pair<T, T>> BufferedStorageHelper::applyAsync(
     futs.emplace_back(std::forward<F>(bufferOp));
     futs.emplace_back(std::forward<F>(mainOp));
 
-    return folly::collectAll(futs).then(
+    auto executor = m_bufferStorage->executor().get();
+
+    return folly::collectAll(futs).via(executor).thenValue(
         [ignoreBufferError](std::vector<folly::Try<T>> &&res) {
             if (!ignoreBufferError)
                 res[0].throwIfFailed();
@@ -174,17 +183,18 @@ folly::Future<folly::Unit> BufferedStorageHelper::flushBuffer(
         // using multipartCopy, depending on the state of the file in the
         // main storage
         return m_mainStorage->getattr(fileId)
-            .then([]() { return folly::makeFuture(); })
-            .onError([this, fileId, size](const std::system_error & /*e*/) {
-                return std::dynamic_pointer_cast<KeyValueAdapter>(
-                    m_bufferStorage)
-                    ->fillMissingFileBlocks(toBufferPath(fileId), size);
-            })
-            .then([this, fileId, size]() {
+            .thenValue([](auto && /*unit*/) { return folly::makeFuture(); })
+            .thenError(folly::tag_t<std::system_error>{},
+                [this, fileId, size](auto && /*e*/) {
+                    return std::dynamic_pointer_cast<KeyValueAdapter>(
+                        m_bufferStorage)
+                        ->fillMissingFileBlocks(toBufferPath(fileId), size);
+                })
+            .thenValue([this, fileId, size](auto && /*unit*/) {
                 return m_bufferStorage
                     ->multipartCopy(toBufferPath(fileId), fileId,
                         m_bufferStorage->blockSize(), size)
-                    .then([this, fileId, size]() {
+                    .thenValue([this, fileId, size](auto && /*unit*/) {
                         return m_bufferStorage->unlink(
                             toBufferPath(fileId), size);
                     });
@@ -234,7 +244,7 @@ folly::Future<folly::Unit> BufferedStorageHelper::unlink(
     const folly::fbstring &fileId, const size_t currentSize)
 {
     return m_bufferStorage->unlink(toBufferPath(fileId), currentSize)
-        .then([this, fileId, currentSize]() {
+        .thenValue([this, fileId, currentSize](auto && /*unit*/) {
             return m_mainStorage->unlink(fileId, currentSize);
         });
 }
@@ -280,12 +290,11 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
 {
     if (size == 0) {
         return m_bufferStorage->unlink(toBufferPath(fileId), currentSize)
-            .onError([](const std::system_error & /*e*/) {
-                return folly::makeFuture();
-            })
-            .then([this, fileId, currentSize]() {
+            .thenError(folly::tag_t<std::system_error>{},
+                [](auto && /*e*/) { return folly::makeFuture(); })
+            .thenValue([this, fileId, currentSize](auto && /*unit*/) {
                 return m_mainStorage->unlink(fileId, currentSize)
-                    .then([this, fileId]() {
+                    .thenValue([this, fileId](auto && /*unit*/) {
                         const auto kDefaultMode = 0644;
                         return m_mainStorage->mknod(
                             fileId, kDefaultMode, maskToFlags(S_IFREG), 0);
@@ -294,16 +303,17 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
     }
 
     return m_mainStorage->truncate(fileId, size, currentSize)
-        .onError([this, fileId, size, currentSize](const std::system_error &e) {
-            if (e.code().value() != ENOENT)
-                throw e;
+        .thenError(folly::tag_t<std::system_error>{},
+            [this, fileId, size, currentSize](auto &&e) {
+                if (e.code().value() != ENOENT)
+                    throw e;
 
-            return m_bufferStorage
-                ->truncate(toBufferPath(fileId), size, currentSize)
-                .then([this, fileId, size]() {
-                    return flushBuffer(fileId, size);
-                });
-        });
+                return m_bufferStorage
+                    ->truncate(toBufferPath(fileId), size, currentSize)
+                    .thenValue([this, fileId, size](auto && /*unit*/) {
+                        return flushBuffer(fileId, size);
+                    });
+            });
 }
 
 folly::Future<FileHandlePtr> BufferedStorageHelper::open(
@@ -312,7 +322,7 @@ folly::Future<FileHandlePtr> BufferedStorageHelper::open(
     return applyAsync<FileHandlePtr>(
         m_bufferStorage->open(toBufferPath(fileId), flags, openParams),
         m_mainStorage->open(fileId, flags, openParams))
-        .then(
+        .thenValue(
             [this, fileId](std::pair<FileHandlePtr, FileHandlePtr> &&handles) {
                 return std::make_shared<BufferedStorageFileHandle>(fileId,
                     shared_from_this(), std::move(std::get<0>(handles)),

@@ -11,6 +11,7 @@
 #include "messages/pong.h"
 #include "scheduler_mock.h"
 
+#include <folly/executors/GlobalExecutor.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -25,6 +26,11 @@ public:
     using Callback = std::function<void(const std::error_code &)>;
 
     void connect() {}
+
+    std::shared_ptr<folly::Executor> executor()
+    {
+        return folly::getIOExecutor();
+    }
 
     void setOnMessageCallback(std::function<void(std::string)>) {}
 

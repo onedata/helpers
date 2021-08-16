@@ -67,7 +67,7 @@ void log_ssl_info_callback(const SSL *s, int where, int ret)
 #endif
 
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
-    const std::size_t /*workersNumber*/, std::string host, const uint16_t port,
+    const std::size_t workersNumber, std::string host, const uint16_t port,
     const bool verifyServerCertificate, const bool clprotoUpgrade,
     const bool clprotoHandshake, const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
@@ -78,7 +78,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_clprotoUpgrade{clprotoUpgrade}
     , m_clprotoHandshake{clprotoHandshake}
     , m_connected{false}
-    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(1)}
+    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(workersNumber)}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
@@ -191,14 +191,18 @@ void ConnectionPool::connect()
 
     for (auto &client : m_connections) {
         client->connect(m_host, m_port)
-            .then(m_executor.get(),
-                [this, clientPtr = client.get()]() {
-                    m_idleConnections.emplace(clientPtr);
-                })
-            .onError([this](folly::exception_wrapper ew) {
-                return folly::via(m_executor.get(), [this] { return close(); })
-                    .then([ew] { ew.throw_exception(); });
+            .via(m_executor.get())
+            .thenValue([this, clientPtr = client.get()](auto && /*unit*/) {
+                m_idleConnections.emplace(clientPtr);
             })
+            .thenError(folly::tag_t<folly::exception_wrapper>{},
+                [this](auto &&ew) {
+                    return folly::makeSemiFuture()
+                        .via(m_executor.get())
+                        .thenValue([this](auto && /*unit*/) { return close(); })
+                        .thenValue(
+                            [ew](auto && /*unit*/) { ew.throw_exception(); });
+                })
             .get();
     }
 
@@ -286,21 +290,22 @@ void ConnectionPool::send(
             // asynchronously
             if (!client->connected() && m_connected) {
                 client->connect(m_host, m_port, 1)
-                    .then(m_executor.get(),
-                        [this, client, executor = m_executor]() {
-                            if (m_connected) {
-                                // NOLINTNEXTLINE
-                                m_idleConnections.emplace(client);
-                                if (m_connected &&
-                                    std::all_of(m_connections.begin(),
-                                        m_connections.end(),
-                                        [](auto &c) { return c->connected(); }))
-                                    if (m_onReconnectCallback)
-                                        m_onReconnectCallback();
-                            }
-                            else
-                                client->getPipeline()->close();
-                        });
+                    .via(m_executor.get())
+                    .thenValue([this, client, executor = m_executor](
+                                   auto && /*unit*/) {
+                        if (m_connected) {
+                            // NOLINTNEXTLINE
+                            m_idleConnections.emplace(client);
+                            if (m_connected &&
+                                std::all_of(m_connections.begin(),
+                                    m_connections.end(),
+                                    [](auto &c) { return c->connected(); }))
+                                if (m_onReconnectCallback)
+                                    m_onReconnectCallback();
+                        }
+                        else
+                            client->getPipeline()->close();
+                    });
                 client = nullptr;
             }
         }
@@ -333,9 +338,11 @@ void ConnectionPool::send(
 
     client->getPipeline()
         ->write(message)
-        .then(folly::getCPUExecutor().get(),
-            [callback] { callback(std::error_code{}); })
-        .then(m_executor.get(), [this, client]() {
+        .via(folly::getCPUExecutor().get())
+        .thenValue(
+            [callback](auto && /*unit*/) { callback(std::error_code{}); })
+        .via(m_executor.get())
+        .thenValue([this, client](auto && /*unit*/) {
             m_idleConnections.emplace(client); // NOLINT
             LOG_DBG(3) << "Message sent";
         });
@@ -383,7 +390,7 @@ folly::Future<folly::Unit> ConnectionPool::close()
 
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
         .via(m_executor.get())
-        .then([this](auto && /*res*/) {
+        .thenValue([this](auto && /*res*/) {
             m_connections.clear();
             return folly::Future<folly::Unit>{};
         });

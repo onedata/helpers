@@ -73,7 +73,7 @@ public:
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([&](const folly::IOBufQueue &buf) {
+            .thenValue([&](folly::IOBufQueue &&buf) {
                 std::string data;
                 buf.appendToString(data);
                 return data;

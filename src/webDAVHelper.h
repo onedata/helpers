@@ -187,9 +187,9 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
      * \defgroup proxygen::HTTPSession::InfoCallback methods
      * @{
      */
-    void onCreate(const proxygen::HTTPSession &) override {}
+    void onCreate(const proxygen::HTTPSessionBase &) override {}
     void onIngressError(
-        const proxygen::HTTPSession &s, proxygen::ProxygenError e) override
+        const proxygen::HTTPSessionBase &s, proxygen::ProxygenError e) override
     {
         LOG_DBG(4) << "Ingress Error - restarting HTTP session: "
                    << proxygen::getErrorString(e);
@@ -200,42 +200,48 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
         LOG_DBG(4) << "Ingress EOF - restarting HTTP session";
         sessionValid = false;
     }
-    void onRead(const proxygen::HTTPSession &, size_t bytesRead) override {}
-    void onWrite(const proxygen::HTTPSession &, size_t bytesWritten) override {}
-    void onRequestBegin(const proxygen::HTTPSession &) override {}
-    void onRequestEnd(
-        const proxygen::HTTPSession &, uint32_t maxIngressQueueSize) override
+    void onRead(const proxygen::HTTPSessionBase &, size_t bytesRead) override {}
+    void onWrite(
+        const proxygen::HTTPSessionBase &, size_t bytesWritten) override
     {
     }
-    void onActivateConnection(const proxygen::HTTPSession &) override {}
-    void onDeactivateConnection(const proxygen::HTTPSession &) override
+    void onRequestBegin(const proxygen::HTTPSessionBase &) override {}
+    void onRequestEnd(const proxygen::HTTPSessionBase &,
+        uint32_t maxIngressQueueSize) override
+    {
+    }
+    void onActivateConnection(const proxygen::HTTPSessionBase &) override {}
+    void onDeactivateConnection(const proxygen::HTTPSessionBase &) override
     {
         LOG_DBG(4) << "Connection deactivated - restarting HTTP session";
     }
-    void onDestroy(const proxygen::HTTPSession &) override
+    void onDestroy(const proxygen::HTTPSessionBase &) override
     {
         LOG_DBG(4) << "Connection destroyed - restarting HTTP session";
         sessionValid = false;
     }
-    void onIngressMessage(
-        const proxygen::HTTPSession &, const proxygen::HTTPMessage &) override
+    void onIngressMessage(const proxygen::HTTPSessionBase &,
+        const proxygen::HTTPMessage &) override
     {
     }
-    void onIngressLimitExceeded(const proxygen::HTTPSession &) override {}
-    void onIngressPaused(const proxygen::HTTPSession &) override {}
-    void onTransactionDetached(const proxygen::HTTPSession &) override {}
+    void onIngressLimitExceeded(const proxygen::HTTPSessionBase &) override {}
+    void onIngressPaused(const proxygen::HTTPSessionBase &) override {}
+    void onTransactionDetached(const proxygen::HTTPSessionBase &) override {}
     void onPingReplySent(int64_t latency) override {}
     void onPingReplyReceived() override {}
-    void onSettingsOutgoingStreamsFull(const proxygen::HTTPSession &) override
+    void onSettingsOutgoingStreamsFull(
+        const proxygen::HTTPSessionBase &) override
     {
     }
     void onSettingsOutgoingStreamsNotFull(
-        const proxygen::HTTPSession &) override
+        const proxygen::HTTPSessionBase &) override
     {
     }
-    void onFlowControlWindowClosed(const proxygen::HTTPSession &) override {}
-    void onEgressBuffered(const proxygen::HTTPSession &) override {}
-    void onEgressBufferCleared(const proxygen::HTTPSession &) override {}
+    void onFlowControlWindowClosed(const proxygen::HTTPSessionBase &) override
+    {
+    }
+    void onEgressBuffered(const proxygen::HTTPSessionBase &) override {}
+    void onEgressBufferCleared(const proxygen::HTTPSessionBase &) override {}
     /**@}*/
 };
 

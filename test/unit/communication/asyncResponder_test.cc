@@ -28,6 +28,11 @@ struct LowerLayer {
 
     LowerLayer &mock = static_cast<LowerLayer &>(*this);
 
+    std::shared_ptr<folly::Executor> executor()
+    {
+        return folly::getIOExecutor();
+    }
+
     MOCK_METHOD0(connect, void());
     MOCK_METHOD1(
         setOnMessageCallback, void(std::function<void(ServerMessagePtr)>));

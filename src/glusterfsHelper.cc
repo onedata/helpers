@@ -170,44 +170,49 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
 
-    return helper->connect().then([offset, size, glfsFd = m_glfsFd, uid = m_uid,
-                                      gid = m_gid, fileId = m_fileId,
-                                      timer = std::move(timer),
-                                      s = std::weak_ptr<GlusterFSFileHandle>{
-                                          shared_from_this()}]() mutable {
-        auto self = s.lock();
-        if (!self)
-            return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
+    return helper->connect().thenValue(
+        [offset, size, glfsFd = m_glfsFd, uid = m_uid, gid = m_gid,
+            fileId = m_fileId, timer = std::move(timer),
+            s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
+            auto && /*unit*/) mutable {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
 
-        glfs_setfsuid(uid);
-        glfs_setfsgid(gid);
+            glfs_setfsuid(uid);
+            glfs_setfsgid(gid);
 
-        folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
-        char *raw = static_cast<char *>(buffer.preallocate(size, size).first);
+            folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
+            char *raw =
+                static_cast<char *>(buffer.preallocate(size, size).first);
 
-        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
-                   << offset << " from file " << fileId;
+            LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
+                       << offset << " from file " << fileId;
 
-        auto readBytesCount = retry(
-            [&]() { return glfs_pread(glfsFd.get(), raw, size, offset, 0); },
-            std::bind(
-                GlusterFSRetryCondition, std::placeholders::_1, "glfs_pread"));
+            auto readBytesCount = retry(
+                [&]() {
+                    return glfs_pread(glfsFd.get(), raw, size, offset, 0);
+                },
+                std::bind(GlusterFSRetryCondition, std::placeholders::_1,
+                    "glfs_pread"));
 
-        if (readBytesCount < 0) {
-            LOG_DBG(1) << "Reading file " << fileId
-                       << " failed with error: " << readBytesCount;
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.glusterfs.errors.read");
-            return makeFuturePosixException<folly::IOBufQueue>(readBytesCount);
-        }
+            if (readBytesCount < 0) {
+                LOG_DBG(1) << "Reading file " << fileId
+                           << " failed with error: " << readBytesCount;
+                ONE_METRIC_COUNTER_INC(
+                    "comp.helpers.mod.glusterfs.errors.read");
+                return makeFuturePosixException<folly::IOBufQueue>(
+                    readBytesCount);
+            }
 
-        buffer.postallocate(readBytesCount);
+            buffer.postallocate(readBytesCount);
 
-        LOG_DBG(2) << "Read " << readBytesCount << " from file " << fileId;
+            LOG_DBG(2) << "Read " << readBytesCount << " from file " << fileId;
 
-        ONE_METRIC_TIMERCTX_STOP(timer, readBytesCount);
+            ONE_METRIC_TIMERCTX_STOP(timer, readBytesCount);
 
-        return folly::makeFuture(std::move(buffer));
-    });
+            return folly::makeFuture(std::move(buffer));
+        });
 }
 
 folly::Future<std::size_t> GlusterFSFileHandle::write(
@@ -219,63 +224,64 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
 
-    return helper->connect().then([offset, buf = std::move(buf),
-                                      writeCb = std::move(writeCb),
-                                      glfsFd = m_glfsFd, uid = m_uid,
-                                      fileId = m_fileId,
-                                      timer = std::move(timer), gid = m_gid,
-                                      s = std::weak_ptr<GlusterFSFileHandle>{
-                                          shared_from_this()}]() mutable {
-        auto self = s.lock();
-        if (!self) {
-            return makeFuturePosixException<std::size_t>(ECANCELED);
-        }
+    return helper->connect().thenValue(
+        [offset, buf = std::move(buf), writeCb = std::move(writeCb),
+            glfsFd = m_glfsFd, uid = m_uid, fileId = m_fileId,
+            timer = std::move(timer), gid = m_gid,
+            s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
+            auto && /*unit*/) mutable {
+            auto self = s.lock();
+            if (!self) {
+                return makeFuturePosixException<std::size_t>(ECANCELED);
+            }
 
-        glfs_setfsuid(uid);
-        glfs_setfsgid(gid);
+            glfs_setfsuid(uid);
+            glfs_setfsgid(gid);
 
-        if (buf.empty())
-            return folly::makeFuture<std::size_t>(0);
+            if (buf.empty())
+                return folly::makeFuture<std::size_t>(0);
 
-        auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
-        if (iobuf->isChained()) {
-            LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
-                       << " of size: " << iobuf->length();
-            iobuf->unshare();
-            iobuf->coalesce();
-        }
+            auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
+            if (iobuf->isChained()) {
+                LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
+                           << " of size: " << iobuf->length();
+                iobuf->unshare();
+                iobuf->coalesce();
+            }
 
-        auto iov = iobuf->getIov();
-        auto iov_size = iov.size();
+            auto iov = iobuf->getIov();
+            auto iov_size = iov.size();
 
-        LOG_DBG(2) << "Attempting to write " << iov_size << " bytes at offset "
-                   << offset << " to file " << fileId;
+            LOG_DBG(2) << "Attempting to write " << iov_size
+                       << " bytes at offset " << offset << " to file "
+                       << fileId;
 
-        auto res = retry(
-            [&]() {
-                auto written =
-                    glfs_pwritev(glfsFd.get(), iov.data(), iov_size, offset, 0);
-                return written;
-            },
-            std::bind(GlusterFSRetryCondition, std::placeholders::_1,
-                "glfs_pwritev"));
+            auto res = retry(
+                [&]() {
+                    auto written = glfs_pwritev(
+                        glfsFd.get(), iov.data(), iov_size, offset, 0);
+                    return written;
+                },
+                std::bind(GlusterFSRetryCondition, std::placeholders::_1,
+                    "glfs_pwritev"));
 
-        if (res == -1) {
-            LOG_DBG(1) << "Writing to file " << fileId
-                       << " failed with error: " << res;
-            ONE_METRIC_COUNTER_INC("comp.helpers.mod.glusterfs.errors.write");
-            return makeFuturePosixException<std::size_t>(errno);
-        }
+            if (res == -1) {
+                LOG_DBG(1) << "Writing to file " << fileId
+                           << " failed with error: " << res;
+                ONE_METRIC_COUNTER_INC(
+                    "comp.helpers.mod.glusterfs.errors.write");
+                return makeFuturePosixException<std::size_t>(errno);
+            }
 
-        if (writeCb)
-            writeCb(res);
+            if (writeCb)
+                writeCb(res);
 
-        LOG_DBG(2) << "Written " << res << " bytes to file " << fileId;
+            LOG_DBG(2) << "Written " << res << " bytes to file " << fileId;
 
-        ONE_METRIC_TIMERCTX_STOP(timer, res);
+            ONE_METRIC_TIMERCTX_STOP(timer, res);
 
-        return folly::makeFuture<std::size_t>(res);
-    });
+            return folly::makeFuture<std::size_t>(res);
+        });
 }
 
 const Timeout &GlusterFSFileHandle::timeout()
@@ -294,9 +300,10 @@ folly::Future<folly::Unit> GlusterFSFileHandle::release()
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
 
-    return helper->connect().then(
+    return helper->connect().thenValue(
         [glfsFd = m_glfsFd, uid = m_uid, gid = m_gid,
-            s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}] {
+            s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
+            auto && /*unit*/) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -316,7 +323,8 @@ folly::Future<folly::Unit> GlusterFSFileHandle::flush()
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
 
-    return helper->connect().then([] { return folly::makeFuture(); });
+    return helper->connect().thenValue(
+        [](auto && /*unit*/) { return folly::makeFuture(); });
 }
 
 folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
@@ -325,10 +333,11 @@ folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
 
-    return helper->connect().then(
+    return helper->connect().thenValue(
         [glfsFd = m_glfsFd, isDataSync, uid = m_uid, gid = m_gid,
             fileId = m_fileId,
-            s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}] {
+            s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
+            auto && /*unit*/) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -465,56 +474,56 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
 
-    return connect().then(
-        [this, filePath = root(fileId), flags, uid = m_uid, gid = m_gid]() {
-            // glfs_fd_t implementation details are hidden so we need to
-            // specify a custom empty deleter for the shared_ptr.
-            // The handle should be closed using glfs_close().
-            auto glfsFdDeleter = [](glfs_fd_t *ptr) {};
+    return connect().thenValue([this, filePath = root(fileId), flags,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        // glfs_fd_t implementation details are hidden so we need to
+        // specify a custom empty deleter for the shared_ptr.
+        // The handle should be closed using glfs_close().
+        auto glfsFdDeleter = [](glfs_fd_t *ptr) {};
 
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to open file " << filePath;
+        LOG_DBG(2) << "Attempting to open file " << filePath;
 
-            std::shared_ptr<glfs_fd_t> glfsFd{nullptr};
-            // O_CREAT is not supported in GlusterFS for glfs_open().
-            // glfs_creat() has to be used instead for creating files.
-            if ((flags & O_CREAT) != 0) {
-                glfsFd.reset(retry(
-                                 [&]() {
-                                     return glfs_creat(m_glfsCtx.get(),
-                                         filePath.c_str(), flags,
-                                         (flags & S_IRWXU) | (flags & S_IRWXG) |
-                                             (flags & S_IRWXO));
-                                 },
-                                 std::bind(GlusterFSRetryHandleCondition,
-                                     std::placeholders::_1, "glfs_creat")),
-                    glfsFdDeleter);
-            }
-            else {
-                glfsFd.reset(retry(
-                                 [&]() {
-                                     return glfs_open(m_glfsCtx.get(),
-                                         filePath.c_str(), flags);
-                                 },
-                                 std::bind(GlusterFSRetryHandleCondition,
-                                     std::placeholders::_1, "glfs_open")),
-                    glfsFdDeleter);
-            }
+        std::shared_ptr<glfs_fd_t> glfsFd{nullptr};
+        // O_CREAT is not supported in GlusterFS for glfs_open().
+        // glfs_creat() has to be used instead for creating files.
+        if ((flags & O_CREAT) != 0) {
+            glfsFd.reset(retry(
+                             [&]() {
+                                 return glfs_creat(m_glfsCtx.get(),
+                                     filePath.c_str(), flags,
+                                     (flags & S_IRWXU) | (flags & S_IRWXG) |
+                                         (flags & S_IRWXO));
+                             },
+                             std::bind(GlusterFSRetryHandleCondition,
+                                 std::placeholders::_1, "glfs_creat")),
+                glfsFdDeleter);
+        }
+        else {
+            glfsFd.reset(retry(
+                             [&]() {
+                                 return glfs_open(
+                                     m_glfsCtx.get(), filePath.c_str(), flags);
+                             },
+                             std::bind(GlusterFSRetryHandleCondition,
+                                 std::placeholders::_1, "glfs_open")),
+                glfsFdDeleter);
+        }
 
-            if (!glfsFd) {
-                LOG_DBG(1) << "Opening file " << filePath << " failed";
-                return makeFuturePosixException<FileHandlePtr>(errno);
-            }
+        if (!glfsFd) {
+            LOG_DBG(1) << "Opening file " << filePath << " failed";
+            return makeFuturePosixException<FileHandlePtr>(errno);
+        }
 
-            auto handle = std::make_shared<GlusterFSFileHandle>(
-                filePath.string(), shared_from_this(), glfsFd, uid, gid);
+        auto handle = std::make_shared<GlusterFSFileHandle>(
+            filePath.string(), shared_from_this(), glfsFd, uid, gid);
 
-            LOG_DBG(2) << "File " << filePath << " opened";
+        LOG_DBG(2) << "File " << filePath << " opened";
 
-            return folly::makeFuture<FileHandlePtr>(std::move(handle));
-        });
+        return folly::makeFuture<FileHandlePtr>(std::move(handle));
+    });
 }
 
 folly::Future<struct stat> GlusterFSHelper::getattr(
@@ -522,8 +531,8 @@ folly::Future<struct stat> GlusterFSHelper::getattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return connect().then([this, filePath = root(fileId), uid = m_uid,
-                              gid = m_gid] {
+    return connect().thenValue([this, filePath = root(fileId), uid = m_uid,
+                                   gid = m_gid](auto && /*unit*/) {
         struct stat stbuf = {};
 
         glfs_setfsuid(uid);
@@ -555,17 +564,17 @@ folly::Future<folly::Unit> GlusterFSHelper::access(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mask);
 
-    return connect().then(
-        [this, filePath = root(fileId), mask, uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), mask,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Checking access to file " << filePath
-                       << " with mask " << LOG_OCT(mask);
+        LOG_DBG(2) << "Checking access to file " << filePath << " with mask "
+                   << LOG_OCT(mask);
 
-            return setContextResult("glfs_access", glfs_access, m_glfsCtx.get(),
-                filePath.c_str(), mask);
-        });
+        return setContextResult("glfs_access", glfs_access, m_glfsCtx.get(),
+            filePath.c_str(), mask);
+    });
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
@@ -573,11 +582,11 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::readdir(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
-    return connect().then([this, filePath = root(fileId), offset, count,
-                              uid = m_uid, gid = m_gid] {
+    return connect().thenValue([this, filePath = root(fileId), offset, count,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
         folly::fbvector<folly::fbstring> ret;
-        glfs_fd_t *dir;
-        struct dirent *dp;
+        glfs_fd_t *dir{nullptr};
+        struct dirent *dp{nullptr};
 
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
@@ -626,8 +635,8 @@ folly::Future<folly::fbstring> GlusterFSHelper::readlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return connect().then([this, filePath = root(fileId), uid = m_uid,
-                              gid = m_gid] {
+    return connect().thenValue([this, filePath = root(fileId), uid = m_uid,
+                                   gid = m_gid](auto && /*unit*/) {
         constexpr std::size_t maxSize = 1024;
         auto buf = folly::IOBuf::create(maxSize);
 
@@ -667,17 +676,17 @@ folly::Future<folly::Unit> GlusterFSHelper::mknod(const folly::fbstring &fileId,
                 << LOG_FARG(flagsToMask(flags));
 
     const mode_t mode = unmaskedMode | flagsToMask(flags);
-    return connect().then(
-        [this, filePath = root(fileId), mode, rdev, uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), mode, rdev,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to mknod " << filePath << " with mode "
-                       << LOG_OCT(mode);
+        LOG_DBG(2) << "Attempting to mknod " << filePath << " with mode "
+                   << LOG_OCT(mode);
 
-            return setContextResult("glfs_mknod", glfs_mknod, m_glfsCtx.get(),
-                filePath.c_str(), mode, rdev);
-        });
+        return setContextResult("glfs_mknod", glfs_mknod, m_glfsCtx.get(),
+            filePath.c_str(), mode, rdev);
+    });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::mkdir(
@@ -685,49 +694,49 @@ folly::Future<folly::Unit> GlusterFSHelper::mkdir(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    return connect().then(
-        [this, filePath = root(fileId), mode, uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), mode,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to create directory " << filePath
-                       << " with mode " << LOG_OCT(mode);
+        LOG_DBG(2) << "Attempting to create directory " << filePath
+                   << " with mode " << LOG_OCT(mode);
 
-            return setContextResult("glfs_mkdir", glfs_mkdir, m_glfsCtx.get(),
-                filePath.c_str(), mode);
-        });
+        return setContextResult(
+            "glfs_mkdir", glfs_mkdir, m_glfsCtx.get(), filePath.c_str(), mode);
+    });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::unlink(
     const folly::fbstring &fileId, const size_t /*currentSize*/)
 {
     LOG_FCALL() << LOG_FARG(fileId);
-    return connect().then(
-        [this, filePath = root(fileId), uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), uid = m_uid,
+                                   gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to unlink file " << filePath;
+        LOG_DBG(2) << "Attempting to unlink file " << filePath;
 
-            return setContextResult(
-                "glfs_unlink", glfs_unlink, m_glfsCtx.get(), filePath.c_str());
-        });
+        return setContextResult(
+            "glfs_unlink", glfs_unlink, m_glfsCtx.get(), filePath.c_str());
+    });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::rmdir(const folly::fbstring &fileId)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return connect().then(
-        [this, filePath = root(fileId), uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), uid = m_uid,
+                                   gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to remove directory " << filePath;
+        LOG_DBG(2) << "Attempting to remove directory " << filePath;
 
-            return setContextResult(
-                "glfs_rmdir", glfs_rmdir, m_glfsCtx.get(), filePath.c_str());
-        });
+        return setContextResult(
+            "glfs_rmdir", glfs_rmdir, m_glfsCtx.get(), filePath.c_str());
+    });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::symlink(
@@ -735,25 +744,25 @@ folly::Future<folly::Unit> GlusterFSHelper::symlink(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    return connect().then(
-        [this, from = root(from), to = root(to), uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, from = root(from), to = root(to),
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to create symbolink link from " << from
-                       << " to " << to;
+        LOG_DBG(2) << "Attempting to create symbolink link from " << from
+                   << " to " << to;
 
-            return setContextResult("glfs_symlink", glfs_symlink,
-                m_glfsCtx.get(), from.c_str(), to.c_str());
-        });
+        return setContextResult("glfs_symlink", glfs_symlink, m_glfsCtx.get(),
+            from.c_str(), to.c_str());
+    });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::rename(
     const folly::fbstring &from, const folly::fbstring &to)
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
-    return connect().then([this, from = root(from), to = root(to), uid = m_uid,
-                              gid = m_gid] {
+    return connect().thenValue([this, from = root(from), to = root(to),
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
@@ -769,8 +778,8 @@ folly::Future<folly::Unit> GlusterFSHelper::link(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    return connect().then([this, from = root(from), to = root(to), uid = m_uid,
-                              gid = m_gid] {
+    return connect().thenValue([this, from = root(from), to = root(to),
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
         glfs_setfsuid(uid);
         glfs_setfsgid(gid);
 
@@ -786,17 +795,17 @@ folly::Future<folly::Unit> GlusterFSHelper::chmod(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    return connect().then(
-        [this, filePath = root(fileId), mode, uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), mode,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to chmod of file " << filePath << " to "
-                       << LOG_OCT(mode);
+        LOG_DBG(2) << "Attempting to chmod of file " << filePath << " to "
+                   << LOG_OCT(mode);
 
-            return setContextResult("glfs_chmod", glfs_chmod, m_glfsCtx.get(),
-                filePath.c_str(), mode);
-        });
+        return setContextResult(
+            "glfs_chmod", glfs_chmod, m_glfsCtx.get(), filePath.c_str(), mode);
+    });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::chown(
@@ -804,17 +813,18 @@ folly::Future<folly::Unit> GlusterFSHelper::chown(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
 
-    return connect().then([this, filePath = root(fileId), newUid = uid,
-                              newGid = gid, fsuid = m_uid, fsgid = m_gid] {
-        glfs_setfsuid(fsuid);
-        glfs_setfsgid(fsgid);
+    return connect().thenValue(
+        [this, filePath = root(fileId), newUid = uid, newGid = gid,
+            fsuid = m_uid, fsgid = m_gid](auto && /*unit*/) {
+            glfs_setfsuid(fsuid);
+            glfs_setfsgid(fsgid);
 
-        LOG_DBG(2) << "Attempting to change owner of file " << filePath
-                   << " to " << newUid << ":" << newGid;
+            LOG_DBG(2) << "Attempting to change owner of file " << filePath
+                       << " to " << newUid << ":" << newGid;
 
-        return setContextResult("glfs_chown", glfs_chown, m_glfsCtx.get(),
-            filePath.c_str(), newUid, newGid);
-    });
+            return setContextResult("glfs_chown", glfs_chown, m_glfsCtx.get(),
+                filePath.c_str(), newUid, newGid);
+        });
 }
 
 folly::Future<folly::Unit> GlusterFSHelper::truncate(
@@ -823,17 +833,17 @@ folly::Future<folly::Unit> GlusterFSHelper::truncate(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
-    return connect().then(
-        [this, filePath = root(fileId), size, uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), size,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to truncate file " << filePath
-                       << " to size " << size;
+        LOG_DBG(2) << "Attempting to truncate file " << filePath << " to size "
+                   << size;
 
-            return setContextResult("glfs_truncate", glfs_truncate,
-                m_glfsCtx.get(), filePath.c_str(), size);
-        });
+        return setContextResult("glfs_truncate", glfs_truncate, m_glfsCtx.get(),
+            filePath.c_str(), size);
+    });
 }
 
 folly::Future<folly::fbstring> GlusterFSHelper::getxattr(
@@ -841,8 +851,8 @@ folly::Future<folly::fbstring> GlusterFSHelper::getxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return connect().then([this, filePath = root(fileId), name, uid = m_uid,
-                              gid = m_gid] {
+    return connect().thenValue([this, filePath = root(fileId), name,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
         constexpr std::size_t initialMaxSize = 1024;
         auto buf = folly::IOBuf::create(initialMaxSize);
 
@@ -898,8 +908,9 @@ folly::Future<folly::Unit> GlusterFSHelper::setxattr(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name) << LOG_FARG(value)
                 << LOG_FARG(create) << LOG_FARG(replace);
 
-    return connect().then([this, filePath = root(fileId), name, value, create,
-                              replace, uid = m_uid, gid = m_gid] {
+    return connect().thenValue([this, filePath = root(fileId), name, value,
+                                   create, replace, uid = m_uid,
+                                   gid = m_gid](auto && /*unit*/) {
         int flags = 0;
 
         LOG_DBG(2) << "Attempting to set extended attribute " << name
@@ -928,17 +939,17 @@ folly::Future<folly::Unit> GlusterFSHelper::removexattr(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return connect().then(
-        [this, filePath = root(fileId), name, uid = m_uid, gid = m_gid] {
-            glfs_setfsuid(uid);
-            glfs_setfsgid(gid);
+    return connect().thenValue([this, filePath = root(fileId), name,
+                                   uid = m_uid, gid = m_gid](auto && /*unit*/) {
+        glfs_setfsuid(uid);
+        glfs_setfsgid(gid);
 
-            LOG_DBG(2) << "Attempting to remove extended attribute " << name
-                       << " from file " << filePath;
+        LOG_DBG(2) << "Attempting to remove extended attribute " << name
+                   << " from file " << filePath;
 
-            return setContextResult("glfs_removexattr", glfs_removexattr,
-                m_glfsCtx.get(), filePath.c_str(), name.c_str());
-        });
+        return setContextResult("glfs_removexattr", glfs_removexattr,
+            m_glfsCtx.get(), filePath.c_str(), name.c_str());
+    });
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
@@ -946,8 +957,8 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return connect().then([this, filePath = root(fileId), uid = m_uid,
-                              gid = m_gid] {
+    return connect().thenValue([this, filePath = root(fileId), uid = m_uid,
+                                   gid = m_gid](auto && /*unit*/) {
         folly::fbvector<folly::fbstring> ret;
 
         glfs_setfsuid(uid);

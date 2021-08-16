@@ -18,7 +18,7 @@ namespace messages {
 MessageRequest::MessageRequest(
     std::unique_ptr<ProtocolServerMessage> serverMessage)
 {
-    auto &messageRequestMsg = serverMessage->message_request();
+    const auto &messageRequestMsg = serverMessage->message_request();
     m_streamId = messageRequestMsg.stream_id();
     m_lowerSequenceNumber = messageRequestMsg.lower_sequence_number();
     m_upperSequenceNumber = messageRequestMsg.upper_sequence_number();

@@ -57,10 +57,10 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
 
     auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
 
-    return helper->connect().then(
+    return helper->connect().thenValue(
         [this, offset, size,
             s = std::weak_ptr<CephFileHandle>{shared_from_this()}, helper,
-            timer = std::move(timer)] {
+            timer = std::move(timer)](auto && /*unit*/) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
@@ -108,11 +108,11 @@ folly::Future<std::size_t> CephFileHandle::write(
 
     auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
 
-    return helper->connect().then(
+    return helper->connect().thenValue(
         [this, buf = std::move(buf), offset, helper,
             writeCb = std::move(writeCb),
             s = std::weak_ptr<CephFileHandle>{shared_from_this()},
-            timer = std::move(timer)]() mutable {
+            timer = std::move(timer)](auto && /*unit*/) mutable {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<std::size_t>(ECANCELED);
@@ -201,36 +201,36 @@ folly::Future<folly::Unit> CephHelper::unlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return connect().then(
-        [this, fileId, s = std::weak_ptr<CephHelper>{shared_from_this()}] {
-            auto self = s.lock();
-            if (!self)
-                return makeFuturePosixException(ECANCELED);
+    return connect().thenValue([this, fileId,
+                                   s = std::weak_ptr<CephHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        auto self = s.lock();
+        if (!self)
+            return makeFuturePosixException(ECANCELED);
 
-            LOG_DBG(2) << "Attempting to remove file " << fileId;
+        LOG_DBG(2) << "Attempting to remove file " << fileId;
 
-            auto ret = retry(
-                [&]() { return m_radosStriper.remove(fileId.toStdString()); },
+        auto ret =
+            retry([&]() { return m_radosStriper.remove(fileId.toStdString()); },
                 std::bind(CephRetryCondition, _1, "remove"));
 
-            if (ret == -EBUSY) {
-                // If there are any dangling locks on the file, forcibly remove
-                // the locks and attempt to unlink the file one more time
-                if (removeStriperLocks(fileId) == 0) {
-                    ret = m_radosStriper.remove(fileId.toStdString());
-                }
+        if (ret == -EBUSY) {
+            // If there are any dangling locks on the file, forcibly remove
+            // the locks and attempt to unlink the file one more time
+            if (removeStriperLocks(fileId) == 0) {
+                ret = m_radosStriper.remove(fileId.toStdString());
             }
+        }
 
-            if (ret < 0) {
-                LOG(WARNING)
-                    << "Removing file " << fileId << " failed: " << ret;
-                return makeFuturePosixException(ret);
-            }
+        if (ret < 0) {
+            LOG(WARNING) << "Removing file " << fileId << " failed: " << ret;
+            return makeFuturePosixException(ret);
+        }
 
-            LOG_DBG(2) << "Removed file " << fileId;
+        LOG_DBG(2) << "Removed file " << fileId;
 
-            return folly::makeFuture();
-        });
+        return folly::makeFuture();
+    });
 }
 
 folly::Future<folly::Unit> CephHelper::truncate(
@@ -240,9 +240,11 @@ folly::Future<folly::Unit> CephHelper::truncate(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.ceph.truncate");
 
-    return connect().then([this, size, fileId,
-                              s = std::weak_ptr<CephHelper>{shared_from_this()},
-                              timer = std::move(timer)] {
+    return connect().thenValue([this, size, fileId,
+                                   s =
+                                       std::weak_ptr<CephHelper>{
+                                           shared_from_this()},
+                                   timer = std::move(timer)](auto && /*unit*/) {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException(ECANCELED);
@@ -289,9 +291,9 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return connect().then(
-        [this, fileId, name,
-            s = std::weak_ptr<CephHelper>{shared_from_this()}] {
+    return connect().thenValue(
+        [this, fileId, name, s = std::weak_ptr<CephHelper>{shared_from_this()}](
+            auto && /*unit*/) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException<folly::fbstring>(ECANCELED);
@@ -329,9 +331,9 @@ folly::Future<folly::Unit> CephHelper::setxattr(const folly::fbstring &fileId,
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name) << LOG_FARG(value)
                 << LOG_FARG(create) << LOG_FARG(replace);
 
-    return connect().then([this, fileId, name, value, create, replace,
-                              s = std::weak_ptr<CephHelper>{
-                                  shared_from_this()}] {
+    return connect().thenValue([this, fileId, name, value, create, replace,
+                                   s = std::weak_ptr<CephHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException(ECANCELED);
@@ -415,9 +417,9 @@ folly::Future<folly::Unit> CephHelper::removexattr(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(name);
 
-    return connect().then(
-        [this, fileId, name,
-            s = std::weak_ptr<CephHelper>{shared_from_this()}] {
+    return connect().thenValue(
+        [this, fileId, name, s = std::weak_ptr<CephHelper>{shared_from_this()}](
+            auto && /*unit*/) {
             auto self = s.lock();
             if (!self)
                 return makeFuturePosixException(ECANCELED);
@@ -450,9 +452,9 @@ folly::Future<folly::fbvector<folly::fbstring>> CephHelper::listxattr(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    return connect().then([this, fileId,
-                              s = std::weak_ptr<CephHelper>{
-                                  shared_from_this()}] {
+    return connect().thenValue([this, fileId,
+                                   s = std::weak_ptr<CephHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException<folly::fbvector<folly::fbstring>>(
@@ -586,7 +588,7 @@ folly::Future<folly::Unit> CephHelper::connect()
 
 int CephHelper::removeStriperLocks(const folly::fbstring &fileId)
 {
-    int exclusive;
+    int exclusive{0};
     std::string tag;
     std::list<librados::locker_t> lockers;
 

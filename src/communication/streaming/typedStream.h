@@ -279,7 +279,7 @@ void TypedStream<Communicator>::handleMessageAcknowledgement(
 }
 
 } // namespace streaming
-} // namespace one
 } // namespace communication
+} // namespace one
 
 #endif // HELPERS_COMMUNICATION_STREAMING_TYPED_STREAM_H

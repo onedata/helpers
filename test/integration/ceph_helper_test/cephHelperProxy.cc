@@ -56,9 +56,9 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 return handle->read(offset, size)
-                    .then([handle](folly::IOBufQueue buf) {
+                    .thenValue([handle](folly::IOBufQueue &&buf) {
                         std::string data;
                         buf.appendToString(data);
                         return data;
@@ -71,11 +71,11 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
                 return handle->write(offset, std::move(buf), {})
-                    .then([handle](int size) { return size; });
+                    .thenValue([handle](int &&size) { return size; });
             })
             .get();
     }

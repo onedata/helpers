@@ -43,7 +43,7 @@ CLProtoClientBootstrap::CLProtoClientBootstrap(const uint32_t id,
 }
 
 void CLProtoClientBootstrap::makePipeline(
-    std::shared_ptr<folly::AsyncSocket> socket)
+    std::shared_ptr<folly::AsyncTransport> socket)
 {
     wangle::ClientBootstrap<CLProtoPipeline>::makePipeline(socket);
 }
@@ -75,24 +75,25 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
     auto executor = group_.get();
 
-    return folly::via(executor)
-        .then(executor,
-            [this, reconnectAttempt, reconnectDelay] {
-                LOG(INFO) << "Reconnect attempt " << reconnectAttempt << " in "
-                          << reconnectDelay << " [ms]";
+    return folly::makeFuture()
+        .via(executor)
+        .thenValue([this, reconnectAttempt, reconnectDelay](auto && /*unit*/) {
+            LOG(INFO) << "Reconnect attempt " << reconnectAttempt << " in "
+                      << reconnectDelay << " [ms]";
 
-                m_handshakeDone = false;
+            m_handshakeDone = false;
 
-                // If this is a reconnect attempt and the pipeline still exists,
-                // close it first
-                if ((reconnectAttempt != 0u) && (getPipeline() != nullptr)) {
-                    return getPipeline()->close();
-                }
+            // If this is a reconnect attempt and the pipeline still exists,
+            // close it first
+            if ((reconnectAttempt != 0u) && (getPipeline() != nullptr)) {
+                return getPipeline()->close();
+            }
 
-                return folly::makeFuture();
-            })
+            return folly::makeFuture();
+        })
         .delayed(std::chrono::milliseconds{reconnectDelay})
-        .then(executor, [this, host, port, reconnectAttempt, executor] {
+        .thenValue([this, host, port, reconnectAttempt, executor](
+                       auto && /*unit*/) {
             // Initialize SocketAddress from host and port provided on the
             // command line. If necessary, DNS lookup will be performed...
             folly::SocketAddress address;
@@ -106,166 +107,168 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
             return wangle::ClientBootstrap<CLProtoPipeline>::connect(
                 address, std::chrono::seconds{CLIENT_CONNECT_TIMEOUT_SECONDS})
-                .then([this, addressStr = address.describe(), host, port,
-                          executor](CLProtoPipeline *pipeline) {
+                .thenValue([this, addressStr = address.describe(), host, port,
+                               executor](CLProtoPipeline *pipeline) {
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
-                    return via(executor,
-                        // After connection, attempt to upgrade the connection
-                        // to clproto if required for this connection
-                        [this, pipeline, addressStr, host] {
-                            auto sock =
-                                std::dynamic_pointer_cast<folly::AsyncSocket>(
+                    return folly::makeFuture()
+                        .via(executor)
+                        .thenValue(
+                            // After connection, attempt to upgrade the
+                            // connection to clproto if required for this
+                            // connection
+                            [this, pipeline, addressStr, host](
+                                auto && /*unit*/) {
+                                auto sock = std::dynamic_pointer_cast<
+                                    folly::AsyncSocket>(
                                     pipeline->getTransport());
 
-                            sock->setNoDelay(true);
+                                sock->setNoDelay(true);
 
+                                if (m_performCLProtoUpgrade) {
+                                    LOG_DBG(2)
+                                        << "Sending clproto upgrade request to "
+                                        << addressStr;
+
+                                    auto upgradeRequest =
+                                        pipeline
+                                            ->getHandler<codec::
+                                                    CLProtoUpgradeResponseHandler>()
+                                            ->makeUpgradeRequest(
+                                                host.toStdString());
+
+                                    // CLProto upgrade request must go over raw
+                                    // socket without length field prepended
+                                    return pipeline
+                                        ->getContext<wangle::EventBaseHandler>()
+                                        ->fireWrite(std::move(upgradeRequest));
+                                }
+
+                                return folly::makeFuture();
+                            })
+                        // Wait for the clproto upgrade response from server
+                        .thenValue([this, pipeline](auto && /*unit*/) {
                             if (m_performCLProtoUpgrade) {
-                                LOG_DBG(2)
-                                    << "Sending clproto upgrade request to "
-                                    << addressStr;
+                                LOG_DBG(3) << "CLProtoUpgradeResponseHandler - "
+                                              "waiting for response";
 
-                                auto upgradeRequest =
-                                    pipeline
-                                        ->getHandler<codec::
-                                                CLProtoUpgradeResponseHandler>()
-                                        ->makeUpgradeRequest(
-                                            host.toStdString());
-
-                                // CLProto upgrade request must go over raw
-                                // socket without length field prepended
                                 return pipeline
-                                    ->getContext<wangle::EventBaseHandler>()
-                                    ->fireWrite(std::move(upgradeRequest));
+                                    ->getHandler<
+                                        codec::CLProtoUpgradeResponseHandler>()
+                                    ->done();
                             }
 
                             return folly::makeFuture();
                         })
-                        // Wait for the clproto upgrade response from server
-                        .then(executor,
-                            [this, pipeline] {
-                                if (m_performCLProtoUpgrade) {
-                                    LOG_DBG(3)
-                                        << "CLProtoUpgradeResponseHandler - "
-                                           "waiting for response";
-
-                                    return pipeline
-                                        ->getHandler<codec::
-                                                CLProtoUpgradeResponseHandler>()
-                                        ->done();
-                                }
-
-                                return folly::makeFuture();
-                            })
                         // Once upgrade is finished successfully, remove the
                         // clproto upgrade handler
-                        .then(executor,
-                            [this, pipeline] {
-                                if (m_performCLProtoUpgrade) {
-                                    LOG_DBG(3)
-                                        << "Removing clproto upgrade handler";
+                        .thenValue([this, pipeline](auto && /*unit*/) {
+                            if (m_performCLProtoUpgrade) {
+                                LOG_DBG(3)
+                                    << "Removing clproto upgrade handler";
 
-                                    pipeline->remove<
-                                        codec::CLProtoUpgradeResponseHandler>();
-                                }
-                                pipeline->finalize();
-                            })
+                                pipeline->remove<
+                                    codec::CLProtoUpgradeResponseHandler>();
+                            }
+                            pipeline->finalize();
+                        })
                         // If CLProto handshake is provided, perform handshake
                         // before handling any other requests
-                        .then(executor,
-                            [this, pipeline] {
-                                if (m_performCLProtoHandshake) {
-                                    auto handshakeHandler = pipeline->getHandler<
-                                        codec::
-                                            CLProtoHandshakeResponseHandler>();
+                        .thenValue([this, pipeline](auto && /*unit*/) {
+                            if (m_performCLProtoHandshake) {
+                                auto handshakeHandler = pipeline->getHandler<
+                                    codec::CLProtoHandshakeResponseHandler>();
 
-                                    auto handshake =
-                                        handshakeHandler->getHandshake();
+                                auto handshake =
+                                    handshakeHandler->getHandshake();
 
-                                    LOG_DBG(2)
-                                        << "Sending handshake message (length "
-                                           "= "
-                                        << handshake.size()
-                                        << "): " << handshake;
+                                LOG_DBG(2)
+                                    << "Sending handshake message (length "
+                                       "= "
+                                    << handshake.size() << "): " << handshake;
 
-                                    return pipeline->write(
-                                        std::move(handshake));
-                                }
+                                return pipeline->write(std::move(handshake));
+                            }
 
-                                return folly::makeFuture();
-                            })
-                        .then(executor,
-                            [this, pipeline] {
-                                if (m_performCLProtoHandshake) {
-                                    LOG_DBG(2)
-                                        << "Handshake sent - waiting for reply";
+                            return folly::makeFuture();
+                        })
+                        .thenValue([this, pipeline](auto && /*unit*/) {
+                            if (m_performCLProtoHandshake) {
+                                LOG_DBG(2)
+                                    << "Handshake sent - waiting for reply";
 
-                                    return pipeline
-                                        ->getHandler<codec::
-                                                CLProtoHandshakeResponseHandler>()
-                                        ->done();
-                                }
+                                return pipeline
+                                    ->getHandler<codec::
+                                            CLProtoHandshakeResponseHandler>()
+                                    ->done();
+                            }
 
-                                return folly::makeFuture();
-                            })
+                            return folly::makeFuture();
+                        })
                         // Once upgrade is finished successfully, remove the
                         // clproto upgrade handler
-                        .then(executor,
-                            [this, pipeline] {
-                                if (m_performCLProtoHandshake) {
-                                    LOG_DBG(3)
-                                        << "Removing clproto handshake handler";
+                        .thenValue([this, pipeline](auto && /*unit*/) {
+                            if (m_performCLProtoHandshake) {
+                                LOG_DBG(3)
+                                    << "Removing clproto handshake handler";
 
-                                    pipeline->remove<codec::
-                                            CLProtoHandshakeResponseHandler>();
-                                    pipeline->finalize();
-
-                                    m_handshakeDone = true;
-                                }
-
-                                LOG_DBG(1) << "CLProto connection with id "
-                                           << connectionId() << " established";
-                            })
-                        .onError([pipeline, host, port](
-                                     folly::exception_wrapper ew) {
-                            if (pipeline != nullptr)
+                                pipeline->remove<
+                                    codec::CLProtoHandshakeResponseHandler>();
                                 pipeline->finalize();
-                            LOG(ERROR) << "Connection refused by remote "
-                                          "Oneprovider at "
-                                       << host << ":" << port << ": "
-                                       << folly::exceptionStr(ew);
-                            ew.throw_exception();
-                        });
-                })
-                .onError([this, host, port, executor, reconnectAttempt](
-                             std::system_error &e) {
-                    LOG(ERROR) << "Reconnect attempt failed: " << e.what();
 
-                    auto err = e.code().value();
+                                m_handshakeDone = true;
+                            }
 
-                    if (err == EAGAIN || err == ECONNRESET ||
-                        err == ECONNABORTED || err == ECONNREFUSED) {
-
-                        // onError() doesn't keep the executor, so we have to
-                        // wrap it in via
-                        return folly::via(
-                            executor, [this, host, port, reconnectAttempt] {
-                                return connect(host, port, reconnectAttempt + 1)
-                                    .then([]() { return folly::makeFuture(); });
+                            LOG_DBG(1) << "CLProto connection with id "
+                                       << connectionId() << " established";
+                        })
+                        .thenError(folly::tag_t<folly::exception_wrapper>{},
+                            [pipeline, host, port](auto &&ew) {
+                                if (pipeline != nullptr)
+                                    pipeline->finalize();
+                                LOG(ERROR) << "Connection refused by remote "
+                                              "Oneprovider at "
+                                           << host << ":" << port << ": "
+                                           << folly::exceptionStr(ew);
+                                ew.throw_exception();
                             });
-                    }
+                })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [this, host, port, executor, reconnectAttempt](auto &&e) {
+                        LOG(ERROR) << "Reconnect attempt failed: " << e.what();
 
-                    if (getPipeline() != nullptr) {
-                        // close() must be called in executor
-                        //
-                        return folly::via(
-                            executor, [this] { getPipeline()->close(); })
-                            .then([e] { throw e; });
-                    }
+                        auto err = e.code().value();
 
-                    throw e;
-                });
+                        if (err == EAGAIN || err == ECONNRESET ||
+                            err == ECONNABORTED || err == ECONNREFUSED) {
+
+                            // onError() doesn't keep the executor, so we have
+                            // to wrap it in via
+                            return folly::makeFuture().via(executor).thenValue(
+                                [this, host, port, reconnectAttempt](
+                                    auto && /*unit*/) {
+                                    return connect(
+                                        host, port, reconnectAttempt + 1)
+                                        .thenValue([](auto && /*unit*/) {
+                                            return folly::makeFuture();
+                                        });
+                                });
+                        }
+
+                        if (getPipeline() != nullptr) {
+                            // close() must be called in executor
+                            //
+                            return folly::makeFuture()
+                                .via(executor)
+                                .thenValue([this](auto && /*unit*/) {
+                                    getPipeline()->close();
+                                })
+                                .thenValue([e](auto && /*unit*/) { throw e; });
+                        }
+
+                        throw e;
+                    });
         });
 }
 
@@ -280,7 +283,7 @@ bool CLProtoClientBootstrap::connected()
     return getPipeline()->getTransport()->good();
 }
 
-bool CLProtoClientBootstrap::handshakeDone() { return m_handshakeDone; }
+bool CLProtoClientBootstrap::handshakeDone() const { return m_handshakeDone; }
 
 uint32_t CLProtoClientBootstrap::connectionId() const { return m_connectionId; }
 } // namespace communication

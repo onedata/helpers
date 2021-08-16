@@ -13,7 +13,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <folly/executors/IOExecutor.h>
-#include <folly/futures/ManualExecutor.h>
+#include <folly/executors/ManualExecutor.h>
 #include <gtest/gtest.h>
 
 #include <errno.h>

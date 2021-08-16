@@ -61,23 +61,24 @@ public:
             ExecutionContext::ONECLIENT);
     }
 
-    ~PosixHelperProxy() {}
+    ~PosixHelperProxy() { m_executor->join(); }
 
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
         m_helper->open(fileId, flags, {})
-            .then(
-                [&](one::helpers::FileHandlePtr handle) { handle->release(); });
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
+                handle->release();
+            });
     }
 
     std::string read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 return handle->read(offset, size)
-                    .then([handle](folly::IOBufQueue &&buf) {
+                    .thenValue([handle](folly::IOBufQueue &&buf) {
                         std::string data;
                         buf.appendToString(data);
                         return data;
@@ -93,28 +94,31 @@ public:
         // PosixHelper does not support creating file with approriate mode,
         // so in case it doesn't exist we have to create it first to be
         // compatible with other helpers' test cases.
-        auto mknodLambda = [&] {
+        auto mknodLambda = [&](auto && /*unit*/) {
             return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
-        auto writeLambda = [&] {
+        auto writeLambda = [&](auto && /*unit*/) {
             return m_helper->open(fileId, O_WRONLY, {})
-                .then([&](one::helpers::FileHandlePtr handle) {
+                .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
                     return handle->write(offset, std::move(buf), {})
-                        .then([handle](auto size) { return size; });
+                        .thenValue([handle](auto &&size) { return size; });
                 });
         };
 
         return m_helper->access(fileId, 0)
-            .then(writeLambda)
-            .onError([mknodLambda = std::move(mknodLambda),
-                         writeLambda = std::move(writeLambda),
-                         executor = m_executor](std::exception const &e) {
-                return folly::via(executor.get(), mknodLambda)
-                    .then(writeLambda);
-            })
+            .thenValue(writeLambda)
+            .thenError(folly::tag_t<std::exception>{},
+                [mknodLambda = std::move(mknodLambda),
+                    writeLambda = std::move(writeLambda),
+                    executor = m_executor](auto &&e) {
+                    return folly::makeFuture()
+                        .via(executor.get())
+                        .thenValue(mknodLambda)
+                        .thenValue(writeLambda);
+                })
             .get();
     }
 
@@ -252,7 +256,7 @@ public:
     std::string mountpoint() { return m_helper->mountPoint().c_str(); }
 
 private:
-    std::shared_ptr<folly::IOExecutor> m_executor;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
     std::shared_ptr<one::helpers::PosixHelper> m_helper;
 };
 
