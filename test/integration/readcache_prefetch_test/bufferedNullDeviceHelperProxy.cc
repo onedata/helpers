@@ -69,7 +69,7 @@ public:
     {
     }
 
-    ~BufferedNullDeviceHelperProxy() {}
+    ~BufferedNullDeviceHelperProxy() { }
 
     BufferedFileHandlePtr open(std::string fileId, int flags)
     {

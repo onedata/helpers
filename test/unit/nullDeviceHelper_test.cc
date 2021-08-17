@@ -24,13 +24,13 @@ using namespace one::helpers;
 using namespace one::testing;
 
 struct NullDeviceHelperTest : public ::testing::Test {
-    NullDeviceHelperTest() {}
+    NullDeviceHelperTest() { }
 
-    ~NullDeviceHelperTest() {}
+    ~NullDeviceHelperTest() { }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
-    void TearDown() override {}
+    void TearDown() override { }
 
     std::shared_ptr<folly::ManualExecutor> m_executor =
         std::make_shared<folly::ManualExecutor>();

@@ -25,18 +25,18 @@ class LazyConnectionPool {
 public:
     using Callback = std::function<void(const std::error_code &)>;
 
-    void connect() {}
+    void connect() { }
 
     std::shared_ptr<folly::Executor> executor()
     {
         return folly::getIOExecutor();
     }
 
-    void setOnMessageCallback(std::function<void(std::string)>) {}
+    void setOnMessageCallback(std::function<void(std::string)>) { }
 
-    void setCertificateData(std::shared_ptr<cert::CertificateData>) {}
+    void setCertificateData(std::shared_ptr<cert::CertificateData>) { }
 
-    void send(std::string, Callback /*callback*/, const int = int{}) {}
+    void send(std::string, Callback /*callback*/, const int = int{}) { }
 };
 
 using CustomCommunicator =

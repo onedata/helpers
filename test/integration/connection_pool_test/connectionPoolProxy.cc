@@ -44,7 +44,8 @@ public:
 
     void send(const std::string &msg)
     {
-        m_pool.send(msg, [](auto) {}, int{});
+        m_pool.send(
+            msg, [](auto) {}, int{});
     }
 
     std::string popMessage()

@@ -74,9 +74,9 @@ struct FlatOpSchedulerTest : public ::testing::Test {
     {
     }
 
-    ~FlatOpSchedulerTest() {}
+    ~FlatOpSchedulerTest() { }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
     void TearDown() override { m_executor->join(); }
 

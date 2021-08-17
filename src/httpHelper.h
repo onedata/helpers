@@ -186,7 +186,7 @@ struct HTTPSession : public proxygen::HTTPSessionBase::InfoCallback,
      * \defgroup proxygen::HTTPSession::InfoCallback methods
      * @{
      */
-    void onCreate(const proxygen::HTTPSessionBase &) override {}
+    void onCreate(const proxygen::HTTPSessionBase &) override { }
     void onIngressError(
         const proxygen::HTTPSessionBase &s, proxygen::ProxygenError e) override
     {
@@ -200,17 +200,18 @@ struct HTTPSession : public proxygen::HTTPSessionBase::InfoCallback,
 
         sessionValid = false;
     }
-    void onRead(const proxygen::HTTPSessionBase &, size_t bytesRead) override {}
+    void onRead(const proxygen::HTTPSessionBase &, size_t bytesRead) override {
+    }
     void onWrite(
         const proxygen::HTTPSessionBase &, size_t bytesWritten) override
     {
     }
-    void onRequestBegin(const proxygen::HTTPSessionBase &) override {}
+    void onRequestBegin(const proxygen::HTTPSessionBase &) override { }
     void onRequestEnd(const proxygen::HTTPSessionBase &,
         uint32_t maxIngressQueueSize) override
     {
     }
-    void onActivateConnection(const proxygen::HTTPSessionBase &) override {}
+    void onActivateConnection(const proxygen::HTTPSessionBase &) override { }
     void onDeactivateConnection(const proxygen::HTTPSessionBase &) override
     {
         LOG_DBG(4) << "Connection deactivated - restarting HTTP session";
@@ -224,11 +225,11 @@ struct HTTPSession : public proxygen::HTTPSessionBase::InfoCallback,
         const proxygen::HTTPMessage &) override
     {
     }
-    void onIngressLimitExceeded(const proxygen::HTTPSessionBase &) override {}
-    void onIngressPaused(const proxygen::HTTPSessionBase &) override {}
-    void onTransactionDetached(const proxygen::HTTPSessionBase &) override {}
-    void onPingReplySent(int64_t latency) override {}
-    void onPingReplyReceived() override {}
+    void onIngressLimitExceeded(const proxygen::HTTPSessionBase &) override { }
+    void onIngressPaused(const proxygen::HTTPSessionBase &) override { }
+    void onTransactionDetached(const proxygen::HTTPSessionBase &) override { }
+    void onPingReplySent(int64_t latency) override { }
+    void onPingReplyReceived() override { }
     void onSettingsOutgoingStreamsFull(
         const proxygen::HTTPSessionBase &) override
     {
@@ -240,8 +241,8 @@ struct HTTPSession : public proxygen::HTTPSessionBase::InfoCallback,
     void onFlowControlWindowClosed(const proxygen::HTTPSessionBase &) override
     {
     }
-    void onEgressBuffered(const proxygen::HTTPSessionBase &) override {}
-    void onEgressBufferCleared(const proxygen::HTTPSessionBase &) override {}
+    void onEgressBuffered(const proxygen::HTTPSessionBase &) override { }
+    void onEgressBufferCleared(const proxygen::HTTPSessionBase &) override { }
     /**@}*/
 };
 

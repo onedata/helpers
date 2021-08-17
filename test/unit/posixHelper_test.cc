@@ -81,7 +81,7 @@ struct PosixHelperTest : public ::testing::Test {
         std::remove((root / p).c_str());
     }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
     void TearDown() override { unlinkOnDIO(testFileId); }
 

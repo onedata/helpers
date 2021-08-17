@@ -76,7 +76,7 @@ public:
             std::move(helperMap), ExecutionContext::ONECLIENT);
     }
 
-    ~StorageRouterHelperProxy() {}
+    ~StorageRouterHelperProxy() { }
 
     void open(std::string fileId, int flags)
     {

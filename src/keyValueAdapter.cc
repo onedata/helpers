@@ -330,7 +330,8 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
             });
     }
 
-    auto futs = folly::window(keysToDelete,
+    auto futs = folly::window(
+        keysToDelete,
         [helper = m_helper](const auto &keyToDelete) {
             helper->deleteObject(keyToDelete);
             return folly::makeFuture();
@@ -486,7 +487,8 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                 return folly::makeFuture();
             }
 
-            auto futs = folly::window(keysToDelete,
+            auto futs = folly::window(
+                keysToDelete,
                 [helper](const auto &keyToDelete) {
                     helper->deleteObject(keyToDelete);
                     return folly::makeFuture();

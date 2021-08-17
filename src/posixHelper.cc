@@ -97,7 +97,7 @@ inline bool POSIXRetryCondition(int result, const std::string &operation)
 
 template <typename... Args1, typename... Args2>
 inline void setResult(folly::Promise<folly::Unit> &promise,
-    const std::string &operation, int (*fun)(Args2...), Args1 &&... args)
+    const std::string &operation, int (*fun)(Args2...), Args1 &&...args)
 {
     auto ret =
         one::helpers::retry([&]() { return fun(std::forward<Args1>(args)...); },
@@ -111,7 +111,7 @@ inline void setResult(folly::Promise<folly::Unit> &promise,
 
 template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setResult(
-    const std::string &operation, int (*fun)(Args2...), Args1 &&... args)
+    const std::string &operation, int (*fun)(Args2...), Args1 &&...args)
 {
     auto ret =
         one::helpers::retry([&]() { return fun(std::forward<Args1>(args)...); },
@@ -151,8 +151,8 @@ bool UserCtxSetter::valid() const
         (m_gid == static_cast<gid_t>(-1) || m_currGid == m_gid);
 }
 #else
-UserCtxSetter::UserCtxSetter(const int, const int) {}
-UserCtxSetter::~UserCtxSetter() {}
+UserCtxSetter::UserCtxSetter(const int, const int) { }
+UserCtxSetter::~UserCtxSetter() { }
 bool UserCtxSetter::valid() const { return true; }
 #endif
 

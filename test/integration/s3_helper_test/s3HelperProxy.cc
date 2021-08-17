@@ -91,7 +91,7 @@ public:
     {
     }
 
-    ~S3HelperProxy() {}
+    ~S3HelperProxy() { }
 
     void access(std::string fileId)
     {

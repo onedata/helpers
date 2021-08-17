@@ -44,7 +44,7 @@ public:
     {
     }
 
-    ~CephHelperProxy() {}
+    ~CephHelperProxy() { }
 
     void unlink(std::string fileId, int size)
     {

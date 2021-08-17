@@ -308,7 +308,7 @@ template <typename Tag> void register_logger(std::string path)
     spdlog::get(Tag::name)->set_level(spdlog::level::off);
 }
 
-template <typename Tag, typename... Arg> void log(const Arg &... args)
+template <typename Tag, typename... Arg> void log(const Arg &...args)
 {
     auto logger = spdlog::get(Tag::name);
     if (logger)

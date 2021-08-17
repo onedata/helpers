@@ -59,7 +59,7 @@ public:
             XRootDHelperParams::create(params), m_executor);
     }
 
-    ~XRootDHelperProxy() {}
+    ~XRootDHelperProxy() { }
 
     struct stat getattr(std::string fileId)
     {

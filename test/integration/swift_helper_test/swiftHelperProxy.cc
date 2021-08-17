@@ -51,7 +51,7 @@ public:
     {
     }
 
-    ~SwiftHelperProxy() {}
+    ~SwiftHelperProxy() { }
 
     void unlink(std::string fileId, int size)
     {

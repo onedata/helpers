@@ -355,10 +355,10 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
                 folly::Future<folly::Unit> req =
                     (helper->rangeWriteSupport() ==
                         WebDAVRangeWriteSupport::SABREDAV_PARTIALUPDATE)
-                    ? (*std::dynamic_pointer_cast<WebDAVPATCH>(request))(
-                          fileId, offset, std::move(iobuf))
-                    : (*std::dynamic_pointer_cast<WebDAVPUT>(request))(
-                          fileId, offset, std::move(iobuf));
+                    ? (*std::dynamic_pointer_cast<WebDAVPATCH>(request))(fileId,
+                          offset, std::move(iobuf))
+                    : (*std::dynamic_pointer_cast<WebDAVPUT>(request))(fileId,
+                          offset, std::move(iobuf));
 
                 return std::move(req)
                     .via(session->evb)
@@ -2011,8 +2011,7 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
         m_request.getHeaders().add("Host", session->host);
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u) {
-        if (p->credentialsType() == WebDAVCredentialsType::NONE) {
-        }
+        if (p->credentialsType() == WebDAVCredentialsType::NONE) { }
         else if (p->credentialsType() == WebDAVCredentialsType::BASIC) {
             std::stringstream b64Stream;
             Poco::Base64Encoder b64Encoder(b64Stream);
@@ -2124,20 +2123,20 @@ void WebDAVRequest::onHeadersComplete(
     m_resultCode = msg->getStatusCode();
 }
 
-void WebDAVRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {}
+void WebDAVRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept { }
 
 void WebDAVRequest::onTrailers(
     std::unique_ptr<proxygen::HTTPHeaders> trailers) noexcept
 {
 }
 
-void WebDAVRequest::onEOM() noexcept {}
+void WebDAVRequest::onEOM() noexcept { }
 
-void WebDAVRequest::onUpgrade(proxygen::UpgradeProtocol protocol) noexcept {}
+void WebDAVRequest::onUpgrade(proxygen::UpgradeProtocol protocol) noexcept { }
 
-void WebDAVRequest::onEgressPaused() noexcept {}
+void WebDAVRequest::onEgressPaused() noexcept { }
 
-void WebDAVRequest::onEgressResumed() noexcept {}
+void WebDAVRequest::onEgressResumed() noexcept { }
 
 void WebDAVRequest::updateRequestURL(const folly::fbstring &resource)
 {

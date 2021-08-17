@@ -48,7 +48,8 @@ TEST_F(RetrierTest, sendShouldRetryCommunicationOnError)
         .WillOnce(Return(false))
         .WillOnce(Return(true));
 
-    retrier.send(randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 2);
+    retrier.send(
+        randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 2);
 }
 
 TEST_F(RetrierTest, sendShouldFinishOnFirstSuccess)
@@ -57,7 +58,8 @@ TEST_F(RetrierTest, sendShouldFinishOnFirstSuccess)
         .WillOnce(Return(false))
         .WillOnce(Return(true));
 
-    retrier.send(randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 30);
+    retrier.send(
+        randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 30);
 }
 
 TEST_F(RetrierTest, sendShouldPassExceptionAfterUnsuccessfulRetries)
@@ -66,7 +68,8 @@ TEST_F(RetrierTest, sendShouldPassExceptionAfterUnsuccessfulRetries)
         .WillOnce(Return(false))
         .WillOnce(Return(false));
 
-    retrier.send(randomString(), [](auto &ec) { ASSERT_TRUE(!!ec); }, 1);
+    retrier.send(
+        randomString(), [](auto &ec) { ASSERT_TRUE(!!ec); }, 1);
 }
 
 TEST_F(RetrierTest, sendShouldPassUninterestingArgumentsDown)
@@ -78,5 +81,6 @@ TEST_F(RetrierTest, sendShouldPassUninterestingArgumentsDown)
         .WillOnce(Return(false))
         .WillOnce(Return(true));
 
-    retrier.send(msg, [](auto &ec) { ASSERT_FALSE(!!ec); }, 3);
+    retrier.send(
+        msg, [](auto &ec) { ASSERT_FALSE(!!ec); }, 3);
 }

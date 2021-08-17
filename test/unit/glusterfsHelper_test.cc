@@ -20,13 +20,13 @@ using namespace one::helpers;
 using namespace one::testing;
 
 struct GlusterFSHelperTest : public ::testing::Test {
-    GlusterFSHelperTest() {}
+    GlusterFSHelperTest() { }
 
-    ~GlusterFSHelperTest() {}
+    ~GlusterFSHelperTest() { }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
-    void TearDown() override {}
+    void TearDown() override { }
 };
 
 TEST_F(
