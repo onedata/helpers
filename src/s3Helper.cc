@@ -276,7 +276,8 @@ folly::IOBufQueue S3Helper::getObject(
             folly::Promise<GetObjectOutcome> outcomePromise;
             auto outcomeFuture = outcomePromise.getFuture();
 
-            m_client->GetObjectAsync(request,
+            m_client->GetObjectAsync(
+                request,
                 [&outcomePromise](const S3Client * /*client*/,
                     const GetObjectRequest & /*request*/,
                     GetObjectOutcome getObjectOutcome,
@@ -379,7 +380,8 @@ std::size_t S3Helper::putObject(
             folly::Promise<PutObjectOutcome> outcomePromise;
             auto outcomeFuture = outcomePromise.getFuture();
 
-            m_client->PutObjectAsync(request,
+            m_client->PutObjectAsync(
+                request,
                 [&outcomePromise](const S3Client * /*client*/,
                     const PutObjectRequest & /*request*/,
                     PutObjectOutcome putObjectOutcome,
@@ -528,7 +530,8 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
                 folly::Promise<DeleteObjectsOutcome> outcomePromise;
                 auto outcomeFuture = outcomePromise.getFuture();
 
-                m_client->DeleteObjectsAsync(request,
+                m_client->DeleteObjectsAsync(
+                    request,
                     [&outcomePromise](const S3Client * /*client*/,
                         const DeleteObjectsRequest & /*request*/,
                         DeleteObjectsOutcome deleteObjectsOutcome,
@@ -632,7 +635,8 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
         folly::Promise<UploadPartCopyOutcome> outcomePromise;
         auto outcomeFuture = outcomePromise.getFuture();
 
-        m_client->UploadPartCopyAsync(request,
+        m_client->UploadPartCopyAsync(
+            request,
             [&outcomePromise](const S3Client * /*client*/,
                 const UploadPartCopyRequest & /*request*/,
                 UploadPartCopyOutcome uploadPartCopyOutcome,
@@ -720,7 +724,8 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
             folly::Promise<ListObjectsOutcome> outcomePromise;
             auto outcomeFuture = outcomePromise.getFuture();
 
-            m_client->ListObjectsAsync(request,
+            m_client->ListObjectsAsync(
+                request,
                 [&outcomePromise](const S3Client * /*client*/,
                     const ListObjectsRequest & /*request*/,
                     ListObjectsOutcome listObjectsOutcome,
@@ -838,7 +843,8 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
             folly::Promise<ListObjectsOutcome> outcomePromise;
             auto outcomeFuture = outcomePromise.getFuture();
 
-            m_client->ListObjectsAsync(request,
+            m_client->ListObjectsAsync(
+                request,
                 [&outcomePromise](const S3Client * /*client*/,
                     const ListObjectsRequest & /*request*/,
                     ListObjectsOutcome listObjectsOutcome,

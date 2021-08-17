@@ -62,7 +62,7 @@ public:
             WebDAVHelperParams::create(params), m_executor);
     }
 
-    ~WebDAVHelperProxy() {}
+    ~WebDAVHelperProxy() { }
 
     struct stat getattr(std::string fileId)
     {

@@ -66,7 +66,7 @@ public:
             m_executor);
     }
 
-    ~NullDeviceHelperProxy() {}
+    ~NullDeviceHelperProxy() { }
 
     void open(std::string fileId, int flags)
     {

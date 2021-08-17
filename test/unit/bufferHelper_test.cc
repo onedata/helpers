@@ -165,7 +165,7 @@ protected:
             limits, wrappedHelper, scheduler, std::move(memoryLimitGuard));
     }
 
-    ~BufferHelperTest() {}
+    ~BufferHelperTest() { }
 
     std::atomic<bool> wasSimultaneous{false};
     one::helpers::StorageHelperPtr helper;

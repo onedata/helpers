@@ -50,7 +50,7 @@ public:
     {
     }
 
-    ~CephRadosHelperProxy() {}
+    ~CephRadosHelperProxy() { }
 
     void unlink(std::string fileId, int size)
     {

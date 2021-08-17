@@ -100,4 +100,4 @@ clang-tidy:
 
 .PHONY: clang-format
 clang-format:
-	docker run --rm -e CHOWNUID=${UID} -v ${PWD}:/root/sources onedata/clang-format-check:1.2
+	docker run --rm -e CHOWNUID=${UID} -v ${PWD}:/root/sources onedata/clang-format-check:1.3

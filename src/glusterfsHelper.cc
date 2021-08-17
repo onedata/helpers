@@ -105,7 +105,7 @@ inline bool GlusterFSRetryHandleCondition(
 
 template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setHandleResult(const std::string &operation,
-    int (*fun)(Args2...), glfs_fd_t *fd, Args1 &&... args)
+    int (*fun)(Args2...), glfs_fd_t *fd, Args1 &&...args)
 {
     auto ret = retry([&]() { return fun(fd, std::forward<Args1>(args)...); },
         std::bind(GlusterFSRetryCondition, std::placeholders::_1, operation));
@@ -118,7 +118,7 @@ inline folly::Future<folly::Unit> setHandleResult(const std::string &operation,
 
 template <typename... Args1, typename... Args2>
 inline folly::Future<folly::Unit> setContextResult(const std::string &operation,
-    int (*fun)(Args2...), glfs_t *ctx, Args1 &&... args)
+    int (*fun)(Args2...), glfs_t *ctx, Args1 &&...args)
 {
     auto ret = retry([&]() { return fun(ctx, std::forward<Args1>(args)...); },
         std::bind(GlusterFSRetryCondition, std::placeholders::_1, operation));

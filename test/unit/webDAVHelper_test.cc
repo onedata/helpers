@@ -30,11 +30,11 @@ struct WebDAVHelperTest : public ::testing::Test {
         folly::SingletonVault::singleton()->registrationComplete();
     }
 
-    ~WebDAVHelperTest() {}
+    ~WebDAVHelperTest() { }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
-    void TearDown() override {}
+    void TearDown() override { }
 };
 
 TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)

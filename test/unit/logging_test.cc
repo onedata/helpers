@@ -20,13 +20,13 @@ using namespace one;
 using namespace one::logging;
 
 struct LoggingTest : public ::testing::Test {
-    LoggingTest() {}
+    LoggingTest() { }
 
-    ~LoggingTest() {}
+    ~LoggingTest() { }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
-    void TearDown() override {}
+    void TearDown() override { }
 };
 
 std::string function2() { return one::logging::print_stacktrace(); }

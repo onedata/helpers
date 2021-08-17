@@ -53,7 +53,7 @@ public:
         std::function<void(ServerMessagePtr)> onMessageCallback);
 };
 
-template <class LowerLayer> AsyncResponder<LowerLayer>::~AsyncResponder() {}
+template <class LowerLayer> AsyncResponder<LowerLayer>::~AsyncResponder() { }
 
 template <class LowerLayer> auto AsyncResponder<LowerLayer>::connect()
 {

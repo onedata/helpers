@@ -64,7 +64,7 @@ public:
      * @param args Arguments to pass to the member.
      */
     template <class R, class T, class... Args>
-    void post(R(T::*member), std::weak_ptr<T> subject, Args &&... args)
+    void post(R(T::*member), std::weak_ptr<T> subject, Args &&...args)
     {
         auto task = std::bind(
             member, std::placeholders::_1, std::forward<Args>(args)...);
@@ -79,7 +79,7 @@ public:
      * A convenience overload for @c post taking a @c std::shared_ptr.
      */
     template <class R, class T, class... Args>
-    void post(R(T::*member), const std::shared_ptr<T> &subject, Args &&... args)
+    void post(R(T::*member), const std::shared_ptr<T> &subject, Args &&...args)
     {
         post(member, std::weak_ptr<T>{subject}, std::forward<Args>(args)...);
     }
@@ -126,7 +126,7 @@ public:
     template <typename Rep, typename Period, class R, class T, class... Args>
     std::function<void()> schedule(
         const std::chrono::duration<Rep, Period> after, R(T::*member),
-        std::weak_ptr<T> subject, Args &&... args)
+        std::weak_ptr<T> subject, Args &&...args)
     {
         auto task = std::bind(
             member, std::placeholders::_1, std::forward<Args>(args)...);
@@ -144,7 +144,7 @@ public:
     template <typename Rep, typename Period, class R, class T, class... Args>
     std::function<void()> schedule(
         const std::chrono::duration<Rep, Period> after, R(T::*member),
-        const std::shared_ptr<T> &subject, Args &&... args)
+        const std::shared_ptr<T> &subject, Args &&...args)
     {
         return schedule(after, member, std::weak_ptr<T>{subject},
             std::forward<Args>(args)...);

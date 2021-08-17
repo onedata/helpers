@@ -104,7 +104,7 @@ public:
             ExecutionContext::ONECLIENT, ".__onedata__buffer");
     }
 
-    ~BufferedStorageHelperProxy() {}
+    ~BufferedStorageHelperProxy() { }
 
     void open(std::string fileId, int flags)
     {

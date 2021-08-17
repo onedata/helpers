@@ -767,8 +767,7 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u &&
         !isExternal) {
-        if (p->credentialsType() == HTTPCredentialsType::NONE) {
-        }
+        if (p->credentialsType() == HTTPCredentialsType::NONE) { }
         else if (p->credentialsType() == HTTPCredentialsType::BASIC) {
             std::stringstream b64Stream;
             Poco::Base64Encoder b64Encoder(b64Stream);
@@ -879,20 +878,20 @@ void HTTPRequest::onHeadersComplete(
     processHeaders(msg);
 }
 
-void HTTPRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {}
+void HTTPRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept { }
 
 void HTTPRequest::onTrailers(
     std::unique_ptr<proxygen::HTTPHeaders> trailers) noexcept
 {
 }
 
-void HTTPRequest::onEOM() noexcept {}
+void HTTPRequest::onEOM() noexcept { }
 
-void HTTPRequest::onUpgrade(proxygen::UpgradeProtocol protocol) noexcept {}
+void HTTPRequest::onUpgrade(proxygen::UpgradeProtocol protocol) noexcept { }
 
-void HTTPRequest::onEgressPaused() noexcept {}
+void HTTPRequest::onEgressPaused() noexcept { }
 
-void HTTPRequest::onEgressResumed() noexcept {}
+void HTTPRequest::onEgressResumed() noexcept { }
 
 void HTTPRequest::updateRequestURL(const folly::fbstring &resource)
 {
@@ -1049,7 +1048,7 @@ void HTTPHEAD::processHeaders(
     }
 }
 
-void HTTPHEAD::onEOM() noexcept {}
+void HTTPHEAD::onEOM() noexcept { }
 
 void HTTPHEAD::onError(const proxygen::HTTPException &error) noexcept
 {

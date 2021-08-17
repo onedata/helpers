@@ -60,7 +60,8 @@ public:
      * It must at least implement @c send(ClientMessagePtr, const int).
      * @param streamId ID number of this stream.
      */
-    TypedStream(std::shared_ptr<Communicator> communicator,
+    TypedStream(
+        std::shared_ptr<Communicator> communicator,
         const std::uint64_t streamId, std::function<void()> unregister = [] {});
 
     /**
@@ -200,7 +201,8 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
         m_buffer.emplace(std::move(msgCopy));
     }
 
-    m_communicator->send(std::move(msg), [](auto) {}, 0);
+    m_communicator->send(
+        std::move(msg), [](auto) {}, 0);
 }
 
 template <class Communicator>

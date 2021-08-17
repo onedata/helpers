@@ -58,7 +58,7 @@ public:
             HTTPHelperParams::create(params), m_executor);
     }
 
-    ~HTTPHelperProxy() {}
+    ~HTTPHelperProxy() { }
 
     struct stat getattr(std::string fileId)
     {

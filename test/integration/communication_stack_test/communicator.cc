@@ -39,7 +39,8 @@ public:
         std::function<void(std::error_code)> onHandshakeDone)
     {
         m_handshake = getHandshake();
-        return LowerLayer::setHandshake(std::move(getHandshake),
+        return LowerLayer::setHandshake(
+            std::move(getHandshake),
             [this, onHandshakeResponse = std::move(onHandshakeResponse)](
                 std::string response) {
                 try {
