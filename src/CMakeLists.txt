@@ -77,7 +77,7 @@ endif(NOT WITH_XROOTD)
 
 add_library(helpers OBJECT ${HELPER_SOURCES})
 add_dependencies(helpers clproto)
-target_include_directories(helpers SYSTEM PRIVATE
+target_include_directories(helpers PRIVATE
     ${HELPERS_SYSTEM_INCLUDE_DIRS})
 target_include_directories(helpers PUBLIC
     ${HELPERS_INCLUDE_DIRS})
