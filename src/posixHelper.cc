@@ -19,7 +19,11 @@
 
 #include <cerrno>
 #include <dirent.h>
-#include <fuse.h>
+#if FUSE_USE_VERSION > 30
+#include <fuse3/fuse.h>
+#elif
+#include <fuse/fuse.h>
+#endif
 #include <sys/stat.h>
 #include <sys/xattr.h>
 
