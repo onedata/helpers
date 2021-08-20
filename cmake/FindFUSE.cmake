@@ -54,11 +54,23 @@ set(FUSE_DEFINITIONS )
 set(FUSE_INCLUDE_DIRS )
 
 find_package(PkgConfig)
+if(FUSE_FIND_VERSION)
+    if(FUSE_FIND_VERSION EQUAL 3)
+        set(FUSE_REQUIRED_VERSION 3)
+        set(FUSE_VERSION_NAME "fuse3")
+    else()
+        set(FUSE_REQUIRED_VERSION 2)
+        set(FUSE_VERSION_NAME "fuse")
+    endif()
+else(FUSE_FIND_VERSION)
+    set(FUSE_REQUIRED_VERSION 2)
+    set(FUSE_VERSION_NAME "fuse")
+endif(FUSE_FIND_VERSION)
 
 set(PC_FUSE_INCLUDE_DIRS )
 set(PC_FUSE_LIBRARY_DIRS )
 if(PKG_CONFIG_FOUND)
-    pkg_check_modules(PC_FUSE "fuse" QUIET)
+    pkg_check_modules(PC_FUSE ${FUSE_VERSION_NAME} QUIET)
     if(PC_FUSE_FOUND)
 #         fusedebug(PC_FUSE_LIBRARIES)
 #         fusedebug(PC_FUSE_LIBRARY_DIRS)
@@ -71,12 +83,21 @@ if(PKG_CONFIG_FOUND)
     endif(PC_FUSE_FOUND)
 endif(PKG_CONFIG_FOUND)
 
+if(FUSE_REQUIRED_VERSION EQUAL 3)
 find_path(
     FUSE_INCLUDE_DIRS
-    NAMES fuse.h
+    NAMES fuse_common.h
     PATHS "${PC_FUSE_INCLUDE_DIRS}"
     DOC "Include directories for FUSE"
 )
+else()
+find_path(
+    FUSE_INCLUDE_DIRS
+    NAMES fuse_common.h
+    PATHS "${PC_FUSE_INCLUDE_DIRS}"
+    DOC "Include directories for FUSE"
+)
+endif()
 
 if(NOT FUSE_INCLUDE_DIRS)
     set(FUSE_FOUND FALSE)
@@ -84,7 +105,7 @@ endif(NOT FUSE_INCLUDE_DIRS)
 
 find_library(
     FUSE_LIBRARIES
-    NAMES osxfuse fuse
+    NAMES "${FUSE_VERSION_NAME}"
     PATHS "${PC_FUSE_LIBRARY_DIRS}"
     DOC "Libraries for FUSE"
 )
@@ -94,8 +115,8 @@ if(NOT FUSE_LIBRARIES)
 endif(NOT FUSE_LIBRARIES)
 
 if(FUSE_FOUND)
-    if(EXISTS "${FUSE_INCLUDE_DIRS}/fuse/fuse_common.h")
-        file(READ "${FUSE_INCLUDE_DIRS}/fuse/fuse_common.h" _contents)
+    if(EXISTS "${FUSE_INCLUDE_DIRS}/fuse_common.h")
+        file(READ "${FUSE_INCLUDE_DIRS}/fuse_common.h" _contents)
         string(REGEX REPLACE ".*# *define *FUSE_MAJOR_VERSION *([0-9]+).*" "\\1" FUSE_MAJOR_VERSION "${_contents}")
         string(REGEX REPLACE ".*# *define *FUSE_MINOR_VERSION *([0-9]+).*" "\\1" FUSE_MINOR_VERSION "${_contents}")
         set(FUSE_VERSION "${FUSE_MAJOR_VERSION}.${FUSE_MINOR_VERSION}")

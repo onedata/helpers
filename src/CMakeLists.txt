@@ -3,7 +3,6 @@ set(HELPERS_SYSTEM_INCLUDE_DIRS
     ${ASIO_INCLUDE_DIRS}
     ${CPPMETRICS_INCLUDE_DIRS}
     ${FUSE_INCLUDE_DIRS}
-    ${FUSE_INCLUDE_DIRS}/..
     ${PROTOBUF_INCLUDE_DIR}
     ${TBB_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}
@@ -77,11 +76,6 @@ endif(NOT WITH_XROOTD)
 
 add_library(helpers OBJECT ${HELPER_SOURCES})
 add_dependencies(helpers clproto)
-target_include_directories(helpers SYSTEM PRIVATE
-    ${HELPERS_SYSTEM_INCLUDE_DIRS})
-target_include_directories(helpers PUBLIC
-    ${HELPERS_INCLUDE_DIRS})
-
 set(HELPERS_INCLUDE_DIRS
     ${HELPERS_INCLUDE_DIRS}
     PARENT_SCOPE)
@@ -89,6 +83,12 @@ set(HELPERS_INCLUDE_DIRS
 set(HELPERS_SYSTEM_INCLUDE_DIRS
     ${HELPERS_SYSTEM_INCLUDE_DIRS}
     PARENT_SCOPE)
+
+target_include_directories(helpers SYSTEM PRIVATE
+    ${HELPERS_SYSTEM_INCLUDE_DIRS})
+
+target_include_directories(helpers PUBLIC
+    ${HELPERS_INCLUDE_DIRS})
 
 set(HELPERS_LIBRARIES
     ${Boost_LIBRARIES}

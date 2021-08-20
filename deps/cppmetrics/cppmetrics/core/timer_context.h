@@ -30,13 +30,13 @@ class Timer;
  */
 class TimerContextBase {
 public:
-    TimerContextBase() {}
+    TimerContextBase() { }
 
-    virtual ~TimerContextBase() {}
+    virtual ~TimerContextBase() { }
 
-    virtual void reset() {}
+    virtual void reset() { }
 
-    virtual std::chrono::nanoseconds stop(uint64_t count = 1) {}
+    virtual std::chrono::nanoseconds stop(uint64_t count = 1) { return {}; }
 };
 
 /**

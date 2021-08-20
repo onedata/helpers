@@ -211,7 +211,7 @@ void TypedStream<Communicator>::handleMessageRequest(
 {
     LOG_FCALL();
 
-    LOG_DBG(3) << "Oneprovider requested messages in stream: "
+    LOG_DBG(4) << "Oneprovider requested messages in stream: "
                << msg.stream_id() << " in range: ("
                << msg.lower_sequence_number() << ", "
                << msg.upper_sequence_number() << ")";
@@ -224,13 +224,13 @@ void TypedStream<Communicator>::handleMessageRequest(
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
         if (it->message_stream().sequence_number() <=
             msg.upper_sequence_number()) {
-            LOG_DBG(3) << "Found requested message with sequence number: "
+            LOG_DBG(4) << "Found requested message with sequence number: "
                        << it->message_stream().sequence_number();
 
             processed.emplace_back(std::move(it));
         }
         else {
-            LOG_DBG(3) << "Putting back message with sequence number: "
+            LOG_DBG(4) << "Putting back message with sequence number: "
                        << it->message_stream().sequence_number();
 
             m_buffer.emplace(std::move(it));
@@ -241,14 +241,14 @@ void TypedStream<Communicator>::handleMessageRequest(
     for (auto &streamMessage : processed) {
         if (streamMessage->message_stream().sequence_number() >=
             msg.lower_sequence_number()) {
-            LOG_DBG(3) << "Sending requested stream " << msg.stream_id()
+            LOG_DBG(4) << "Sending requested stream " << msg.stream_id()
                        << "  message "
                        << streamMessage->message_stream().sequence_number();
 
             saveAndPass(std::move(streamMessage));
         }
         else {
-            LOG_DBG(3) << "Putting back message: "
+            LOG_DBG(4) << "Putting back message: "
                        << streamMessage->message_stream().sequence_number();
 
             m_buffer.emplace(std::move(streamMessage));

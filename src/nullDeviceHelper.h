@@ -17,7 +17,11 @@
 #include <boost/thread/once.hpp>
 #include <boost/variant.hpp>
 #include <folly/executors/IOExecutor.h>
-#include <fuse.h>
+#if FUSE_USE_VERSION > 30
+#include <fuse3/fuse.h>
+#elif
+#include <fuse/fuse.h>
+#endif
 
 #include <chrono>
 #include <random>

@@ -11,7 +11,11 @@
 
 #include "logging.h"
 
-#include <fuse.h>
+#if FUSE_USE_VERSION > 30
+#include <fuse3/fuse.h>
+#elif
+#include <fuse/fuse.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #if defined(__linux__)
