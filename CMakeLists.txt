@@ -224,7 +224,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -fdiagnostics-color")
 add_compile_options(${SECTION_FRAGMENTATION_FLAGS} -Werror -Wshadow -Wall -Wpedantic)
 add_definitions(
     ${FUSE_DEFINITIONS}
-    -DFUSE_USE_VERSION=30
+    -DFUSE_USE_VERSION=${FUSE_USE_VERSION}
     -DBOOST_FILESYSTEM_NO_DEPRECATED
     -DBOOST_ALL_DYN_LINK
     -DASIO_STANDALONE

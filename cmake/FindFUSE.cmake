@@ -83,9 +83,6 @@ if(PKG_CONFIG_FOUND)
     endif(PC_FUSE_FOUND)
 endif(PKG_CONFIG_FOUND)
 
-message("**** ${PC_FUSE_INCLUDE_DIRS}")
-message("**** ${PC_FUSE_LIBRARY_DIRS}")
-
 if(FUSE_REQUIRED_VERSION EQUAL 3)
 find_path(
     FUSE_INCLUDE_DIRS
