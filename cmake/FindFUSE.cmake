@@ -86,7 +86,7 @@ endif(PKG_CONFIG_FOUND)
 if(FUSE_REQUIRED_VERSION EQUAL 3)
 find_path(
     FUSE_INCLUDE_DIRS
-    NAMES fuse_log.h
+    NAMES fuse_common.h
     PATHS "${PC_FUSE_INCLUDE_DIRS}"
     DOC "Include directories for FUSE"
 )
