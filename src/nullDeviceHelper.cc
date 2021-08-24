@@ -88,7 +88,7 @@ NullDeviceFileHandle::OpExec::OpExec(
 {
 }
 
-std::unique_ptr<folly::Unit> NullDeviceFileHandle::OpExec::startDrain()
+std::unique_ptr<folly::Unit> NullDeviceFileHandle::OpExec::startDrain() const
 {
     if (auto handle = m_handle.lock()) {
         return std::make_unique<folly::Unit>();

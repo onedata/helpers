@@ -339,7 +339,7 @@ folly::Future<FileHandlePtr> HTTPHelper::open(const folly::fbstring &fileId,
 }
 
 std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
-    const folly::fbstring &fileId)
+    const folly::fbstring &fileId) const
 {
     std::pair<HTTPSessionPoolKey, folly::fbstring> res;
 

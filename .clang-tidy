@@ -35,8 +35,7 @@ Checks: >-
   -performance-unnecessary-value-param,
   -readability-qualified-auto,
   -readability-convert-member-functions-to-static,
-  -readability-make-member-function-const,
-  readability-avoid-const-params-in-decls,
+  readability-make-member-function-const,
   -zircon*
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'helpers/include|helpers/src'

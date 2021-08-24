@@ -124,7 +124,7 @@ private:
     friend struct OpExec;
     struct OpExec : public boost::static_visitor<> {
         OpExec(const std::shared_ptr<NullDeviceFileHandle> &handle);
-        std::unique_ptr<folly::Unit> startDrain();
+        std::unique_ptr<folly::Unit> startDrain() const;
         void operator()(ReadOp &op) const;
         void operator()(WriteOp &op) const;
         void operator()(FsyncOp &op) const;

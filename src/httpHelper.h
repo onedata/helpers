@@ -307,7 +307,7 @@ public:
     }
 
     std::pair<HTTPSessionPoolKey, folly::fbstring> relativizeURI(
-        const folly::fbstring &fileId);
+        const folly::fbstring &fileId) const;
 
     Poco::URI endpoint() const { return P()->endpoint(); }
 
