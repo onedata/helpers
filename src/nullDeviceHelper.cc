@@ -37,9 +37,8 @@ boost::once_flag NullDeviceFileHandle::m_nullReadBufferInitialized =
     BOOST_ONCE_INIT;
 boost::once_flag NullDeviceHelper::m_nullMountTimeOnceFlag = BOOST_ONCE_INIT;
 std::vector<uint8_t> NullDeviceFileHandle::m_nullReadBuffer = {};
-// NOLINTNEXTLINE
 std::chrono::time_point<std::chrono::system_clock>
-    NullDeviceHelper::m_mountTime = {};
+    NullDeviceHelper::m_mountTime = {}; // NOLINT(cert-err58-cpp)
 
 std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
     folly::fbstring fileId, std::shared_ptr<NullDeviceHelper> helper,

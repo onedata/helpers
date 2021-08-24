@@ -61,21 +61,48 @@ path makeRelative(path parent, path child)
 namespace one {
 namespace helpers {
 
-// Retry only in case one of these errors occured
-const std::set<int> GLUSTERFS_RETRY_ERRORS = {
-    EINTR, EIO, EAGAIN, EACCES, EBUSY, EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE,
-    EDEADLK, EWOULDBLOCK, ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN,
-    ENETUNREACH, ECONNABORTED, ECONNRESET, ENOTCONN, EHOSTUNREACH, ECANCELED
-#if !defined(__APPLE__)
-    ,
-    ENONET, EHOSTDOWN, EREMOTEIO, ENOMEDIUM
-#endif
-};
-
-inline bool GlusterFSRetryCondition(int result, const std::string &operation)
+const std::set<int> &GlusterFSRetryErrors()
 {
-    auto ret = (result >= 0 ||
-        GLUSTERFS_RETRY_ERRORS.find(errno) == GLUSTERFS_RETRY_ERRORS.end());
+    static const std::set<int> GLUSTERFS_RETRY_ERRORS = {
+        EINTR,
+        EIO,
+        EAGAIN,
+        EACCES,
+        EBUSY,
+        EMFILE,
+        ETXTBSY,
+        ESPIPE,
+        EMLINK,
+        EPIPE,
+        EDEADLK,
+        EWOULDBLOCK,
+        ENOLINK,
+        EADDRINUSE,
+        EADDRNOTAVAIL,
+        ENETDOWN,
+        ENETUNREACH,
+        ECONNABORTED,
+        ECONNRESET,
+        ENOTCONN,
+        EHOSTUNREACH,
+        ECANCELED
+#if !defined(__APPLE__)
+        ,
+        ENONET,
+        EHOSTDOWN,
+        EREMOTEIO,
+        ENOMEDIUM
+#endif
+    };
+    return GLUSTERFS_RETRY_ERRORS;
+}
+
+// Retry only in case one of these errors occured
+bool GlusterFSRetryCondition(int result, const std::string &operation)
+{
+
+    auto ret = ((result >= 0) ||
+        (GlusterFSRetryErrors().find(errno) == GlusterFSRetryErrors().end()));
 
     if (!ret) {
         LOG(WARNING) << "Retrying GlusterFS helper operation '" << operation
@@ -87,11 +114,11 @@ inline bool GlusterFSRetryCondition(int result, const std::string &operation)
     return ret;
 }
 
-inline bool GlusterFSRetryHandleCondition(
+bool GlusterFSRetryHandleCondition(
     glfs_fd_t *result, const std::string &operation)
 {
-    auto ret = (result != nullptr ||
-        GLUSTERFS_RETRY_ERRORS.find(errno) == GLUSTERFS_RETRY_ERRORS.end());
+    auto ret = ((result != nullptr) ||
+        (GlusterFSRetryErrors().find(errno) == GlusterFSRetryErrors().end()));
 
     if (!ret) {
         LOG(WARNING) << "Retrying GlusterFS helper operation '" << operation

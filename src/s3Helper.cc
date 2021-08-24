@@ -32,28 +32,38 @@
 
 namespace {
 
-std::map<Aws::S3::S3Errors, std::errc> g_errors = {
-    {Aws::S3::S3Errors::INVALID_PARAMETER_VALUE, std::errc::invalid_argument},
-    {Aws::S3::S3Errors::MISSING_ACTION, std::errc::not_supported},
-    {Aws::S3::S3Errors::SERVICE_UNAVAILABLE, std::errc::host_unreachable},
-    {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
-    {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
-    {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-    {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
-    {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::no_such_file_or_directory},
-    {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
-    {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
-        std::errc::no_such_file_or_directory}};
+const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
+{
+    const static std::map<Aws::S3::S3Errors, std::errc> g_errors = {
+        {Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
+            std::errc::invalid_argument},
+        {Aws::S3::S3Errors::MISSING_ACTION, std::errc::not_supported},
+        {Aws::S3::S3Errors::SERVICE_UNAVAILABLE, std::errc::host_unreachable},
+        {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
+        {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
+        {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
+        {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::NO_SUCH_BUCKET,
+            std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
+            std::errc::no_such_file_or_directory}};
+    return g_errors;
+}
 
 // Retry only in case one of these errors occured
-const std::set<Aws::S3::S3Errors> S3_RETRY_ERRORS = {
-    Aws::S3::S3Errors::INTERNAL_FAILURE,
-    Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
-    Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
-    Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
-    Aws::S3::S3Errors::REQUEST_EXPIRED, Aws::S3::S3Errors::SERVICE_UNAVAILABLE,
-    Aws::S3::S3Errors::SLOW_DOWN, Aws::S3::S3Errors::THROTTLING,
-    Aws::S3::S3Errors::NETWORK_CONNECTION};
+const std::set<Aws::S3::S3Errors> &S3RetryErrors()
+{
+    static const std::set<Aws::S3::S3Errors> S3_RETRY_ERRORS = {
+        Aws::S3::S3Errors::INTERNAL_FAILURE,
+        Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
+        Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
+        Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
+        Aws::S3::S3Errors::REQUEST_EXPIRED,
+        Aws::S3::S3Errors::SERVICE_UNAVAILABLE, Aws::S3::S3Errors::SLOW_DOWN,
+        Aws::S3::S3Errors::THROTTLING, Aws::S3::S3Errors::NETWORK_CONNECTION};
+    return S3_RETRY_ERRORS;
+}
 
 template <typename Outcome>
 std::error_code getReturnCode(const Outcome &outcome)
@@ -63,8 +73,8 @@ std::error_code getReturnCode(const Outcome &outcome)
         return one::helpers::SUCCESS_CODE;
 
     auto error = std::errc::io_error;
-    auto search = g_errors.find(outcome.GetError().GetErrorType());
-    if (search != g_errors.end())
+    auto search = ErrorMappings().find(outcome.GetError().GetErrorType());
+    if (search != ErrorMappings().end())
         error = search->second;
 
     return {static_cast<int>(error), std::system_category()};
@@ -96,7 +106,7 @@ template <typename T>
 bool S3RetryCondition(const T &outcome, const std::string &operation)
 {
     auto result = outcome.IsSuccess() ||
-        !S3_RETRY_ERRORS.count(outcome.GetError().GetErrorType());
+        !S3RetryErrors().count(outcome.GetError().GetErrorType());
 
     if (!result) {
         LOG(WARNING) << "Retrying S3 helper operation '" << operation

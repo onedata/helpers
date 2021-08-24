@@ -102,15 +102,19 @@ int httpStatusToPosixError(uint16_t httpStatus)
 }
 
 // Retry only in case one of these errors occured
-const std::set<int> WebDAV_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
-    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
-    ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED,
-    ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
-    ECANCELED};
+const std::set<int> &WebDAVRetryErrors()
+{
+    static const std::set<int> WebDAV_RETRY_ERRORS = {EINTR, EIO, EAGAIN,
+        EACCES, EBUSY, EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK,
+        EWOULDBLOCK, ENONET, ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN,
+        ENETUNREACH, ECONNABORTED, ECONNRESET, ENOTCONN, EHOSTDOWN,
+        EHOSTUNREACH, EREMOTEIO, ENOMEDIUM, ECANCELED};
+    return WebDAV_RETRY_ERRORS;
+}
 
 inline bool shouldRetryError(int ec)
 {
-    return WebDAV_RETRY_ERRORS.find(ec) != WebDAV_RETRY_ERRORS.cend();
+    return WebDAVRetryErrors().find(ec) != WebDAVRetryErrors().cend();
 }
 
 inline auto retryDelay(int retriesLeft)

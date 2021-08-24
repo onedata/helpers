@@ -23,24 +23,33 @@ namespace {
 
 using one::helpers::Flag;
 
-const std::unordered_map<Flag, int, one::helpers::FlagHash> g_flagTranslation{
-    {Flag::NONBLOCK, O_NONBLOCK}, {Flag::APPEND, O_APPEND},
-    {Flag::ASYNC, O_ASYNC}, {Flag::FSYNC, O_FSYNC},
-    {Flag::NOFOLLOW, O_NOFOLLOW}, {Flag::CREAT, O_CREAT},
-    {Flag::TRUNC, O_TRUNC}, {Flag::EXCL, O_EXCL}, {Flag::RDONLY, O_RDONLY},
-    {Flag::WRONLY, O_WRONLY}, {Flag::RDWR, O_RDWR}, {Flag::IFREG, S_IFREG},
-    {Flag::IFCHR, S_IFCHR}, {Flag::IFBLK, S_IFBLK}, {Flag::IFIFO, S_IFIFO},
-    {Flag::IFSOCK, S_IFSOCK}};
+const std::unordered_map<Flag, int, one::helpers::FlagHash> &FlagTranslation()
+{
+    static const std::unordered_map<Flag, int, one::helpers::FlagHash>
+        g_flagTranslation{{Flag::NONBLOCK, O_NONBLOCK},
+            {Flag::APPEND, O_APPEND}, {Flag::ASYNC, O_ASYNC},
+            {Flag::FSYNC, O_FSYNC}, {Flag::NOFOLLOW, O_NOFOLLOW},
+            {Flag::CREAT, O_CREAT}, {Flag::TRUNC, O_TRUNC},
+            {Flag::EXCL, O_EXCL}, {Flag::RDONLY, O_RDONLY},
+            {Flag::WRONLY, O_WRONLY}, {Flag::RDWR, O_RDWR},
+            {Flag::IFREG, S_IFREG}, {Flag::IFCHR, S_IFCHR},
+            {Flag::IFBLK, S_IFBLK}, {Flag::IFIFO, S_IFIFO},
+            {Flag::IFSOCK, S_IFSOCK}};
+    return g_flagTranslation;
+}
 
-const std::unordered_map<int, Flag> g_maskTranslation{
-    {O_NONBLOCK, Flag::NONBLOCK}, {O_APPEND, Flag::APPEND},
-    {O_ASYNC, Flag::ASYNC}, {O_FSYNC, Flag::FSYNC},
-    {O_NOFOLLOW, Flag::NOFOLLOW}, {O_CREAT, Flag::CREAT},
-    {O_TRUNC, Flag::TRUNC}, {O_EXCL, Flag::EXCL}, {O_RDONLY, Flag::RDONLY},
-    {O_WRONLY, Flag::WRONLY}, {O_RDWR, Flag::RDWR}, {S_IFREG, Flag::IFREG},
-    {S_IFCHR, Flag::IFCHR}, {S_IFBLK, Flag::IFBLK}, {S_IFIFO, Flag::IFIFO},
-    {S_IFSOCK, Flag::IFSOCK}};
-
+const std::unordered_map<int, Flag> &MaskTranslation()
+{
+    static const std::unordered_map<int, Flag> g_maskTranslation{
+        {O_NONBLOCK, Flag::NONBLOCK}, {O_APPEND, Flag::APPEND},
+        {O_ASYNC, Flag::ASYNC}, {O_FSYNC, Flag::FSYNC},
+        {O_NOFOLLOW, Flag::NOFOLLOW}, {O_CREAT, Flag::CREAT},
+        {O_TRUNC, Flag::TRUNC}, {O_EXCL, Flag::EXCL}, {O_RDONLY, Flag::RDONLY},
+        {O_WRONLY, Flag::WRONLY}, {O_RDWR, Flag::RDWR}, {S_IFREG, Flag::IFREG},
+        {S_IFCHR, Flag::IFCHR}, {S_IFBLK, Flag::IFBLK}, {S_IFIFO, Flag::IFIFO},
+        {S_IFSOCK, Flag::IFSOCK}};
+    return g_maskTranslation;
+}
 } // namespace
 
 namespace one {
@@ -143,8 +152,8 @@ int flagsToMask(const FlagsSet &flags)
     int value = 0;
 
     for (auto flag : flags) {
-        auto searchResult = g_flagTranslation.find(flag);
-        assert(searchResult != g_flagTranslation.end());
+        auto searchResult = FlagTranslation().find(flag);
+        assert(searchResult != FlagTranslation().end());
         value |= searchResult->second;
     }
     return value;
@@ -155,16 +164,16 @@ FlagsSet maskToFlags(int mask)
     FlagsSet flags;
 
     // get permission flags
-    flags.insert(g_maskTranslation.at(mask & O_ACCMODE));
+    flags.insert(MaskTranslation().at(mask & O_ACCMODE));
 
     // get other flags
-    for (auto entry : g_maskTranslation) {
+    for (auto entry : MaskTranslation()) {
         auto entry_mask = entry.first;
         auto entry_flag = entry.second;
 
         if (entry_flag != Flag::RDONLY && entry_flag != Flag::WRONLY &&
             entry_flag != Flag::RDWR && (entry_mask & mask) == entry_mask)
-            flags.insert(g_maskTranslation.at(entry_mask));
+            flags.insert(MaskTranslation().at(entry_mask));
     }
 
     return flags;

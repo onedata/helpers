@@ -73,21 +73,47 @@ static inline int setfsgid(gid_t gid)
 namespace {
 
 // Retry only in case one of these errors occured
-const std::set<int> POSIX_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
-    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENOLINK,
-    EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED, ECONNRESET,
-    ENOTCONN, EHOSTUNREACH, ECANCELED, ESTALE
+const std::set<int> &POSIXRetryErrors()
+{
+    static const std::set<int> POSIX_RETRY_ERRORS = {
+        EINTR,
+        EIO,
+        EAGAIN,
+        EACCES,
+        EBUSY,
+        EMFILE,
+        ETXTBSY,
+        ESPIPE,
+        EMLINK,
+        EPIPE,
+        EDEADLK,
+        EWOULDBLOCK,
+        ENOLINK,
+        EADDRINUSE,
+        EADDRNOTAVAIL,
+        ENETDOWN,
+        ENETUNREACH,
+        ECONNABORTED,
+        ECONNRESET,
+        ENOTCONN,
+        EHOSTUNREACH,
+        ECANCELED,
+        ESTALE
 #if !defined(__APPLE__)
-    ,
-    ENONET, EHOSTDOWN, EREMOTEIO, ENOMEDIUM
+        ,
+        ENONET,
+        EHOSTDOWN,
+        EREMOTEIO,
+        ENOMEDIUM
 #endif
-
-};
+    };
+    return POSIX_RETRY_ERRORS;
+}
 
 inline bool POSIXRetryCondition(int result, const std::string &operation)
 {
     auto ret = (result >= 0 ||
-        POSIX_RETRY_ERRORS.find(errno) == POSIX_RETRY_ERRORS.end());
+        POSIXRetryErrors().find(errno) == POSIXRetryErrors().end());
 
     if (!ret) {
         LOG(WARNING) << "Retrying POSIX helper operation '" << operation
@@ -538,8 +564,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
             dir = retry([&]() { return opendir(filePath.c_str()); },
                 [](DIR *d) {
                     return d != nullptr ||
-                        POSIX_RETRY_ERRORS.find(errno) ==
-                        POSIX_RETRY_ERRORS.end();
+                        POSIXRetryErrors().find(errno) ==
+                        POSIXRetryErrors().end();
                 });
 
             if (dir == nullptr) {
@@ -554,8 +580,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
             while ((dp = retry([&]() { return ::readdir(dir); },
                         [](struct dirent *de) {
                             return de != nullptr ||
-                                POSIX_RETRY_ERRORS.find(errno) ==
-                                POSIX_RETRY_ERRORS.end();
+                                POSIXRetryErrors().find(errno) ==
+                                POSIXRetryErrors().end();
                         })) != nullptr &&
                 count_ > 0) {
                 if (strcmp(static_cast<char *>(dp->d_name), ".") != 0 &&

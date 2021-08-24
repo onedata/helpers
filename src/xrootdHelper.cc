@@ -21,20 +21,21 @@ namespace helpers {
 
 namespace {
 
-const std::set<int> XROOTD_RETRY_ERRORS = {
-    kXR_Cancelled, kXR_inProgress, kXR_Overloaded, kXR_FileLocked};
-
 inline bool shouldRetryError(const XrdCl::PipelineException &ex)
 {
+    static const std::set<int> XROOTD_RETRY_ERRORS = {
+        kXR_Cancelled, kXR_inProgress, kXR_Overloaded, kXR_FileLocked};
+
     auto ec = ex.GetError().errNo;
+
     return XROOTD_RETRY_ERRORS.find(ec) != XROOTD_RETRY_ERRORS.cend();
 }
 
-const auto kXRootDRetryMinimumDelay = std::chrono::milliseconds{5};
-
 inline auto retryDelay(int retriesLeft)
 {
+    const auto kXRootDRetryMinimumDelay = std::chrono::milliseconds{5};
     const unsigned int kXRootDRetryBaseDelay_ms = 100;
+
     return kXRootDRetryMinimumDelay +
         std::chrono::milliseconds{kXRootDRetryBaseDelay_ms *
             (kXRootDRetryCount - retriesLeft) *
