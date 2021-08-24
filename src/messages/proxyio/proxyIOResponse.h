@@ -32,7 +32,7 @@ public:
     ProxyIOResponse(
         const std::unique_ptr<ProtocolServerMessage> &serverMessage);
 
-    virtual ~ProxyIOResponse() = default;
+    ~ProxyIOResponse() override = default;
 };
 
 } // namespace proxyio

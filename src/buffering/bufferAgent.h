@@ -111,7 +111,7 @@ public:
         std::shared_ptr<BufferAgent> bufferAgent,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 
-    ~BufferedFileHandle()
+    ~BufferedFileHandle() override
     {
         if (m_bufferMemoryLimitGuard) {
             m_bufferMemoryLimitGuard->releaseBuffers(
@@ -203,7 +203,7 @@ public:
 
     FileHandlePtr wrappedHandle() { return m_wrappedHandle; }
 
-    virtual folly::Future<folly::Unit> refreshHelperParams(
+    folly::Future<folly::Unit> refreshHelperParams(
         std::shared_ptr<StorageHelperParams> params) override
     {
         return m_wrappedHandle->refreshHelperParams(std::move(params));
@@ -419,13 +419,12 @@ public:
         return m_helper->listxattr(uuid);
     }
 
-    virtual folly::Future<std::shared_ptr<StorageHelperParams>>
-    params() const override
+    folly::Future<std::shared_ptr<StorageHelperParams>> params() const override
     {
         return m_helper->params();
     }
 
-    virtual folly::Future<folly::Unit> refreshParams(
+    folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params) override
     {
         LOG_FCALL();
