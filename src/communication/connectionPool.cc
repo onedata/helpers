@@ -368,7 +368,7 @@ void ConnectionPool::stop()
 
     close().get();
 
-    m_executor->join();
+    m_executor->stop();
 }
 
 folly::Future<folly::Unit> ConnectionPool::close()
@@ -384,12 +384,15 @@ folly::Future<folly::Unit> ConnectionPool::close()
         if ((client->getPipeline() == nullptr) || !client->connected())
             continue;
 
-        stopFutures.emplace_back(folly::via(m_executor.get(),
-            [client]() mutable { return client->getPipeline()->close(); }));
+        stopFutures.emplace_back(
+            folly::via(folly::getCPUExecutor().get())
+                .thenValue([client](auto && /*unit*/) mutable {
+                    return client->getPipeline()->close();
+                }));
     }
 
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
-        .via(m_executor.get())
+        .via(folly::getCPUExecutor().get())
         .thenValue([this](auto && /*res*/) {
             m_connections.clear();
             return folly::Future<folly::Unit>{};

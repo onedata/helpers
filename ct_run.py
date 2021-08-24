@@ -71,6 +71,13 @@ parser.add_argument(
     help='name of the test suite',
     dest='suites')
 
+parser.add_argument(
+    '--cpuset-cpus',
+    action='store',
+    default=None,
+    help='CPUs in which to allow execution (0-3, 0,1)',
+    dest='cpuset_cpus')
+
 [args, pass_args] = parser.parse_known_args()
 script_dir = os.path.dirname(os.path.realpath(__file__))
 base_test_dir = os.path.join(os.path.realpath(args.release), 'test',
@@ -141,6 +148,7 @@ docker.run(tty=True,
            image=args.image,
            envs={'BASE_TEST_DIR': base_test_dir},
            run_params=['--privileged'] if (args.gdb or args.valgrind) else [],
+           cpuset_cpus=args.cpuset_cpus,
            command=['python', '-c', command])
 
 # If exit code != 0 then bamboo always fails build.
