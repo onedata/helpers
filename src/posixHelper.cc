@@ -186,9 +186,9 @@ UserCtxSetter::~UserCtxSetter() { }
 bool UserCtxSetter::valid() const { return true; }
 #endif
 
-std::shared_ptr<PosixFileHandle> PosixFileHandle::create(folly::fbstring fileId,
-    const uid_t uid, const gid_t gid, const int fileHandle,
-    std::shared_ptr<PosixHelper> helper,
+std::shared_ptr<PosixFileHandle> PosixFileHandle::create(
+    const folly::fbstring &fileId, const uid_t uid, const gid_t gid,
+    const int fileHandle, std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
     auto ptr = std::shared_ptr<PosixFileHandle>(
@@ -198,7 +198,7 @@ std::shared_ptr<PosixFileHandle> PosixFileHandle::create(folly::fbstring fileId,
     return ptr;
 }
 
-PosixFileHandle::PosixFileHandle(folly::fbstring fileId, const uid_t uid,
+PosixFileHandle::PosixFileHandle(const folly::fbstring &fileId, const uid_t uid,
     const gid_t gid, const int fileHandle, std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : FileHandle{fileId, std::move(helper)}

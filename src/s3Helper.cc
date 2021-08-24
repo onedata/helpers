@@ -123,8 +123,9 @@ bool S3RetryCondition(const T &outcome, const std::string &operation)
 namespace one {
 namespace helpers {
 
-S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-    folly::fbstring accessKey, folly::fbstring secretKey,
+S3Helper::S3Helper(const folly::fbstring &hostname,
+    const folly::fbstring &bucketName, const folly::fbstring &accessKey,
+    const folly::fbstring &secretKey,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
     const mode_t dirMode, const bool useHttps, Timeout timeout,
     StoragePathType storagePathType)

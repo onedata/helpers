@@ -15,6 +15,7 @@
 #include <XrdCl/XrdClFileSystemOperations.hh>
 
 #include <set>
+#include <utility>
 
 namespace one {
 namespace helpers {
@@ -155,7 +156,7 @@ int xrootdStatusToPosixError(const XrdCl::XRootDStatus &xrootdStatus)
 
 XRootDFileHandle::XRootDFileHandle(folly::fbstring fileId,
     std::unique_ptr<XrdCl::File> &&file, std::shared_ptr<XRootDHelper> helper)
-    : FileHandle{fileId, std::move(helper)}
+    : FileHandle{std::move(fileId), std::move(helper)}
     , m_file{std::move(file)}
 {
 }

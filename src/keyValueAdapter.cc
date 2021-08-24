@@ -721,7 +721,7 @@ void KeyValueFileHandle::writeBlock(
 }
 
 folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
-    const folly::fbstring fileId, std::size_t size)
+    const folly::fbstring &fileId, std::size_t size)
 {
     size_t blockId = 0;
     std::vector<folly::Future<std::size_t>> futs;

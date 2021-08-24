@@ -153,7 +153,7 @@ void HTTPSession::reset()
 }
 
 HTTPFileHandle::HTTPFileHandle(
-    folly::fbstring fileId, std::shared_ptr<HTTPHelper> helper)
+    const folly::fbstring &fileId, std::shared_ptr<HTTPHelper> helper)
     : FileHandle{fileId, std::move(helper)}
     , m_fileId{fileId}
     , m_effectiveFileId{fileId}

@@ -773,7 +773,7 @@ public:
      * @param ioCTX A reference to @c librados::IoCtx for async operations.
      */
     WebDAVFileHandle(
-        folly::fbstring fileId, std::shared_ptr<WebDAVHelper> helper);
+        const folly::fbstring &fileId, std::shared_ptr<WebDAVHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;

@@ -162,7 +162,7 @@ inline folly::Future<folly::Unit> setContextResult(const std::string &operation,
 static std::map<folly::fbstring, GlusterFSConnection> glusterFSConnections;
 static std::mutex connectionMutex;
 
-GlusterFSFileHandle::GlusterFSFileHandle(folly::fbstring fileId,
+GlusterFSFileHandle::GlusterFSFileHandle(const folly::fbstring &fileId,
     std::shared_ptr<GlusterFSHelper> helper, std::shared_ptr<glfs_fd_t> glfsFd,
     uid_t uid, gid_t gid)
     : FileHandle{fileId, std::move(helper)}

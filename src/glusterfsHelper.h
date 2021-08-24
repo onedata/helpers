@@ -80,7 +80,7 @@ public:
      * @param glfsFd A reference to @c glfs_fd_t struct for GlusterFS direct
      * access to a file descriptor.
      */
-    GlusterFSFileHandle(folly::fbstring fileId,
+    GlusterFSFileHandle(const folly::fbstring &fileId,
         std::shared_ptr<GlusterFSHelper> helper,
         std::shared_ptr<glfs_fd_t> glfsFd, uid_t uid, gid_t gid);
 

@@ -26,7 +26,7 @@ namespace messages {
 class Ping : public ClientMessage {
 public:
     Ping() = default;
-    Ping(std::string data);
+    Ping(const std::string &data);
 
     std::string toString() const override;
 

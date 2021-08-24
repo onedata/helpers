@@ -537,7 +537,8 @@ public:
      * @param helper A pointer to the helper that created the handle.
      * @param ioCTX A reference to @c librados::IoCtx for async operations.
      */
-    HTTPFileHandle(folly::fbstring fileId, std::shared_ptr<HTTPHelper> helper);
+    HTTPFileHandle(
+        const folly::fbstring &fileId, std::shared_ptr<HTTPHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;

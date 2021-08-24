@@ -32,11 +32,12 @@ Checks: >-
   -mpi*,
   -objc*,
   -*osx*,
-  -performance-unnecessary-value-param,
-  readability-qualified-auto,
+  performance-unnecessary-value-param,
   -zircon*
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'helpers/include|helpers/src'
 CheckOptions:
   - key:             readability-identifier-naming.ClassMemberPrefix
     value:           'm_'
+  - key:             performance-unnecessary-value-param.AllowedTypes
+    value:           shared_ptr

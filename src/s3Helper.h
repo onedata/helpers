@@ -120,8 +120,8 @@ public:
      * should be used to sign requests.
      * @param timeout Asynchronous operations timeout.
      */
-    S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-        folly::fbstring accessKey, folly::fbstring secretKey,
+    S3Helper(const folly::fbstring &hostname, const folly::fbstring &bucketName,
+        const folly::fbstring &accessKey, const folly::fbstring &secretKey,
         const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
         const mode_t dirMode, const bool useHttps = true,
         Timeout timeout = ASYNC_OPS_TIMEOUT,

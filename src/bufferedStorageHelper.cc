@@ -13,13 +13,15 @@
 #include <folly/Range.h>
 #include <folly/String.h>
 
+#include <utility>
+
 namespace one {
 namespace helpers {
 
 BufferedStorageFileHandle::BufferedStorageFileHandle(folly::fbstring fileId,
     std::shared_ptr<BufferedStorageHelper> helper,
     FileHandlePtr bufferStorageHandle, FileHandlePtr mainStorageHandle)
-    : FileHandle{fileId, helper}
+    : FileHandle{std::move(fileId), helper}
     , m_bufferStorageHelper{helper->bufferHelper()}
     , m_mainStorageHelper{helper->mainHelper()}
     , m_bufferStorageHandle{std::move(bufferStorageHandle)}

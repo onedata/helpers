@@ -160,7 +160,7 @@ public:
         const off_t offset, const size_t count) override;
 
     virtual folly::Future<folly::Unit> fillMissingFileBlocks(
-        const folly::fbstring fileId, std::size_t size);
+        const folly::fbstring &fileId, std::size_t size);
 
     virtual bool isObjectStorage() const override { return true; }
 

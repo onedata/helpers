@@ -10,6 +10,8 @@
 
 #include <wangle/channel/Handler.h>
 
+#include <utility>
+
 namespace one {
 namespace communication {
 namespace codec {
@@ -27,7 +29,7 @@ public:
 
     void setEOFCallback(std::function<void(void)> eofCallback)
     {
-        m_eofCallback = eofCallback;
+        m_eofCallback = std::move(eofCallback);
     }
 
     void read(Context * /*ctx*/, std::string msg) override

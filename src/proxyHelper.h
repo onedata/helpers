@@ -36,8 +36,8 @@ public:
      * with a provider.
      * @param helper Shared ptr to underlying helper.
      */
-    ProxyFileHandle(folly::fbstring fileId, folly::fbstring storageId,
-        Params openParams, communication::Communicator &communicator,
+    ProxyFileHandle(const folly::fbstring &fileId, folly::fbstring storageId,
+        const Params &openParams, communication::Communicator &communicator,
         std::shared_ptr<ProxyHelper> helper, Timeout timeout);
 
     folly::Future<folly::IOBufQueue> read(

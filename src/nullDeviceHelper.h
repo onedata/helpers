@@ -53,8 +53,8 @@ public:
      * @param helper Shared ptr to underlying helper.
      * @param executor Executor for driving async file operations.
      */
-    static std::shared_ptr<NullDeviceFileHandle> create(folly::fbstring fileId,
-        std::shared_ptr<NullDeviceHelper> helper,
+    static std::shared_ptr<NullDeviceFileHandle> create(
+        const folly::fbstring &fileId, std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
@@ -86,7 +86,7 @@ public:
     bool isConcurrencyEnabled() const override { return true; }
 
 private:
-    NullDeviceFileHandle(folly::fbstring fileId,
+    NullDeviceFileHandle(const folly::fbstring &fileId,
         std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
@@ -333,7 +333,7 @@ public:
 
     template <typename T, typename F>
     folly::Future<T> simulateStorageIssues(
-        folly::fbstring operationName, F &&func);
+        const folly::fbstring &operationName, F &&func);
 
 private:
     folly::Future<struct stat> getattrImpl(const folly::fbstring &fileId);

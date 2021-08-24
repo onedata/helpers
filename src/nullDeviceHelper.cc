@@ -41,7 +41,7 @@ std::chrono::time_point<std::chrono::system_clock>
     NullDeviceHelper::m_mountTime = {}; // NOLINT(cert-err58-cpp)
 
 std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
-    folly::fbstring fileId, std::shared_ptr<NullDeviceHelper> helper,
+    const folly::fbstring &fileId, std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
     auto ptr = std::shared_ptr<NullDeviceFileHandle>(new NullDeviceFileHandle(
@@ -50,7 +50,7 @@ std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
     return ptr;
 }
 
-NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
+NullDeviceFileHandle::NullDeviceFileHandle(const folly::fbstring &fileId,
     std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : FileHandle{fileId, std::move(helper)}
@@ -334,7 +334,7 @@ bool NullDeviceHelper::storageIssuesEnabled() const noexcept
 
 template <typename T, typename F>
 folly::Future<T> NullDeviceHelper::simulateStorageIssues(
-    folly::fbstring operationName, F &&func)
+    const folly::fbstring &operationName, F &&func)
 {
     if (storageIssuesEnabled())
         return folly::makeFuture()

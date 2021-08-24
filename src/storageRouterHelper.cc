@@ -82,8 +82,9 @@ StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
     return m_routes.at(routePath(fileId));
 }
 
-folly::fbstring StorageRouterHelper::routeRelative(StorageHelperPtr /*helper*/,
-    const folly::fbstring & /*route*/, const folly::fbstring &fileId)
+folly::fbstring StorageRouterHelper::routeRelative(
+    const StorageHelperPtr & /*helper*/, const folly::fbstring & /*route*/,
+    const folly::fbstring &fileId)
 {
     return fileId;
 }

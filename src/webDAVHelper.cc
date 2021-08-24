@@ -183,7 +183,7 @@ void WebDAVSession::reset()
 }
 
 WebDAVFileHandle::WebDAVFileHandle(
-    folly::fbstring fileId, std::shared_ptr<WebDAVHelper> helper)
+    const folly::fbstring &fileId, std::shared_ptr<WebDAVHelper> helper)
     : FileHandle{fileId, std::move(helper)}
     , m_fileId{fileId}
 {

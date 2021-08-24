@@ -20,8 +20,8 @@
 namespace one {
 namespace helpers {
 
-ProxyFileHandle::ProxyFileHandle(folly::fbstring fileId,
-    folly::fbstring storageId, Params openParams,
+ProxyFileHandle::ProxyFileHandle(const folly::fbstring &fileId,
+    folly::fbstring storageId, const Params &openParams,
     communication::Communicator &communicator,
     std::shared_ptr<ProxyHelper> helper, Timeout timeout)
     : FileHandle{fileId, openParams, std::move(helper)}

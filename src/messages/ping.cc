@@ -13,7 +13,7 @@
 namespace one {
 namespace messages {
 
-Ping::Ping(std::string data)
+Ping::Ping(const std::string &data)
     : m_data{data}
 {
 }
