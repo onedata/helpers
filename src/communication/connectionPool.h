@@ -33,7 +33,7 @@ class CertificateData;
 
 namespace detail {
 const auto kDefaultProviderTimeout = 120UL;
-}
+} // namespace detail
 
 /**
  * A @c ConnectionPool is responsible for managing connection pipeline
