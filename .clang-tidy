@@ -3,7 +3,6 @@ Checks: >-
   -abseil*,
   -android*,
   -*braces-around-statements,
-  -bugprone-branch-clone,
   -bugprone-exception-escape,
   -cert-err58-cpp,
   -clang-analyzer-alpha.*,

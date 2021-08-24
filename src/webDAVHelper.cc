@@ -55,7 +55,6 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case WebDAVStatus::MethodNotAllowed:
             return ENOTSUP;
         case WebDAVStatus::NotAcceptable:
-            return EACCES;
         case WebDAVStatus::ProxyAuthenticationRequired:
             return EACCES;
         case WebDAVStatus::RequestTimeout:
@@ -65,21 +64,17 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case WebDAVStatus::Gone:
             return ENXIO;
         case WebDAVStatus::LengthRequired:
-            return EINVAL;
         case WebDAVStatus::PreconditionFailed:
             return EINVAL;
         case WebDAVStatus::PayloadTooLarge:
             return EFBIG;
         case WebDAVStatus::URITooLong:
-            return EINVAL;
         case WebDAVStatus::UnsupportedMediaType:
             return EINVAL;
         case WebDAVStatus::RangeNotSatisfiable:
             return ERANGE;
         case WebDAVStatus::ExpectationFailed:
-            return EINVAL;
         case WebDAVStatus::UpgradeRequired:
-            return EINVAL;
         case WebDAVStatus::PreconditionRequired:
             return EINVAL;
         case WebDAVStatus::TooManyRequests:
@@ -93,7 +88,6 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case WebDAVStatus::NotImplemented:
             return ENOTSUP;
         case WebDAVStatus::BadGateway:
-            return ENXIO;
         case WebDAVStatus::ServiceUnavailable:
             return ENXIO;
         case WebDAVStatus::GatewayTimeout:

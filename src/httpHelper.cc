@@ -55,7 +55,6 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case HTTPStatus::MethodNotAllowed:
             return ENOTSUP;
         case HTTPStatus::NotAcceptable:
-            return EACCES;
         case HTTPStatus::ProxyAuthenticationRequired:
             return EACCES;
         case HTTPStatus::RequestTimeout:
@@ -65,21 +64,17 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case HTTPStatus::Gone:
             return ENXIO;
         case HTTPStatus::LengthRequired:
-            return EINVAL;
         case HTTPStatus::PreconditionFailed:
             return EINVAL;
         case HTTPStatus::PayloadTooLarge:
             return EFBIG;
         case HTTPStatus::URITooLong:
-            return EINVAL;
         case HTTPStatus::UnsupportedMediaType:
             return EINVAL;
         case HTTPStatus::RangeNotSatisfiable:
             return ERANGE;
         case HTTPStatus::ExpectationFailed:
-            return EINVAL;
         case HTTPStatus::UpgradeRequired:
-            return EINVAL;
         case HTTPStatus::PreconditionRequired:
             return EINVAL;
         case HTTPStatus::TooManyRequests:
@@ -93,7 +88,6 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case HTTPStatus::NotImplemented:
             return ENOTSUP;
         case HTTPStatus::BadGateway:
-            return ENXIO;
         case HTTPStatus::ServiceUnavailable:
             return ENXIO;
         case HTTPStatus::GatewayTimeout:
