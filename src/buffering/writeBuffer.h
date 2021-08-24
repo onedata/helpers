@@ -69,6 +69,11 @@ public:
                     << LOG_FARG(writeBufferFlushDelay.count());
     }
 
+    WriteBuffer(const WriteBuffer &) = delete;
+    WriteBuffer &operator=(const WriteBuffer &) = delete;
+    WriteBuffer(WriteBuffer &&) = delete;
+    WriteBuffer &operator=(WriteBuffer &&) = delete;
+
     ~WriteBuffer()
     {
         LOG_FCALL();

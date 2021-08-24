@@ -111,6 +111,11 @@ public:
         std::shared_ptr<BufferAgent> bufferAgent,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 
+    BufferedFileHandle(const BufferedFileHandle &) = delete;
+    BufferedFileHandle &operator=(const BufferedFileHandle &) = delete;
+    BufferedFileHandle(BufferedFileHandle &&) = default;
+    BufferedFileHandle &operator=(BufferedFileHandle &&) = default;
+
     ~BufferedFileHandle() override
     {
         if (m_bufferMemoryLimitGuard) {

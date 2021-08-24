@@ -19,11 +19,9 @@ Checks: >-
   -hicpp-no-array-decay,
   -hicpp-signed-bitwise,
   -google-runtime-references,
-  -hicpp-special-member-functions,
+  hicpp-special-member-functions,
   -hicpp-explicit-conversions,
   -llvm-header-guard,
-  llvm-namespace-comment,
-  llvm-qualified-auto,
   -modernize-avoid-bind,
   -modernize-use-trailing-return-type,
   -modernize-use-default-member-init,
@@ -39,4 +37,10 @@ CheckOptions:
   - key:             performance-unnecessary-value-param.AllowedTypes
     value:           shared_ptr
   - key:             misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
+    value:           1
+  - key:             hicpp-special-member-functions.AllowSoleDefaultDtor
+    value:           1
+  - key:             hicpp-special-member-functions.AllowMissingMoveFunctions
+    value:           1
+  - key:             hicpp-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted
     value:           1
