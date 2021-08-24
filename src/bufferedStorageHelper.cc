@@ -119,7 +119,7 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
         blockOffset = blockNumber * blockSize;
     }
 
-    auto executor = m_bufferStorageHelper->executor().get();
+    auto *executor = m_bufferStorageHelper->executor().get();
 
     return folly::collectAll(futs.begin(), futs.end())
         .via(executor)
@@ -150,7 +150,7 @@ folly::Future<std::pair<T, T>> BufferedStorageHelper::applyAsync(
     futs.emplace_back(std::forward<F>(bufferOp));
     futs.emplace_back(std::forward<F>(mainOp));
 
-    auto executor = m_bufferStorage->executor().get();
+    auto *executor = m_bufferStorage->executor().get();
 
     return folly::collectAll(futs).via(executor).thenValue(
         [ignoreBufferError](std::vector<folly::Try<T>> &&res) {

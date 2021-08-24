@@ -120,7 +120,7 @@ folly::Future<std::size_t> CephFileHandle::write(
             librados::bufferlist data;
 
             if (size > 0u) {
-                for (auto &byteRange : *buf.front())
+                for (const auto &byteRange : *buf.front())
                     data.append(ceph::buffer::create_static(byteRange.size(),
                         reinterpret_cast<char *>(        // NOLINT
                             const_cast<unsigned char *>( // NOLINT

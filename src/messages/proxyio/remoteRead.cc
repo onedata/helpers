@@ -41,7 +41,7 @@ std::string RemoteRead::toString() const
 std::unique_ptr<ProtocolClientMessage> RemoteRead::serializeAndDestroy()
 {
     auto clientMsg = ProxyIORequest::serializeAndDestroy();
-    auto readMsg = clientMsg->mutable_proxyio_request()->mutable_remote_read();
+    auto *readMsg = clientMsg->mutable_proxyio_request()->mutable_remote_read();
 
     readMsg->set_offset(m_offset);
     readMsg->set_size(m_size);

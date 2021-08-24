@@ -17,7 +17,7 @@ namespace messages {
 HandshakeResponse::HandshakeResponse(
     std::unique_ptr<ProtocolServerMessage> serverMessage)
 {
-    auto &msg = serverMessage->handshake_response();
+    const auto &msg = serverMessage->handshake_response();
     m_status = translateStatus(msg);
 }
 

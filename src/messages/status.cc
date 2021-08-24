@@ -184,7 +184,7 @@ std::string Status::toString() const
 std::unique_ptr<ProtocolClientMessage> Status::serializeAndDestroy()
 {
     auto clientMsg = std::make_unique<ProtocolClientMessage>();
-    auto statusMsg = clientMsg->mutable_status();
+    auto *statusMsg = clientMsg->mutable_status();
 
     auto searchResult =
         GetTranslation().right.find(static_cast<std::errc>(m_code.value()));

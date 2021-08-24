@@ -614,7 +614,7 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
     auto f = p.getFuture();
 
     auto file = std::make_unique<XrdCl::File>(true);
-    auto filePtr = file.get();
+    auto *filePtr = file.get();
 
     std::packaged_task<void(XrdCl::XRootDStatus & st)> openTask{
         [this, p = std::move(p), fileId, file = std::move(file)](
@@ -848,7 +848,7 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     auto f = p.getFuture();
 
     auto file = std::make_unique<XrdCl::File>(true);
-    auto filePtr = file.get();
+    auto *filePtr = file.get();
 
     std::packaged_task<void(XrdCl::XRootDStatus & st)> &&openTask{
         [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {

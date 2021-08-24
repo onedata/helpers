@@ -73,7 +73,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                   << reconnectDelay << " ms. Attempt: " << reconnectAttempt;
     }
 
-    auto executor = group_.get();
+    auto *executor = group_.get();
 
     return folly::makeFuture()
         .via(executor)
@@ -177,7 +177,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                         // before handling any other requests
                         .thenValue([this, pipeline](auto && /*unit*/) {
                             if (m_performCLProtoHandshake) {
-                                auto handshakeHandler = pipeline->getHandler<
+                                auto *handshakeHandler = pipeline->getHandler<
                                     codec::CLProtoHandshakeResponseHandler>();
 
                                 auto handshake =

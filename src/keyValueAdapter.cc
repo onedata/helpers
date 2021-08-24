@@ -62,7 +62,7 @@ folly::IOBufQueue fillToSize(folly::IOBufQueue buf, const std::size_t size)
 
     if (buf.chainLength() < size) {
         const std::size_t fillLength = size - buf.chainLength();
-        auto data = static_cast<char *>(buf.allocate(fillLength));
+        auto *data = static_cast<char *>(buf.allocate(fillLength));
         std::fill(data, data + fillLength, 0);
     }
     return buf;

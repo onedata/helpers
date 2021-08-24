@@ -292,7 +292,7 @@ HTTPHelper::~HTTPHelper()
 
     // Close any pending sessions
     for (auto const &pool : m_sessionPool) {
-        for (auto &s : pool.second) {
+        for (const auto &s : pool.second) {
             if (s->session != nullptr && s->evb != nullptr) {
                 s->evb->runInEventBaseThreadAndWait([session = s->session] {
                     session->setInfoCallback(nullptr);
@@ -622,7 +622,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
                             ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
                             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
-                    auto sslCtx = sslContext->getSSLCtx();
+                    auto *sslCtx = sslContext->getSSLCtx();
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
                     SSL_CTX_set_max_proto_version(sslCtx, TLS1_2_VERSION);
 #endif
@@ -664,7 +664,7 @@ bool HTTPHelper::setupOpenSSLCABundlePath(SSL_CTX *ctx)
         "/etc/pki/tls/certs/ca-bundle.trust.crt",
         "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"};
 
-    if (auto sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
+    if (auto *sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
         caBundlePossibleLocations.push_front(sslCertFileEnv);
     }
 
@@ -811,7 +811,7 @@ folly::Future<proxygen::HTTPTransaction *> HTTPRequest::startTransaction()
     assert(eventBase() != nullptr);
 
     return folly::via(eventBase(), [this]() {
-        auto session = m_session->session;
+        auto *session = m_session->session;
 
         if (m_session->closedByRemote || !m_session->sessionValid ||
             session == nullptr || session->isClosing()) {
@@ -832,7 +832,7 @@ folly::Future<proxygen::HTTPTransaction *> HTTPRequest::startTransaction()
                    << maxOutcomingStreams << ", " << outcomingStreams << ", "
                    << processedTransactions << "\n";
 
-        auto txn = session->newTransaction(this);
+        auto *txn = session->newTransaction(this);
         if (txn == nullptr) {
             m_helper->releaseSession(std::move(m_session)); // NOLINT
             throw makePosixException(EAGAIN);

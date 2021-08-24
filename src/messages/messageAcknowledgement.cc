@@ -18,7 +18,8 @@ namespace messages {
 MessageAcknowledgement::MessageAcknowledgement(
     std::unique_ptr<ProtocolServerMessage> serverMessage)
 {
-    auto &messageAcknowledgementMsg = serverMessage->message_acknowledgement();
+    const auto &messageAcknowledgementMsg =
+        serverMessage->message_acknowledgement();
     m_streamId = messageAcknowledgementMsg.stream_id();
     m_sequenceNumber = messageAcknowledgementMsg.sequence_number();
 }

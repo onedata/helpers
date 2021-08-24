@@ -442,7 +442,7 @@ WebDAVHelper::~WebDAVHelper()
 
     // Close any pending sessions
     for (auto const &pool : m_sessionPool) {
-        for (auto &s : pool.second) {
+        for (const auto &s : pool.second) {
             if (s->session != nullptr && s->evb != nullptr) {
                 s->evb->runInEventBaseThreadAndWait([session = s->session] {
                     session->setInfoCallback(nullptr);
@@ -614,7 +614,7 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
                     struct stat attrs {
                     };
 
-                    auto resourceType = multistatus->getNodeByPathNS(
+                    auto *resourceType = multistatus->getNodeByPathNS(
                         "d:multistatus/d:response/d:propstat/d:prop/"
                         "d:resourcetype",
                         nsMap);
@@ -628,7 +628,7 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
                         attrs.st_mode = S_IFDIR | dirMode;
                     }
 
-                    auto getLastModified = multistatus->getNodeByPathNS(
+                    auto *getLastModified = multistatus->getNodeByPathNS(
                         "d:multistatus/d:response/d:propstat/d:prop/"
                         "d:getlastmodified",
                         nsMap);
@@ -647,7 +647,7 @@ folly::Future<struct stat> WebDAVHelper::getattr(const folly::fbstring &fileId,
                             attrs.st_ctim.tv_nsec = 0;
                     }
 
-                    auto getContentLength = multistatus->getNodeByPathNS(
+                    auto *getContentLength = multistatus->getNodeByPathNS(
                         "d:multistatus/d:response/d:propstat/d:prop/"
                         "d:getcontentlength",
                         nsMap);
@@ -1298,13 +1298,13 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::readdir(
                             buildRootPath(endpointPath, fileId.toStdString());
 
                         for (auto i = 0ul; i < entryCount; i++) {
-                            auto response = responses->item(i);
+                            auto *response = responses->item(i);
                             if (response == nullptr ||
                                 !response->hasChildNodes())
                                 continue;
 
                             nsMap.declarePrefix("d", kNSDAV);
-                            auto href =
+                            auto *href =
                                 response->getNodeByPathNS("d:href", nsMap);
 
                             if (href == nullptr)
@@ -1437,7 +1437,7 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
                                PAPtr<pxml::Document> &&multistatus) {
                     std::string nameEncoded;
                     Poco::URI::encode(name.toStdString(), "", nameEncoded);
-                    auto attributeNode = multistatus->getNodeByPathNS(
+                    auto *attributeNode = multistatus->getNodeByPathNS(
                         folly::sformat(
                             "d:multistatus/d:response/d:propstat/d:prop/"
                             "o:{}",
@@ -1448,7 +1448,7 @@ folly::Future<folly::fbstring> WebDAVHelper::getxattr(
 
                     if ((attributeNode != nullptr) &&
                         (attributeNode->childNodes()->length() == 1)) {
-                        auto attributeValueNode = attributeNode->firstChild();
+                        auto *attributeValueNode = attributeNode->firstChild();
                         if ((attributeValueNode != nullptr) &&
                             (attributeValueNode->nodeType() ==
                                 pxml::Node::TEXT_NODE)) {
@@ -1717,13 +1717,13 @@ folly::Future<folly::fbvector<folly::fbstring>> WebDAVHelper::listxattr(
                                PAPtr<pxml::Document> &&multistatus) {
                     folly::fbvector<folly::fbstring> result;
 
-                    auto prop = multistatus->getNodeByPathNS(
+                    auto *prop = multistatus->getNodeByPathNS(
                         "d:multistatus/d:response/d:propstat/d:prop", nsMap);
 
                     if (prop != nullptr) {
                         for (auto i = 0ul; i < prop->childNodes()->length();
                              i++) {
-                            auto property = prop->childNodes()->item(i);
+                            auto *property = prop->childNodes()->item(i);
 
                             // Filter out Onedata extended attributes
                             if (property->namespaceURI() == kNSOnedata) {
@@ -1886,7 +1886,7 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
                             ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
                             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
-                    auto sslCtx = sslContext->getSSLCtx();
+                    auto *sslCtx = sslContext->getSSLCtx();
                     if (!setupOpenSSLCABundlePath(sslCtx)) {
                         SSL_CTX_set_default_verify_paths(sslCtx);
                     }
@@ -1924,7 +1924,7 @@ bool WebDAVHelper::setupOpenSSLCABundlePath(SSL_CTX *ctx)
         "/etc/pki/tls/certs/ca-bundle.trust.crt",
         "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"};
 
-    if (auto sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
+    if (auto *sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
         caBundlePossibleLocations.push_front(sslCertFileEnv);
     }
 
@@ -2058,7 +2058,7 @@ folly::Future<proxygen::HTTPTransaction *> WebDAVRequest::startTransaction()
     assert(eventBase() != nullptr);
 
     return folly::via(eventBase(), [this]() {
-        auto session = m_session->session;
+        auto *session = m_session->session;
 
         if (m_session->closedByRemote || !m_session->sessionValid ||
             session == nullptr || session->isClosing()) {
@@ -2079,7 +2079,7 @@ folly::Future<proxygen::HTTPTransaction *> WebDAVRequest::startTransaction()
                    << maxOutcomingStreams << ", " << outcomingStreams << ", "
                    << processedTransactions << "\n";
 
-        auto txn = session->newTransaction(this);
+        auto *txn = session->newTransaction(this);
         if (txn == nullptr) {
             m_helper->releaseSession(std::move(m_session)); // NOLINT
             throw makePosixException(EAGAIN);
@@ -2640,7 +2640,7 @@ void WebDAVPROPPATCH::onEOM() noexcept
                         reinterpret_cast<const char *>(iobuf->data()),
                         iobuf->length());
 
-                    auto status = xml->getNodeByPathNS(
+                    auto *status = xml->getNodeByPathNS(
                         "d:multistatus/d:response/d:propstat/d:status", nsMap);
 
                     if (status == nullptr) {

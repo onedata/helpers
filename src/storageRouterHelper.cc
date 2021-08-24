@@ -246,7 +246,7 @@ folly::Future<std::size_t> StorageRouterHelper::blockSizeForPath(
 bool StorageRouterHelper::isObjectStorage() const
 {
     // Return true if any of the storages is object storage
-    for (auto &routes : m_routes)
+    for (const auto &routes : m_routes)
         if (routes.second->isObjectStorage())
             return true;
 

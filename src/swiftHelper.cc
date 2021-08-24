@@ -176,7 +176,7 @@ folly::IOBufQueue SwiftHelper::getObject(
 
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
-    const auto newTail =
+    auto *const newTail =
         std::copy(std::istreambuf_iterator<char>{*getResponse->getPayload()},
             std::istreambuf_iterator<char>{}, data);
 
@@ -258,7 +258,8 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         const std::size_t batchSize =
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize))
+        for (const auto &key :
+            folly::range(keys.begin(), keys.begin() + batchSize))
             keyBatch.emplace_back(key.toStdString());
 
         using DeleteResponsePtr =

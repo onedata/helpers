@@ -40,11 +40,11 @@ std::string RemoteWrite::toString() const
 std::unique_ptr<ProtocolClientMessage> RemoteWrite::serializeAndDestroy()
 {
     auto clientMsg = ProxyIORequest::serializeAndDestroy();
-    auto writeMsg =
+    auto *writeMsg =
         clientMsg->mutable_proxyio_request()->mutable_remote_write();
 
     for (auto &e : m_data) {
-        auto byteSequence = writeMsg->add_byte_sequence();
+        auto *byteSequence = writeMsg->add_byte_sequence();
         byteSequence->set_offset(e.first);
         byteSequence->set_data(e.second.toStdString());
     }

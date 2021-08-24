@@ -23,7 +23,7 @@ std::string Ping::toString() const { return "type: 'Ping'"; }
 std::unique_ptr<ProtocolClientMessage> Ping::serializeAndDestroy()
 {
     auto clientMsg = std::make_unique<ProtocolClientMessage>();
-    auto ping = clientMsg->mutable_ping();
+    auto *ping = clientMsg->mutable_ping();
     if (m_data)
         ping->set_data(m_data.get());
 

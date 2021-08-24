@@ -520,7 +520,8 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         const std::size_t batchSize =
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
+        for (const auto &key :
+            folly::range(keys.begin(), keys.begin() + batchSize)) {
             const auto effectiveKey = toEffectiveKey(key).toStdString();
 
             ObjectIdentifier oi{};
@@ -881,7 +882,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
                << " object keys";
 
     // Add regular objects as file entries
-    for (auto &object : outcome.GetResult().GetContents()) {
+    for (const auto &object : outcome.GetResult().GetContents()) {
         if (object.GetKey().empty() || object.GetKey() == "/")
             continue;
 

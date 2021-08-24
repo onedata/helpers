@@ -125,7 +125,7 @@ bool ConnectionPool::setupOpenSSLCABundlePath(SSL_CTX *ctx)
         "/etc/pki/tls/certs/ca-bundle.trust.crt",
         "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"};
 
-    if (auto sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
+    if (auto *sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
         caBundlePossibleLocations.push_front(sslCertFileEnv);
     }
 
@@ -163,7 +163,7 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
             ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
-    auto sslCtx = context->getSSLCtx();
+    auto *sslCtx = context->getSSLCtx();
     if (!setupOpenSSLCABundlePath(sslCtx)) {
         SSL_CTX_set_default_verify_paths(sslCtx);
     }
