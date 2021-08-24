@@ -2093,28 +2093,36 @@ void WebDAVRequest::setTransaction(proxygen::HTTPTransaction *txn) noexcept
 
 void WebDAVRequest::detachTransaction() noexcept
 {
-    if (m_session != nullptr) {
-        m_helper->releaseSession(std::move(m_session)); // NOLINT
-        m_session = nullptr;
+    try {
+        if (m_session != nullptr) {
+            m_helper->releaseSession(std::move(m_session)); // NOLINT
+            m_session = nullptr;
+        }
+        m_destructionGuard.reset();
     }
-    m_destructionGuard.reset();
+    catch (...) {
+    }
 }
 
 void WebDAVRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
-    if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
-        if (msg->getHeaders().rawGet("Connection") == "close") {
-            LOG_DBG(4) << "Received 'Connection: close'";
-            m_session->closedByRemote = true;
+    try {
+        if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
+            if (msg->getHeaders().rawGet("Connection") == "close") {
+                LOG_DBG(4) << "Received 'Connection: close'";
+                m_session->closedByRemote = true;
+            }
         }
+        if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
+            LOG_DBG(2) << "Received 302 redirect response to: "
+                       << msg->getHeaders().rawGet("Location");
+            m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
+        }
+        m_resultCode = msg->getStatusCode();
     }
-    if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
-        LOG_DBG(2) << "Received 302 redirect response to: "
-                   << msg->getHeaders().rawGet("Location");
-        m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
+    catch (...) {
     }
-    m_resultCode = msg->getStatusCode();
 }
 
 void WebDAVRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept { }
@@ -2185,38 +2193,50 @@ folly::Future<folly::IOBufQueue> WebDAVGET::operator()(
 
 void WebDAVGET::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 {
-    m_resultBody->append(std::move(chain));
+    try {
+        m_resultBody->append(std::move(chain));
+    }
+    catch (...) {
+    }
 }
 
 void WebDAVGET::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 void WebDAVGET::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        if (!m_firstByteRequest) {
-            m_resultPromise.setValue(std::move(*m_resultBody));
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            if (!m_firstByteRequest) {
+                m_resultPromise.setValue(std::move(*m_resultBody));
+            }
+            else {
+                auto str = m_resultBody->pop_front()->moveToFbString();
+                auto iobufq =
+                    folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
+                iobufq.append(str.c_str(), 1);
+                m_resultPromise.setValue(std::move(iobufq));
+            }
         }
         else {
-            auto str = m_resultBody->pop_front()->moveToFbString();
-            auto iobufq =
-                folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
-            iobufq.append(str.c_str(), 1);
-            m_resultPromise.setValue(std::move(iobufq));
+            m_resultPromise.setException(makePosixException(result));
         }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
@@ -2252,25 +2272,33 @@ folly::Future<folly::Unit> WebDAVPUT::operator()(
 
 void WebDAVPUT::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        m_resultPromise.setValue();
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            m_resultPromise.setValue();
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVPUT::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2313,25 +2341,33 @@ void WebDAVPATCH::onHeadersComplete(
 
 void WebDAVPATCH::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        m_resultPromise.setValue();
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            m_resultPromise.setValue();
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVPATCH::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2355,25 +2391,33 @@ folly::Future<folly::Unit> WebDAVMKCOL::operator()(
 
 void WebDAVMKCOL::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        m_resultPromise.setValue();
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            m_resultPromise.setValue();
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVMKCOL::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2414,48 +2458,57 @@ void WebDAVPROPFIND::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void WebDAVPROPFIND::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
+
+        auto result = httpStatusToPosixError(m_resultCode);
+
+        if (result == 0) {
+            m_resultPromise.setWith([bufq = std::move(m_resultBody)]() {
+                bufq->gather(bufq->chainLength());
+                auto iobuf =
+                    bufq->empty() ? folly::IOBuf::create(0) : bufq->move();
+                if (iobuf->isChained()) {
+                    iobuf->unshare();
+                    iobuf->coalesce();
+                }
+
+                pxml::DOMParser parser;
+                pxml::Document *xml = nullptr;
+                try {
+                    xml = parser.parseMemory(
+                        reinterpret_cast<const char *>(iobuf->data()),
+                        iobuf->length());
+                }
+                catch (std::exception &e) {
+                    LOG(ERROR) << "Invalid XML PROPFIND response: " << e.what();
+                    if (xml != nullptr)
+                        xml->release();
+                    throw makePosixException(EIO);
+                }
+                return PAPtr<pxml::Document>(xml);
+            });
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-
-    auto result = httpStatusToPosixError(m_resultCode);
-
-    if (result == 0) {
-        m_resultPromise.setWith([bufq = std::move(m_resultBody)]() {
-            bufq->gather(bufq->chainLength());
-            auto iobuf = bufq->empty() ? folly::IOBuf::create(0) : bufq->move();
-            if (iobuf->isChained()) {
-                iobuf->unshare();
-                iobuf->coalesce();
-            }
-
-            pxml::DOMParser parser;
-            pxml::Document *xml = nullptr;
-            try {
-                xml = parser.parseMemory(
-                    reinterpret_cast<const char *>(iobuf->data()),
-                    iobuf->length());
-            }
-            catch (std::exception &e) {
-                LOG(ERROR) << "Invalid XML PROPFIND response: " << e.what();
-                if (xml != nullptr)
-                    xml->release();
-                throw makePosixException(EIO);
-            }
-            return PAPtr<pxml::Document>(xml);
-        });
-    }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVPROPFIND::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2552,64 +2605,75 @@ void WebDAVPROPPATCH::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void WebDAVPROPPATCH::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
+        auto result = httpStatusToPosixError(m_resultCode);
 
-    if (result == 0) {
-        m_resultPromise.setWith([bufq = std::move(m_resultBody)]() {
-            bufq->gather(bufq->chainLength());
-            auto iobuf = bufq->empty() ? folly::IOBuf::create(0) : bufq->move();
-            if (iobuf->isChained()) {
-                iobuf->unshare();
-                iobuf->coalesce();
-            }
+        if (result == 0) {
+            m_resultPromise.setWith([bufq = std::move(m_resultBody)]() {
+                bufq->gather(bufq->chainLength());
+                auto iobuf =
+                    bufq->empty() ? folly::IOBuf::create(0) : bufq->move();
+                if (iobuf->isChained()) {
+                    iobuf->unshare();
+                    iobuf->coalesce();
+                }
 
-            pxml::NamespaceSupport nsMap;
-            nsMap.declarePrefix("d", kNSDAV);
-            nsMap.declarePrefix("o", kNSOnedata);
+                pxml::NamespaceSupport nsMap;
+                nsMap.declarePrefix("d", kNSDAV);
+                nsMap.declarePrefix("o", kNSOnedata);
 
-            try {
-                pxml::DOMParser m_parser;
-                PAPtr<pxml::Document> xml;
-                xml = m_parser.parseMemory(
-                    reinterpret_cast<const char *>(iobuf->data()),
-                    iobuf->length());
+                try {
+                    pxml::DOMParser m_parser;
+                    PAPtr<pxml::Document> xml;
+                    xml = m_parser.parseMemory(
+                        reinterpret_cast<const char *>(iobuf->data()),
+                        iobuf->length());
 
-                auto status = xml->getNodeByPathNS(
-                    "d:multistatus/d:response/d:propstat/d:status", nsMap);
+                    auto status = xml->getNodeByPathNS(
+                        "d:multistatus/d:response/d:propstat/d:status", nsMap);
 
-                if (status == nullptr) {
+                    if (status == nullptr) {
+                        throw makePosixException(EINVAL);
+                    }
+
+                    if ((std::string("HTTP/1.1 200 OK") ==
+                            status->innerText()) ||
+                        (std::string("HTTP/1.1 204 No Content") ==
+                            status->innerText())) {
+                        return folly::Unit{};
+                    }
+
                     throw makePosixException(EINVAL);
                 }
-
-                if ((std::string("HTTP/1.1 200 OK") == status->innerText()) ||
-                    (std::string("HTTP/1.1 204 No Content") ==
-                        status->innerText())) {
-                    return folly::Unit{};
+                catch (std::exception &e) {
+                    LOG(ERROR)
+                        << "Cannot parse PROPPATCH response: " << e.what();
+                    throw makePosixException(EIO);
                 }
-
-                throw makePosixException(EINVAL);
-            }
-            catch (std::exception &e) {
-                LOG(ERROR) << "Cannot parse PROPPATCH response: " << e.what();
-                throw makePosixException(EIO);
-            }
-        });
+            });
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVPROPPATCH::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2633,25 +2697,33 @@ folly::Future<folly::Unit> WebDAVDELETE::operator()(
 
 void WebDAVDELETE::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        m_resultPromise.setValue();
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            m_resultPromise.setValue();
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVDELETE::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2677,25 +2749,33 @@ folly::Future<folly::Unit> WebDAVMOVE::operator()(
 
 void WebDAVMOVE::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        m_resultPromise.setValue();
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            m_resultPromise.setValue();
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVMOVE::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 /**
@@ -2721,25 +2801,33 @@ folly::Future<folly::Unit> WebDAVCOPY::operator()(
 
 void WebDAVCOPY::onEOM() noexcept
 {
-    if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            WebDAVFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<WebDAVStatus>(m_resultCode) == WebDAVStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                WebDAVFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        m_resultPromise.setValue();
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            m_resultPromise.setValue();
+        }
+        else {
+            m_resultPromise.setException(makePosixException(result));
+        }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
 void WebDAVCOPY::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 } // namespace helpers

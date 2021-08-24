@@ -143,7 +143,7 @@ public:
 
     virtual ~GlusterFSHelper() = default;
 
-    folly::fbstring name() const { return GLUSTERFS_HELPER_NAME; };
+    folly::fbstring name() const override { return GLUSTERFS_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 

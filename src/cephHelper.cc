@@ -40,10 +40,9 @@ inline bool CephRetryCondition(int result, const std::string &operation)
     return ret;
 }
 
-CephFileHandle::CephFileHandle(folly::fbstring fileId,
-    std::shared_ptr<CephHelper> helper, librados::IoCtx &ioCTX)
+CephFileHandle::CephFileHandle(
+    folly::fbstring fileId, std::shared_ptr<CephHelper> helper)
     : FileHandle{std::move(fileId), std::move(helper)}
-    , m_ioCTX{ioCTX}
 {
     LOG_FCALL() << LOG_FARG(fileId);
 }
@@ -190,8 +189,7 @@ folly::Future<FileHandlePtr> CephHelper::open(const folly::fbstring &fileId,
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto handle =
-        std::make_shared<CephFileHandle>(fileId, shared_from_this(), m_ioCTX);
+    auto handle = std::make_shared<CephFileHandle>(fileId, shared_from_this());
 
     return folly::makeFuture(std::move(handle));
 }

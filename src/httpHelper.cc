@@ -168,7 +168,7 @@ HTTPFileHandle::HTTPFileHandle(
 folly::Future<folly::IOBufQueue> HTTPFileHandle::read(
     const off_t offset, const std::size_t size)
 {
-    return read(offset, size, kHTTPRetryCount);
+    return read(offset, size, kHTTPRetryCount, {});
 }
 
 folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
@@ -222,7 +222,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                 .thenValue([self, offset, size, retryCount](
                                                auto && /*unit*/) {
                                     return self->read(
-                                        offset, size, retryCount - 1);
+                                        offset, size, retryCount - 1, {});
                                 });
                         }
 
@@ -250,7 +250,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                 .thenValue([self, offset, size, retryCount](
                                                auto && /*unit*/) {
                                     return self->read(
-                                        offset, size, retryCount - 1);
+                                        offset, size, retryCount - 1, {});
                                 });
                         }
 
@@ -846,30 +846,38 @@ void HTTPRequest::setTransaction(proxygen::HTTPTransaction *txn) noexcept
 
 void HTTPRequest::detachTransaction() noexcept
 {
-    if (m_session != nullptr) {
-        m_helper->releaseSession(std::move(m_session)); // NOLINT
-        m_session = nullptr;
+    try {
+        if (m_session != nullptr) {
+            m_helper->releaseSession(std::move(m_session)); // NOLINT
+            m_session = nullptr;
+        }
+        m_destructionGuard.reset();
     }
-    m_destructionGuard.reset();
+    catch (...) {
+    }
 }
 
 void HTTPRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
-    if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
-        if (msg->getHeaders().rawGet("Connection") == "close") {
-            LOG_DBG(4) << "Received 'Connection: close'";
-            m_session->closedByRemote = true;
+    try {
+        if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
+            if (msg->getHeaders().rawGet("Connection") == "close") {
+                LOG_DBG(4) << "Received 'Connection: close'";
+                m_session->closedByRemote = true;
+            }
         }
-    }
-    if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
-        LOG_DBG(2) << "Received 302 redirect response to: "
-                   << msg->getHeaders().rawGet("Location");
-        m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
-    }
-    m_resultCode = msg->getStatusCode();
+        if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
+            LOG_DBG(2) << "Received 302 redirect response to: "
+                       << msg->getHeaders().rawGet("Location");
+            m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
+        }
+        m_resultCode = msg->getStatusCode();
 
-    processHeaders(msg);
+        processHeaders(msg);
+    }
+    catch (...) {
+    }
 }
 
 void HTTPRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept { }
@@ -947,33 +955,41 @@ void HTTPGET::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void HTTPGET::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 void HTTPGET::onEOM() noexcept
 {
-    if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                HTTPFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        if (!m_firstByteRequest) {
-            m_resultPromise.setValue(std::move(*m_resultBody));
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            if (!m_firstByteRequest) {
+                m_resultPromise.setValue(std::move(*m_resultBody));
+            }
+            else {
+                auto str = m_resultBody->pop_front()->moveToFbString();
+                auto iobufq =
+                    folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
+                iobufq.append(str.c_str(), 1);
+                m_resultPromise.setValue(std::move(iobufq));
+            }
         }
         else {
-            auto str = m_resultBody->pop_front()->moveToFbString();
-            auto iobufq =
-                folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
-            iobufq.append(str.c_str(), 1);
-            m_resultPromise.setValue(std::move(iobufq));
+            m_resultPromise.setException(makePosixException(result));
         }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
@@ -1003,42 +1019,46 @@ void HTTPHEAD::processHeaders(
 {
     std::map<folly::fbstring, folly::fbstring> res{};
 
-    if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
-        return;
-    }
-
-    auto result = httpStatusToPosixError(m_resultCode);
-
-    if (result != 0) {
-        m_resultPromise.setException(makePosixException(result));
-    }
-    else {
-        // Ensure that the server allows reading byte ranges from resources
-        if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0u ||
-            msg->getHeaders().rawGet("accept-ranges") != "bytes") {
-            LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
-                       << msg->getPath();
-            m_resultPromise.setException(makePosixException(ENOTSUP));
+    try {
+        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                HTTPFoundException{m_redirectURL.toString()});
             return;
         }
 
-        if (msg->getHeaders().getNumberOfValues("content-type") != 0u) {
-            res.emplace(
-                "content-type", msg->getHeaders().rawGet("content-type"));
-        }
-        if (msg->getHeaders().getNumberOfValues("last-modified") != 0u) {
-            res.emplace(
-                "last-modified", msg->getHeaders().rawGet("last-modified"));
-        }
-        if (msg->getHeaders().getNumberOfValues("content-length") != 0u) {
-            res.emplace(
-                "content-length", msg->getHeaders().rawGet("content-length"));
-        }
+        auto result = httpStatusToPosixError(m_resultCode);
 
-        m_resultPromise.setValue(std::move(res));
+        if (result != 0) {
+            m_resultPromise.setException(makePosixException(result));
+        }
+        else {
+            // Ensure that the server allows reading byte ranges from resources
+            if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0u ||
+                msg->getHeaders().rawGet("accept-ranges") != "bytes") {
+                LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
+                           << msg->getPath();
+                m_resultPromise.setException(makePosixException(ENOTSUP));
+                return;
+            }
+
+            if (msg->getHeaders().getNumberOfValues("content-type") != 0u) {
+                res.emplace(
+                    "content-type", msg->getHeaders().rawGet("content-type"));
+            }
+            if (msg->getHeaders().getNumberOfValues("last-modified") != 0u) {
+                res.emplace(
+                    "last-modified", msg->getHeaders().rawGet("last-modified"));
+            }
+            if (msg->getHeaders().getNumberOfValues("content-length") != 0u) {
+                res.emplace("content-length",
+                    msg->getHeaders().rawGet("content-length"));
+            }
+
+            m_resultPromise.setValue(std::move(res));
+        }
+    }
+    catch (...) {
     }
 }
 
@@ -1046,7 +1066,11 @@ void HTTPHEAD::onEOM() noexcept { }
 
 void HTTPHEAD::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 } // namespace helpers

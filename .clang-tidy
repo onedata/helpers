@@ -1,9 +1,9 @@
 Checks: >-
-  *,
+  -*,
+  bugprone-exception-escape,
   -abseil*,
   -android*,
   -*braces-around-statements,
-  -bugprone-exception-escape,
   -cert-err58-cpp,
   -clang-analyzer-alpha.*,
   -clang-analyzer-cplusplus.NewDelete,

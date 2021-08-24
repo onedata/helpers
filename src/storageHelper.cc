@@ -216,7 +216,7 @@ FileHandle::FileHandle(folly::fbstring fileId, Params openParams,
 
 std::shared_ptr<StorageHelper> FileHandle::helper() { return m_helper; }
 
-folly::Future<folly::IOBufQueue> FileHandle::read(const off_t offset,
+folly::Future<folly::IOBufQueue> FileHandle::readContinuous(const off_t offset,
     const std::size_t size, const std::size_t /*continuousBlock*/)
 {
     return read(offset, size);

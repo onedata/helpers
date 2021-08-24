@@ -116,7 +116,7 @@ enum class WebDAVStatus : uint16_t {
 };
 
 class WebDAVHelper;
-class WebDAVSession;
+struct WebDAVSession;
 
 using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
 using WebDAVSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
@@ -379,7 +379,7 @@ public:
      */
     folly::Future<WebDAVSession *> connect(WebDAVSessionPoolKey key = {});
 
-    std::shared_ptr<folly::Executor> executor() { return m_executor; }
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
     WebDAVRangeWriteSupport rangeWriteSupport() const
     {
@@ -819,7 +819,8 @@ public:
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         return std::make_shared<WebDAVHelper>(
             WebDAVHelperParams::create(parameters), m_executor,

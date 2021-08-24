@@ -78,7 +78,7 @@ public:
         Timeout timeout = ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONECLIENT);
 
-    folly::fbstring name() const { return PROXY_HELPER_NAME; };
+    folly::fbstring name() const override { return PROXY_HELPER_NAME; };
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;

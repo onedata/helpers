@@ -123,10 +123,11 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override
     {
-        return read(offset, size, std::numeric_limits<off_t>::max() - offset);
+        return readContinuous(
+            offset, size, std::numeric_limits<off_t>::max() - offset);
     }
 
-    folly::Future<folly::IOBufQueue> read(const off_t offset,
+    folly::Future<folly::IOBufQueue> readContinuous(const off_t offset,
         const std::size_t size, const std::size_t continuousSize) override
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)

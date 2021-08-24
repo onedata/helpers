@@ -37,8 +37,7 @@ public:
      * @param helper A pointer to the helper that created the handle.
      * @param ioCTX A reference to @c librados::IoCtx for async operations.
      */
-    CephFileHandle(folly::fbstring fileId, std::shared_ptr<CephHelper> helper,
-        librados::IoCtx &ioCTX);
+    CephFileHandle(folly::fbstring fileId, std::shared_ptr<CephHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
@@ -47,9 +46,6 @@ public:
         WriteCallback &&writeCb) override;
 
     const Timeout &timeout() override;
-
-private:
-    librados::IoCtx &m_ioCTX;
 };
 
 /**

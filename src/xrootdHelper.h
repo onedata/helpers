@@ -160,7 +160,7 @@ public:
         const folly::fbstring &fileId, off_t offset, size_t count,
         const int retryCount);
 
-    std::shared_ptr<folly::Executor> executor() { return m_executor; }
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
     XRootDCredentialsType credentialsType() const
     {
@@ -210,7 +210,8 @@ public:
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         return std::make_shared<XRootDHelper>(
             XRootDHelperParams::create(parameters), m_executor,

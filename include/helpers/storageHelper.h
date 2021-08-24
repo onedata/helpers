@@ -374,7 +374,7 @@ public:
     virtual folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) = 0;
 
-    virtual folly::Future<folly::IOBufQueue> read(const off_t offset,
+    virtual folly::Future<folly::IOBufQueue> readContinuous(const off_t offset,
         const std::size_t size, const std::size_t continuousBlock);
 
     virtual folly::Future<std::size_t> write(
