@@ -671,7 +671,7 @@ folly::Future<folly::Unit> PosixHelper::mknod(const folly::fbstring &fileId,
             if (S_ISREG(mode)) {
                 res = retry(
                     [&]() {
-                        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+                        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
                         return ::open(filePath.c_str(),
                             O_CREAT | O_EXCL | O_WRONLY, mode);
                     },
@@ -872,7 +872,7 @@ folly::Future<FileHandlePtr> PosixHelper::open(const folly::fbstring &fileId,
 
             int res = retry(
                 [&]() {
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
                     return ::open(filePath.c_str(), flags);
                 },
                 std::bind(POSIXRetryCondition, std::placeholders::_1, "open"));
