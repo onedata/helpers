@@ -24,7 +24,7 @@ Checks: >-
   -llvm-header-guard,
   -llvm-namespace-comment,
   -llvm-qualified-auto,
-  -misc-non-private-member-variables-in-classes,
+  misc-non-private-member-variables-in-classes,
   -modernize-avoid-bind,
   -modernize-use-trailing-return-type,
   -modernize-use-override,
@@ -32,7 +32,6 @@ Checks: >-
   -mpi*,
   -objc*,
   -*osx*,
-  performance-unnecessary-value-param,
   -zircon*
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'helpers/include|helpers/src'
@@ -41,3 +40,5 @@ CheckOptions:
     value:           'm_'
   - key:             performance-unnecessary-value-param.AllowedTypes
     value:           shared_ptr
+  - key:             misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
+    value:           1

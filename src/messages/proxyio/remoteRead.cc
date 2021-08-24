@@ -32,8 +32,8 @@ RemoteRead::RemoteRead(
 std::string RemoteRead::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'RemoteRead', parameters: " << m_parameters
-           << ", storageId: '" << m_storageId << "', fileId: '" << m_fileId
+    stream << "type: 'RemoteRead', parameters: " << parameters()
+           << ", storageId: '" << storageId() << "', fileId: '" << fileId()
            << "', offset: " << m_offset << ", size: " << m_size;
     return stream.str();
 }

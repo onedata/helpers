@@ -38,9 +38,20 @@ public:
 
     ~ProxyIORequest() override = default;
 
+    const std::unordered_map<folly::fbstring, folly::fbstring> &
+    parameters() const
+    {
+        return m_parameters;
+    }
+
+    folly::fbstring storageId() const { return m_storageId; }
+
+    folly::fbstring fileId() const { return m_fileId; }
+
 protected:
     std::unique_ptr<ProtocolClientMessage> serializeAndDestroy() override;
 
+private:
     std::unordered_map<folly::fbstring, folly::fbstring> m_parameters;
     folly::fbstring m_storageId;
     folly::fbstring m_fileId;

@@ -236,8 +236,8 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
         const bool handled = m_callbacks.find(acc, messageId);
 
         for (const auto &sub : m_subscriptions)
-            if (sub.predicate(*message, handled))
-                sub.callback(*message);
+            if (sub.predicate()(*message, handled))
+                sub.callback()(*message);
 
         if (handled) {
             auto callback = std::move(*(acc->second.callback));

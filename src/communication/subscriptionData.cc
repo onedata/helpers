@@ -14,8 +14,8 @@ namespace communication {
 SubscriptionData::SubscriptionData(
     std::function<bool(const ServerMessage &, const bool)> p,
     std::function<void(const ServerMessage &)> c)
-    : predicate(std::move(p))
-    , callback(std::move(c))
+    : m_predicate(std::move(p))
+    , m_callback(std::move(c))
 {
 }
 

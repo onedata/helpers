@@ -44,11 +44,6 @@ public:
     using Callback = std::function<void(const std::error_code &)>;
 
     /**
-     * A reference to @c *this typed as a @c ConnectionPool.
-     */
-    ConnectionPool &connectionPool = *this;
-
-    /**
      * Constructor.
      * @param connectionsNumber Number of connections that should be maintained
      * by this pool.
