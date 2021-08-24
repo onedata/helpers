@@ -18,7 +18,6 @@ Checks: >-
   -google-explicit-constructor,
   -hicpp-no-array-decay,
   -hicpp-signed-bitwise,
-  hicpp-uppercase-literal-suffix,
   -google-runtime-references,
   -hicpp-special-member-functions,
   -hicpp-explicit-conversions,
@@ -34,11 +33,10 @@ Checks: >-
   -objc*,
   -*osx*,
   -performance-unnecessary-value-param,
-  readability-uppercase-literal-suffix,
   -readability-qualified-auto,
   -readability-convert-member-functions-to-static,
   -readability-make-member-function-const,
-  -readability-avoid-const-params-in-decls,
+  readability-avoid-const-params-in-decls,
   -zircon*
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'helpers/include|helpers/src'

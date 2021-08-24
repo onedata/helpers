@@ -26,8 +26,8 @@ namespace proxyio {
 class RemoteRead : public ProxyIORequest {
 public:
     RemoteRead(std::unordered_map<folly::fbstring, folly::fbstring> parameters,
-        folly::fbstring storageId, folly::fbstring fileId, const off_t offset,
-        const std::size_t size);
+        folly::fbstring storageId, folly::fbstring fileId, off_t offset,
+        std::size_t size);
 
     std::string toString() const override;
 

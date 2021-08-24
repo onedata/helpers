@@ -67,7 +67,7 @@ public:
     ConnectionPool(std::size_t connectionsNumber, std::size_t workersNumber,
         std::string host, uint16_t port, bool verifyServerCertificate,
         bool clprotoUpgrade = true, bool clprotoHandshake = true,
-        const std::chrono::seconds providerTimeout = std::chrono::seconds{
+        std::chrono::seconds providerTimeout = std::chrono::seconds{
             detail::kDefaultProviderTimeout});
 
     ConnectionPool(const ConnectionPool &) = delete;
