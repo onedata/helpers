@@ -26,10 +26,10 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
     StorageHelperParams::initializeFromParams(parameters);
 
     constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
-    constexpr auto kDefaultConnectionPoolSize = 10u;
-    constexpr auto kDefaultMaxRequestsPerSession = 0u;
+    constexpr auto kDefaultConnectionPoolSize = 10U;
+    constexpr auto kDefaultMaxRequestsPerSession = 0U;
     // constexpr auto kDefaultMaximumPoolSize = 0u;
-    constexpr auto kDefaultAccessTokenTTL = 0u;
+    constexpr auto kDefaultAccessTokenTTL = 0U;
 
     const auto &endpoint = getParam(parameters, "endpoint");
     const auto &verifyServerCertificateStr =

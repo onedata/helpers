@@ -1806,7 +1806,7 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
                       "request by "
                       "10ms. In case this message shows frequently, consider "
                       "increasing connectionPoolSize for the given storage.";
-        const auto kWebDAVIdleSessionWaitDelay = 10ul;
+        const auto kWebDAVIdleSessionWaitDelay = 10UL;
         return folly::makeSemiFuture()
             .via(webDAVSession->evb)
             .delayed(std::chrono::milliseconds(kWebDAVIdleSessionWaitDelay))
@@ -1996,19 +1996,19 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
         std::dynamic_pointer_cast<WebDAVHelperParams>(helper->params().get());
 
     m_request.setHTTPVersion(kWebDAVHTTPVersionMajor, kWebDAVHTTPVersionMinor);
-    if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0U) {
         m_request.getHeaders().add("User-Agent", "Onedata");
     }
-    if (m_request.getHeaders().getNumberOfValues("Accept") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Accept") == 0U) {
         m_request.getHeaders().add("Accept", "*/*");
     }
-    if (m_request.getHeaders().getNumberOfValues("Connection") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Connection") == 0U) {
         m_request.getHeaders().add("Connection", "Keep-Alive");
     }
-    if (m_request.getHeaders().getNumberOfValues("Host") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
         m_request.getHeaders().add("Host", session->host);
     }
-    if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U) {
         if (p->credentialsType() == WebDAVCredentialsType::NONE) { }
         else if (p->credentialsType() == WebDAVCredentialsType::BASIC) {
             std::stringstream b64Stream;
@@ -2112,13 +2112,13 @@ void WebDAVRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
     try {
-        if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
+        if (msg->getHeaders().getNumberOfValues("Connection") != 0U) {
             if (msg->getHeaders().rawGet("Connection") == "close") {
                 LOG_DBG(4) << "Received 'Connection: close'";
                 m_session->closedByRemote = true;
             }
         }
-        if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
+        if (msg->getHeaders().getNumberOfValues("Location") != 0U) {
             LOG_DBG(2) << "Received 302 redirect response to: "
                        << msg->getHeaders().rawGet("Location");
             m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));

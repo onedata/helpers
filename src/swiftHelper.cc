@@ -251,7 +251,7 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
     Swift::Container container(&account, m_containerName.toStdString());
-    for (auto offset = 0ul; offset < keys.size();
+    for (auto offset = 0UL; offset < keys.size();
          offset += MAX_DELETE_OBJECTS) {
         std::vector<std::string> keyBatch;
 

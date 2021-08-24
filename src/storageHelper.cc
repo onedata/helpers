@@ -120,7 +120,7 @@ mode_t parsePosixPermissions(folly::fbstring p)
 
     mode_t result = 0;
 
-    for (auto i = 0u; i < 4; i++) {
+    for (auto i = 0U; i < 4; i++) {
         result += (p[i] - '0') << (3 * (3 - i));
     }
     return result;

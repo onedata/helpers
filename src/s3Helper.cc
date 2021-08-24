@@ -249,7 +249,7 @@ folly::IOBufQueue S3Helper::getObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-    if (size == 0u)
+    if (size == 0U)
         return buf;
 
     auto effectiveKey = toEffectiveKey(key);
@@ -512,7 +512,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
-    for (auto offset = 0ul; offset < keys.size();
+    for (auto offset = 0UL; offset < keys.size();
          offset += MAX_DELETE_OBJECTS) {
         Vector<ObjectIdentifier> keyBatch;
         keyBatch.reserve(MAX_DELETE_OBJECTS);

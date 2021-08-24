@@ -541,7 +541,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
             << "HTTP idle session connection pool empty - delaying request by "
                "10ms. In case this message shows frequently, consider "
                "increasing connectionPoolSize for the given storage.";
-        const auto kHTTPIdleSessionWaitDelay = 10ul;
+        const auto kHTTPIdleSessionWaitDelay = 10UL;
         return folly::makeFuture()
             .delayed(std::chrono::milliseconds(kHTTPIdleSessionWaitDelay))
             .thenValue([this, key](auto && /*unit*/) { return connect(key); });
@@ -744,26 +744,26 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     auto isExternal = std::get<2>(session->key);
 
     m_request.setHTTPVersion(kHTTPVersionMajor, kHTTPVersionMinor);
-    if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0U) {
         m_request.getHeaders().add("User-Agent", "Onedata");
     }
-    if (m_request.getHeaders().getNumberOfValues("Accept") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Accept") == 0U) {
         m_request.getHeaders().add("Accept", "*/*");
     }
-    if (m_request.getHeaders().getNumberOfValues("Connection") == 0u) {
-        if ((p->maxRequestsPerSession() > 0u) &&
+    if (m_request.getHeaders().getNumberOfValues("Connection") == 0U) {
+        if ((p->maxRequestsPerSession() > 0U) &&
             (m_session->session->getNumTxnServed() >=
                 p->maxRequestsPerSession()))
             m_request.getHeaders().add("Connection", "Close");
         else
             m_request.getHeaders().add("Connection", "Keep-Alive");
     }
-    if (m_request.getHeaders().getNumberOfValues("Host") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
         m_request.getHeaders().add("Host",
             fmt::format("{}:{}", std::get<0>(session->key).toStdString(),
                 std::get<1>(session->key)));
     }
-    if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u &&
+    if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U &&
         !isExternal) {
         if (p->credentialsType() == HTTPCredentialsType::NONE) { }
         else if (p->credentialsType() == HTTPCredentialsType::BASIC) {
@@ -865,13 +865,13 @@ void HTTPRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
     try {
-        if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
+        if (msg->getHeaders().getNumberOfValues("Connection") != 0U) {
             if (msg->getHeaders().rawGet("Connection") == "close") {
                 LOG_DBG(4) << "Received 'Connection: close'";
                 m_session->closedByRemote = true;
             }
         }
-        if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
+        if (msg->getHeaders().getNumberOfValues("Location") != 0U) {
             LOG_DBG(2) << "Received 302 redirect response to: "
                        << msg->getHeaders().rawGet("Location");
             m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
@@ -1038,7 +1038,7 @@ void HTTPHEAD::processHeaders(
         }
         else {
             // Ensure that the server allows reading byte ranges from resources
-            if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0u ||
+            if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0U ||
                 msg->getHeaders().rawGet("accept-ranges") != "bytes") {
                 LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
                            << msg->getPath();
@@ -1046,15 +1046,15 @@ void HTTPHEAD::processHeaders(
                 return;
             }
 
-            if (msg->getHeaders().getNumberOfValues("content-type") != 0u) {
+            if (msg->getHeaders().getNumberOfValues("content-type") != 0U) {
                 res.emplace(
                     "content-type", msg->getHeaders().rawGet("content-type"));
             }
-            if (msg->getHeaders().getNumberOfValues("last-modified") != 0u) {
+            if (msg->getHeaders().getNumberOfValues("last-modified") != 0U) {
                 res.emplace(
                     "last-modified", msg->getHeaders().rawGet("last-modified"));
             }
-            if (msg->getHeaders().getNumberOfValues("content-length") != 0u) {
+            if (msg->getHeaders().getNumberOfValues("content-length") != 0U) {
                 res.emplace("content-length",
                     msg->getHeaders().rawGet("content-length"));
             }

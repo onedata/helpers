@@ -48,7 +48,7 @@ public:
             return;
         }
 
-        if (!(bufStringView.find(CLPROTO_UPGRADE_RESPONSE_STATUS) == 0u)) {
+        if (!(bufStringView.find(CLPROTO_UPGRADE_RESPONSE_STATUS) == 0U)) {
             LOG(ERROR) << "Invalid response during clproto protocol upgrade: "
                        << bufStringView << ". Expected:\n '"
                        << CLPROTO_UPGRADE_RESPONSE_STATUS << "'";

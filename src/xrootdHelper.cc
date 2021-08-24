@@ -91,25 +91,25 @@ inline auto modeToAccess(const mode_t mode)
 
     Access::Mode access{Access::None};
 
-    if ((mode & S_IRUSR) != 0u)
+    if ((mode & S_IRUSR) != 0U)
         access |= Access::UR;
-    if ((mode & S_IWUSR) != 0u)
+    if ((mode & S_IWUSR) != 0U)
         access |= Access::UW;
-    if ((mode & S_IXUSR) != 0u)
+    if ((mode & S_IXUSR) != 0U)
         access |= Access::UX;
 
-    if ((mode & S_IRGRP) != 0u)
+    if ((mode & S_IRGRP) != 0U)
         access |= Access::GR;
-    if ((mode & S_IWGRP) != 0u)
+    if ((mode & S_IWGRP) != 0U)
         access |= Access::GW;
-    if ((mode & S_IXGRP) != 0u)
+    if ((mode & S_IXGRP) != 0U)
         access |= Access::GX;
 
-    if ((mode & S_IROTH) != 0u)
+    if ((mode & S_IROTH) != 0U)
         access |= Access::OR;
-    if ((mode & S_IWOTH) != 0u)
+    if ((mode & S_IWOTH) != 0U)
         access |= Access::OW;
-    if ((mode & S_IXOTH) != 0u)
+    if ((mode & S_IXOTH) != 0U)
         access |= Access::OX;
 
     return access;

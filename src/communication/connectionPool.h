@@ -32,7 +32,7 @@ class CertificateData;
 } // namespace cert
 
 namespace detail {
-const auto kDefaultProviderTimeout = 120ul;
+const auto kDefaultProviderTimeout = 120UL;
 }
 
 /**
