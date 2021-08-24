@@ -119,7 +119,7 @@ public:
     virtual folly::fbstring routePath(const folly::fbstring &fileId);
 
 private:
-    folly::fbstring routeRelative(StorageHelperPtr helper,
+    static folly::fbstring routeRelative(StorageHelperPtr helper,
         const folly::fbstring &route, const folly::fbstring &fileId);
 
     std::map<folly::fbstring, StorageHelperPtr> m_routes;

@@ -335,7 +335,7 @@ public:
         }
     };
 
-    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+    static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
     /**
      * In case credentials are provisioned by OAuth2 IdP, this method checks

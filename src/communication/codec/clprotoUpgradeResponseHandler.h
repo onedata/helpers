@@ -70,7 +70,7 @@ public:
 
     folly::Future<folly::Unit> done() { return m_promise.getFuture(); }
 
-    std::unique_ptr<folly::IOBuf> makeUpgradeRequest(std::string host)
+    static std::unique_ptr<folly::IOBuf> makeUpgradeRequest(std::string host)
     {
         const std::string CLPROTO_UPGRADE_ENDPOINT{"/clproto"};
         std::string request;

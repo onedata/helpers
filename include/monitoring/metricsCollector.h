@@ -63,7 +63,7 @@ public:
     /**
      * Get the underlying MetricRegistry instance.
      */
-    core::MetricRegistryPtr getRegistry();
+    static core::MetricRegistryPtr getRegistry();
 
     /**
      * Return the MetricsCollector singleton instance

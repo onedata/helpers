@@ -159,7 +159,7 @@ public:
     const Timeout &timeout() override { return m_timeout; }
 
 private:
-    folly::fbstring getRegion(const folly::fbstring &hostname);
+    static folly::fbstring getRegion(const folly::fbstring &hostname);
 
     folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
     folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;

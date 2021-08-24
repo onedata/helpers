@@ -34,8 +34,8 @@ Checks: >-
   -*osx*,
   -performance-unnecessary-value-param,
   -readability-qualified-auto,
-  -readability-convert-member-functions-to-static,
-  readability-make-member-function-const,
+  readability-convert-member-functions-to-static,
+  readability-static-accessed-through-instance,
   -zircon*
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'helpers/include|helpers/src'

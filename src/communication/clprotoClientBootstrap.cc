@@ -119,7 +119,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                             // connection to clproto if required for this
                             // connection
                             [this, pipeline, addressStr, host](
-                                auto && /*unit*/) {
+                                auto && /*unit*/) mutable {
                                 auto sock = std::dynamic_pointer_cast<
                                     folly::AsyncSocket>(
                                     pipeline->getTransport());
@@ -132,7 +132,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                         << addressStr;
 
                                     auto upgradeRequest =
-                                        pipeline
+                                        pipeline // NOLINT
                                             ->getHandler<codec::
                                                     CLProtoUpgradeResponseHandler>()
                                             ->makeUpgradeRequest(

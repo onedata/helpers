@@ -165,7 +165,7 @@ private:
      * @return True when CA file was found and loaded successfuly, false
      * otherwise
      */
-    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+    static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
     const std::size_t m_connectionsNumber;
     const std::string m_host;
