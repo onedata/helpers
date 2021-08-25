@@ -67,6 +67,8 @@ public:
 
     ConnectionPool(const ConnectionPool &) = delete;
     ConnectionPool &operator=(const ConnectionPool &) = delete;
+    ConnectionPool(ConnectionPool &&) = delete;
+    ConnectionPool &operator=(ConnectionPool &&) = delete;
 
     /**
      * Creates connections to the remote endpoint specified in the constructor.

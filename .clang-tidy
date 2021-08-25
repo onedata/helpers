@@ -1,4 +1,6 @@
 Checks: >-
+  -*,
+  hicpp-special-member-functions,
   -abseil*,
   -android*,
   -*braces-around-statements,
@@ -37,8 +39,4 @@ CheckOptions:
   - key:             misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
     value:           1
   - key:             hicpp-special-member-functions.AllowSoleDefaultDtor
-    value:           1
-  - key:             hicpp-special-member-functions.AllowMissingMoveFunctions
-    value:           1
-  - key:             hicpp-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted
     value:           1
