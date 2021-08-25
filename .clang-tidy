@@ -8,18 +8,13 @@ Checks: >-
   -clang-analyzer-cplusplus.NewDeleteLeaks,
   -clang-analyzer-optin.cplusplus.VirtualCall,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-explicit-virtual-functions,
-  -cppcoreguidelines-special-member-functions,
-  -cppcoreguidelines-non-private-member-variables-in-classes,
   -fuchsia*,
   -google-readability-todo,
-  -google-explicit-constructor,
   -hicpp-no-array-decay,
   -hicpp-signed-bitwise,
   -google-runtime-references,
-  hicpp-explicit-conversions,
   -llvm-header-guard,
   -modernize-avoid-bind,
   -modernize-use-trailing-return-type,
@@ -38,4 +33,6 @@ CheckOptions:
   - key:             misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
     value:           1
   - key:             hicpp-special-member-functions.AllowSoleDefaultDtor
+    value:           1
+  - key:             cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
     value:           1

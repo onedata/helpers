@@ -1027,6 +1027,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
         char *xattrNamePtr = buf.get();
         while (xattrNamePtr < buf.get() + buflen) {
             ret.emplace_back(xattrNamePtr);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
             xattrNamePtr +=
                 strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) + 1;
         }

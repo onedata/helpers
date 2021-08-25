@@ -357,6 +357,7 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
     for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
         res = retry(
             [&]() {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 return ::writev(handle->m_fh, iov.data() + iov_off,
                     std::min<std::size_t>(IOV_MAX, iov_size - iov_off));
             },
@@ -1055,6 +1056,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::listxattr(
             char *xattrNamePtr = buf.get();
             while (xattrNamePtr < buf.get() + buflen) {
                 ret.emplace_back(xattrNamePtr);
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 xattrNamePtr +=
                     strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) +
                     1;

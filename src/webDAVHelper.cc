@@ -920,8 +920,12 @@ folly::Future<folly::Unit> WebDAVHelper::truncate(const folly::fbstring &fileId,
             }
 
             auto fillBuf = folly::IOBuf::create(size - currentSize);
-            for (auto i = 0ul; i < static_cast<size_t>(size) - currentSize; i++)
+            for (auto i = 0ul; i < static_cast<size_t>(size) - currentSize;
+                 i++) {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 fillBuf->writableData()[i] = 0;
+            }
+
             return (*request)(fileId, size, std::move(fillBuf))
                 .via(session->evb)
                 .thenValue(
