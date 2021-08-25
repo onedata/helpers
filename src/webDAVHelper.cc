@@ -2477,6 +2477,7 @@ void WebDAVPROPFIND::onEOM() noexcept
         auto result = httpStatusToPosixError(m_resultCode);
 
         if (result == 0) {
+            // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
             m_resultPromise.setWith([bufq = std::move(m_resultBody)]() {
                 bufq->gather(bufq->chainLength());
                 auto iobuf =
