@@ -28,7 +28,7 @@ public:
      * @param serverMessage Protocol Buffers message representing
      * @c RemoteData counterpart.
      */
-    RemoteData(std::unique_ptr<ProtocolServerMessage> serverMessage);
+    explicit RemoteData(std::unique_ptr<ProtocolServerMessage> serverMessage);
 
     /**
      * @return The data.

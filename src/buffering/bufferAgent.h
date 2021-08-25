@@ -35,7 +35,7 @@ public:
      * Constructor
      * @param bufferLimits Reference to application buffer limits
      */
-    BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
+    explicit BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
         : m_bufferLimits{bufferLimits}
         , m_readBuffersReservedSize{0}
         , m_writeBuffersReservedSize{0}

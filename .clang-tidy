@@ -1,6 +1,5 @@
 Checks: >-
   -*,
-  hicpp-special-member-functions,
   -abseil*,
   -android*,
   -*braces-around-statements,
@@ -20,7 +19,7 @@ Checks: >-
   -hicpp-no-array-decay,
   -hicpp-signed-bitwise,
   -google-runtime-references,
-  -hicpp-explicit-conversions,
+  hicpp-explicit-conversions,
   -llvm-header-guard,
   -modernize-avoid-bind,
   -modernize-use-trailing-return-type,
