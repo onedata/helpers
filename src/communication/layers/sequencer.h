@@ -142,7 +142,7 @@ public:
     using Callback = typename LowerLayer::Callback;
     using SchedulerPtr = std::shared_ptr<Scheduler>;
     using LowerLayer::LowerLayer;
-    virtual ~Sequencer();
+    ~Sequencer() override;
 
     /**
      * A reference to @c *this typed as a @c Sequencer.

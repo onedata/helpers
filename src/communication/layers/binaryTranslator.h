@@ -30,7 +30,7 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
     using LowerLayer::send;
-    virtual ~BinaryTranslator() = default;
+    ~BinaryTranslator() override = default;
 
     /**
      * A reference to @c *this typed as a @c BinaryTranslator.

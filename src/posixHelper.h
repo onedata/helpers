@@ -82,7 +82,7 @@ public:
      * Synchronously releases the file if @c sh_release or @c ash_release have
      * not been yet called.
      */
-    ~PosixFileHandle();
+    ~PosixFileHandle() override;
 
     folly::Future<folly::IOBufQueue> read(
         off_t offset, std::size_t size) override;
@@ -283,7 +283,7 @@ public:
     {
     }
 
-    virtual folly::fbstring name() const override { return POSIX_HELPER_NAME; }
+    folly::fbstring name() const override { return POSIX_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {

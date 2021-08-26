@@ -54,7 +54,7 @@ public:
         std::function<void(const std::error_code &ec, ServerMessagePtr)>;
 
     using LowerLayer::LowerLayer;
-    virtual ~Inbox() = default;
+    ~Inbox() override = default;
 
     /**
      * A reference to @c *this typed as an @c Inbox.

@@ -45,7 +45,7 @@ public:
     using CommunicateCallback =
         std::function<void(const std::error_code &ec, std::unique_ptr<SrvMsg>)>;
 
-    virtual ~Translator() = default;
+    ~Translator() override = default;
 
     /**
      * A reference to @c *this typed as a @c Translator.

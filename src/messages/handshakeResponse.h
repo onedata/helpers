@@ -45,7 +45,7 @@ public:
      */
     std::error_code status() const;
 
-    virtual std::string toString() const override;
+    std::string toString() const override;
 
 private:
     static errors::handshake::ErrorCode translateStatus(
