@@ -649,7 +649,7 @@ private:
     /**
      * Set CPU affinity for a given thread to all available CPU cores.
      */
-    void setCPUAffinity(std::thread &t)
+    static void setCPUAffinity(std::thread &t)
     {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
