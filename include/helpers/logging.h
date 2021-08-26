@@ -219,14 +219,14 @@ static inline std::string print_stacktrace()
                 begin_name = p;
             else if (*p == '+')
                 begin_offset = p;
-            else if ((*p == ')') && (begin_offset != 0)) {
+            else if ((*p == ')') && (begin_offset != nullptr)) {
                 end_offset = p;
                 break;
             }
         }
 
-        if ((begin_name != 0) && (begin_offset != 0) && (end_offset != 0) &&
-            begin_name < begin_offset) {
+        if ((begin_name != nullptr) && (begin_offset != nullptr) &&
+            (end_offset != nullptr) && begin_name < begin_offset) {
             *begin_name++ = '\0';
             *begin_offset++ = '\0';
             *end_offset = '\0';
