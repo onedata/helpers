@@ -31,7 +31,7 @@ inline std::uint64_t initializeMsgIdSeed()
         std::chrono::system_clock::now().time_since_epoch());
     return time.count();
 }
-}
+} // namespace
 
 namespace one {
 namespace communication {

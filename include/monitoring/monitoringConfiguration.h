@@ -116,5 +116,5 @@ public:
             graphitePort = folly.port();
     }
 };
-}
-}
+} // namespace monitoring
+} // namespace one

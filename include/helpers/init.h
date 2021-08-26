@@ -37,7 +37,7 @@ void startReadWritePerfLogger(const std::string &logDirectory);
 void configureMonitoring(
     std::shared_ptr<one::monitoring::MonitoringConfiguration> conf,
     bool start = false);
-}
-}
+} // namespace helpers
+} // namespace one
 
 #endif /* HELPERS_INIT_H */

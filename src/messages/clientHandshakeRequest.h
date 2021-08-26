@@ -22,7 +22,7 @@ namespace messages {
 
 namespace handshake {
 enum class SessionMode { normal = 1, open_handle };
-}
+} // namespace handshake
 
 /**
  * The HandshakeRequest class represents a message that is sent by the client to

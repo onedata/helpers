@@ -25,7 +25,7 @@ namespace one {
 
 namespace clproto {
 class Status;
-}
+} // namespace clproto
 
 namespace messages {
 

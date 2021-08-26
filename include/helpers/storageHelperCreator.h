@@ -40,7 +40,7 @@ constexpr std::size_t kWriteBufferMaxSize = 50 * kMB;
 constexpr int kWriteBufferFlushDelaySeconds = 5;
 constexpr int kTargetLatencyNanoSeconds = 1000;
 constexpr double kPrefetchPowerBase = 1.3;
-}
+} // namespace
 
 struct BufferLimits {
     BufferLimits(std::size_t readBufferMinSize_ = kReadBufferMinSize,
