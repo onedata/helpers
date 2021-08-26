@@ -294,7 +294,7 @@ struct read_write_perf {
     static constexpr const char fmt[] = "{},{},{},{},{},{}"; // NOLINT
 };
 
-template <typename Tag> void register_logger(std::string path)
+template <typename Tag> void register_logger(const std::string &path)
 {
     using namespace std::chrono;
     auto timestamp =

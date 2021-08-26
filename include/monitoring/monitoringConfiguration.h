@@ -95,7 +95,7 @@ public:
      * Initialize Graphite endpoint configuration from URL. URL should have the
      * form e.g. tcp://192.168.1.2:2003
      */
-    void fromGraphiteURL(std::string url)
+    void fromGraphiteURL(const std::string &url)
     {
         folly::Uri folly(url);
 

@@ -79,7 +79,7 @@ auto BinaryTranslator<LowerLayer>::setHandshake(
         },
 
         [onHandshakeResponse = std::move(onHandshakeResponse)](
-            std::string message) {
+            const std::string &message) {
             /// @todo A potential place for optimization [static serverMsg]
             auto serverMsg = std::make_unique<clproto::ServerMessage>();
 
@@ -102,7 +102,7 @@ auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
 {
     return LowerLayer::setOnMessageCallback([onMessageCallback = std::move(
                                                  onMessageCallback)](
-                                                std::string message) {
+                                                const std::string &message) {
         LOG_DBG(2) << "Received low level message of size: " << message.size();
         auto serverMsg = std::make_unique<clproto::ServerMessage>();
         if (serverMsg->ParseFromString(message)) {
