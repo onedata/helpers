@@ -112,7 +112,7 @@ public:
         }
 
         graphiteHostname = folly.host();
-        if (folly.port())
+        if (folly.port() != 0U)
             graphitePort = folly.port();
     }
 };

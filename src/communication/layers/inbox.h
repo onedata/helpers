@@ -155,9 +155,9 @@ void Inbox<LowerLayer>::communicate(
                 }
             }
             else if (message->GetDescriptor()->FindOneofByName(
-                         "message_body")) {
+                         "message_body") != nullptr) {
                 auto messageBodyCase = message->message_body_case();
-                if (messageBodyCase) {
+                if (messageBodyCase != 0U) {
                     messageName =
                         message->GetDescriptor()
                             ->FindOneofByName("message_body")
