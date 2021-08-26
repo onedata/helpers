@@ -154,7 +154,7 @@ void TypedStream<Communicator>::send(ClientMessagePtr msg)
 {
     LOG_FCALL();
 
-    auto msgStream = msg->mutable_message_stream();
+    auto *msgStream = msg->mutable_message_stream();
     msgStream->set_stream_id(m_streamId);
     msgStream->set_sequence_number(m_sequenceId++);
     saveAndPass(std::move(msg));

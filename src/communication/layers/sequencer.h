@@ -272,7 +272,7 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageRequest(
     const uint64_t upperSeqNum)
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
-    auto msgReq = clientMsg->mutable_message_request();
+    auto *msgReq = clientMsg->mutable_message_request();
     msgReq->set_stream_id(streamId);
     msgReq->set_lower_sequence_number(lowerSeqNum);
     msgReq->set_upper_sequence_number(upperSeqNum);
@@ -284,7 +284,7 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageAcknowledgement(
     const uint64_t streamId, const uint64_t seqNum)
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
-    auto msgAck = clientMsg->mutable_message_acknowledgement();
+    auto *msgAck = clientMsg->mutable_message_acknowledgement();
     msgAck->set_stream_id(streamId);
     msgAck->set_sequence_number(seqNum);
     LowerLayer::send(std::move(clientMsg), [](auto) {});
