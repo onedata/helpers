@@ -60,12 +60,12 @@ struct BufferLimits {
         , readBufferMaxSize{readBufferMaxSize_}
         , readBuffersTotalSize{readBuffersTotalSize_}
         , prefetchPowerBase{prefetchPowerBase_}
-        , targetLatency{std::move(targetLatency_)}
-        , readBufferPrefetchDuration{std::move(readBufferPrefetchDuration_)}
+        , targetLatency{targetLatency_}
+        , readBufferPrefetchDuration{readBufferPrefetchDuration_}
         , writeBufferMinSize{writeBufferMinSize_}
         , writeBufferMaxSize{writeBufferMaxSize_}
         , writeBuffersTotalSize{writeBuffersTotalSize_}
-        , writeBufferFlushDelay{std::move(writeBufferFlushDelay_)}
+        , writeBufferFlushDelay{writeBufferFlushDelay_}
     {
     }
 
