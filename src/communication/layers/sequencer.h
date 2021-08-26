@@ -263,7 +263,7 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageStreamReset()
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
     clientMsg->mutable_message_stream_reset();
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -276,7 +276,7 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageRequest(
     msgReq->set_stream_id(streamId);
     msgReq->set_lower_sequence_number(lowerSeqNum);
     msgReq->set_upper_sequence_number(upperSeqNum);
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -287,7 +287,7 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageAcknowledgement(
     auto *msgAck = clientMsg->mutable_message_acknowledgement();
     msgAck->set_stream_id(streamId);
     msgAck->set_sequence_number(seqNum);
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>

@@ -202,7 +202,7 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
     }
 
     m_communicator->send(
-        std::move(msg), [](auto) {}, 0);
+        std::move(msg), [](auto /*unused*/) {}, 0);
 }
 
 template <class Communicator>

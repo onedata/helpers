@@ -73,7 +73,8 @@ StreamManager<Communicator>::StreamManager(
     std::shared_ptr<Communicator> communicator)
     : m_communicator{std::move(communicator)}
 {
-    auto predicate = [](const clproto::ServerMessage &msg, const bool) {
+    auto predicate = [](const clproto::ServerMessage &msg,
+                         const bool /*unused*/) {
         return msg.has_message_request() || msg.has_message_acknowledgement() ||
             msg.has_message_stream_reset();
     };
