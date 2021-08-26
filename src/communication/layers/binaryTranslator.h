@@ -64,7 +64,7 @@ public:
      * @see ConnectionPool::send()
      */
     auto send(ClientMessagePtr message, Callback callback,
-        const int retries = DEFAULT_RETRY_NUMBER);
+        int retries = DEFAULT_RETRY_NUMBER);
 };
 
 template <class LowerLayer>

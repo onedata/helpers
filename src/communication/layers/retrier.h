@@ -47,7 +47,7 @@ public:
      * @return same as lower layer's @c send().
      * @see ConnectionPool::send()
      */
-    void send(std::string message, Callback callback, const int retries);
+    void send(std::string message, Callback callback, int retries);
 };
 
 template <class LowerLayer>

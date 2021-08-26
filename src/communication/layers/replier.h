@@ -41,7 +41,7 @@ public:
      * @see ConnectionPool::send()
      */
     auto reply(const clproto::ServerMessage &replyTo, ClientMessagePtr msg,
-        Callback callback, const int retry = DEFAULT_RETRY_NUMBER);
+        Callback callback, int retry = DEFAULT_RETRY_NUMBER);
 };
 
 template <class LowerLayer>

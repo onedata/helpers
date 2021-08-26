@@ -68,7 +68,7 @@ public:
      * @return A future which should be fulfiled with server's reply.
      */
     void communicate(ClientMessagePtr message, CommunicateCallback callback,
-        const int retries = DEFAULT_RETRY_NUMBER);
+        int retries = DEFAULT_RETRY_NUMBER);
 
     /**
      * Subscribes a given callback to messages received from the server.

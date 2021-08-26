@@ -186,11 +186,10 @@ public:
 private:
     void sendMessageStreamReset();
 
-    void sendMessageRequest(const uint64_t streamId, const uint64_t lowerSeqNum,
-        const uint64_t upperSeqNum);
+    void sendMessageRequest(
+        uint64_t streamId, uint64_t lowerSeqNum, uint64_t upperSeqNum);
 
-    void sendMessageAcknowledgement(
-        const uint64_t streamId, const uint64_t seqNum);
+    void sendMessageAcknowledgement(uint64_t streamId, uint64_t seqNum);
 
     void periodicMessageRequest();
     void cancelPeriodicMessageRequest();

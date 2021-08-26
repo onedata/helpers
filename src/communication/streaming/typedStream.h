@@ -61,8 +61,8 @@ public:
      * @param streamId ID number of this stream.
      */
     TypedStream(
-        std::shared_ptr<Communicator> communicator,
-        const std::uint64_t streamId, std::function<void()> unregister = [] {});
+        std::shared_ptr<Communicator> communicator, std::uint64_t streamId,
+        std::function<void()> unregister = [] {});
 
     /**
      * Destructor.

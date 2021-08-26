@@ -372,13 +372,13 @@ public:
     std::shared_ptr<StorageHelper> helper();
 
     virtual folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) = 0;
+        off_t offset, std::size_t size) = 0;
 
-    virtual folly::Future<folly::IOBufQueue> readContinuous(const off_t offset,
-        const std::size_t size, const std::size_t continuousBlock);
+    virtual folly::Future<folly::IOBufQueue> readContinuous(
+        off_t offset, std::size_t size, std::size_t continuousBlock);
 
     virtual folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
+        off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
 
     virtual folly::Future<std::size_t> multiwrite(
         folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
@@ -396,8 +396,7 @@ public:
 
     virtual folly::fbstring fileId() const;
 
-    virtual std::size_t wouldPrefetch(
-        const off_t offset, const std::size_t size);
+    virtual std::size_t wouldPrefetch(off_t offset, std::size_t size);
 
     virtual folly::Future<folly::Unit> flushUnderlying();
 
@@ -479,23 +478,22 @@ public:
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
 
     virtual folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask);
+        const folly::fbstring &fileId, int mask);
 
     virtual folly::Future<folly::fbstring> readlink(
         const folly::fbstring &fileId);
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
-        const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count);
+        const folly::fbstring &fileId, off_t offset, std::size_t count);
 
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev);
+        mode_t mode, const FlagsSet &flags, dev_t rdev);
 
     virtual folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, mode_t mode);
 
     virtual folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize);
+        const folly::fbstring &fileId, size_t currentSize);
 
     virtual folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId);
 
@@ -509,13 +507,13 @@ public:
         const folly::fbstring &from, const folly::fbstring &to);
 
     virtual folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, mode_t mode);
 
     virtual folly::Future<folly::Unit> chown(
-        const folly::fbstring &fileId, const uid_t uid, const gid_t gid);
+        const folly::fbstring &fileId, uid_t uid, gid_t gid);
 
-    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize);
+    virtual folly::Future<folly::Unit> truncate(
+        const folly::fbstring &fileId, off_t size, size_t currentSize);
 
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const FlagsSet &flags, const Params &openParams);
@@ -524,20 +522,19 @@ public:
         const FlagsSet &flags, const Params &openParams,
         const Params &helperOverrideParams);
 
-    virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams) = 0;
+    virtual folly::Future<FileHandlePtr> open(
+        const folly::fbstring &fileId, int flags, const Params &openParams) = 0;
 
-    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams,
-        const Params &helperOverrideParams);
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId, int flags,
+        const Params &openParams, const Params &helperOverrideParams);
 
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
-        const off_t offset, const size_t count);
+        off_t offset, size_t count);
 
     virtual folly::Future<folly::Unit> multipartCopy(
         const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
-        const std::size_t blockSize, const std::size_t size);
+        std::size_t blockSize, std::size_t size);
 
     virtual folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &uuid, const folly::fbstring &name);
@@ -553,10 +550,10 @@ public:
         const folly::fbstring &uuid);
 
     virtual folly::Future<folly::Unit> loadBuffer(
-        const folly::fbstring &fileId, const std::size_t size);
+        const folly::fbstring &fileId, std::size_t size);
 
     virtual folly::Future<folly::Unit> flushBuffer(
-        const folly::fbstring &fileId, const std::size_t size);
+        const folly::fbstring &fileId, std::size_t size);
 
     virtual folly::Future<std::size_t> blockSizeForPath(
         const folly::fbstring &fileId);

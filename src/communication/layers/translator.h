@@ -59,8 +59,8 @@ public:
      * @param retires The retries argument to pass to the lower layer.
      * @see ConnectionPool::send()
      */
-    auto send(messages::ClientMessage &&msg,
-        const int retries = DEFAULT_RETRY_NUMBER);
+    auto send(
+        messages::ClientMessage &&msg, int retries = DEFAULT_RETRY_NUMBER);
 
     /**
      * Wraps lower layer's @c setHandshake.

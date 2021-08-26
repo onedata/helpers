@@ -42,7 +42,7 @@ constexpr auto POSIX_HELPER_MOUNT_POINT_ARG = "mountPoint";
 
 class UserCtxSetter {
 public:
-    UserCtxSetter(const uid_t uid, const gid_t gid);
+    UserCtxSetter(uid_t uid, gid_t gid);
     ~UserCtxSetter();
     bool valid() const;
 
@@ -72,8 +72,8 @@ public:
      * @param executor Executor for driving async file operations.
      */
     static std::shared_ptr<PosixFileHandle> create(
-        const folly::fbstring &fileId, const uid_t uid, const gid_t gid,
-        const int fileHandle, std::shared_ptr<PosixHelper> helper,
+        const folly::fbstring &fileId, uid_t uid, gid_t gid, int fileHandle,
+        std::shared_ptr<PosixHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
@@ -85,10 +85,10 @@ public:
     ~PosixFileHandle();
 
     folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) override;
+        off_t offset, std::size_t size) override;
 
-    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
-        WriteCallback &&writeCb) override;
+    folly::Future<std::size_t> write(
+        off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) override;
 
     folly::Future<folly::Unit> release() override;
 
@@ -111,9 +111,8 @@ private:
      * @param fileHandle POSIX file descriptor for the open file.
      * @param executor Executor for driving async file operations.
      */
-    PosixFileHandle(const folly::fbstring &fileId, const uid_t uid,
-        const gid_t gid, const int fileHandle,
-        std::shared_ptr<PosixHelper> helper,
+    PosixFileHandle(const folly::fbstring &fileId, uid_t uid, gid_t gid,
+        int fileHandle, std::shared_ptr<PosixHelper> helper,
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = ASYNC_OPS_TIMEOUT);
 
@@ -192,7 +191,7 @@ public:
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask) override;
+        const folly::fbstring &fileId, int mask) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> readdir(
         const folly::fbstring &fileId, off_t offset, size_t count) override;
@@ -201,14 +200,13 @@ public:
         const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t unmaskedMode, const FlagsSet &flags,
-        const dev_t rdev) override;
+        mode_t unmaskedMode, const FlagsSet &flags, dev_t rdev) override;
 
     folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode) override;
+        const folly::fbstring &fileId, mode_t mode) override;
 
     folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize) override;
+        const folly::fbstring &fileId, size_t currentSize) override;
 
     folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
 
@@ -222,16 +220,16 @@ public:
         const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode) override;
+        const folly::fbstring &fileId, mode_t mode) override;
 
-    folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
-        const uid_t uid, const gid_t gid) override;
+    folly::Future<folly::Unit> chown(
+        const folly::fbstring &fileId, uid_t uid, gid_t gid) override;
 
-    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize) override;
+    folly::Future<folly::Unit> truncate(
+        const folly::fbstring &fileId, off_t size, size_t currentSize) override;
 
-    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams) override;
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId, int flags,
+        const Params &openParams) override;
 
     folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &fileId, const folly::fbstring &name) override;

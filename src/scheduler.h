@@ -31,7 +31,7 @@ public:
      * Creates worker threads.
      * @param threadNumber The number of threads to be spawned.
      */
-    Scheduler(const int threadNumber);
+    Scheduler(int threadNumber);
 
     /**
      * Destructor.
