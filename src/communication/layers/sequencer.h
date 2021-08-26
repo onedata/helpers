@@ -122,13 +122,13 @@ public:
          * @return Sequence number of expected message, i.e. message that can be
          * immediately forwarded by sequencer.
          */
-        const uint64_t sequenceNumber() const { return m_seqNum; }
+        uint64_t sequenceNumber() const { return m_seqNum; }
 
         /**
          * @return Sequence number of first message that has not been
          * acknowledged.
          */
-        const uint64_t sequenceNumberAck() const { return m_seqNumAck; }
+        uint64_t sequenceNumberAck() const { return m_seqNumAck; }
 
     private:
         uint64_t m_seqNum;    // expected sequence number
