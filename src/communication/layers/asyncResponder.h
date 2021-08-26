@@ -31,7 +31,7 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
 
-    virtual ~AsyncResponder();
+    ~AsyncResponder() override;
 
     /**
      * A reference to @c *this typed as a @c AsyncResponder.
