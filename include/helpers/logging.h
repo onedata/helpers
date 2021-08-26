@@ -288,10 +288,10 @@ template <typename Clock = std::chrono::steady_clock> struct log_timer {
 namespace csv {
 
 struct read_write_perf {
-    static constexpr const char name[] = "read_write_perf";
-    static constexpr const char header[] =
+    static constexpr const char name[] = "read_write_perf"; // NOLINT
+    static constexpr const char header[] =                  // NOLINT
         "Time,File,Class,Operation,Offset,Size,Duration [us]";
-    static constexpr const char fmt[] = "{},{},{},{},{},{}";
+    static constexpr const char fmt[] = "{},{},{},{},{},{}"; // NOLINT
 };
 
 template <typename Tag> void register_logger(std::string path)
