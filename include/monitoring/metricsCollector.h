@@ -86,8 +86,8 @@ public:
     static bool isEnabled() { return m_isEnabled; }
 
 protected:
-    std::shared_ptr<MonitoringConfiguration> m_conf;
-    std::shared_ptr<cppmetrics::core::ScheduledReporter> m_reporter;
+    std::shared_ptr<MonitoringConfiguration> m_conf;                 // NOLINT
+    std::shared_ptr<cppmetrics::core::ScheduledReporter> m_reporter; // NOLINT
 
 private:
     static std::shared_ptr<MetricsCollector> m_singleton;

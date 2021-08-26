@@ -282,14 +282,14 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
     void *data = buf.preallocate(op.size, op.size).first;
 
     LOG_DBG(2) << "Attempting to read " << op.size << " bytes at offset "
-               << op.offset << " from file " << handle->m_fileId;
+               << op.offset << " from file " << handle->fileId();
 
     auto res =
         retry([&]() { return ::pread(handle->m_fh, data, op.size, op.offset); },
             std::bind(POSIXRetryCondition, std::placeholders::_1, "pread"));
 
     if (res == -1) {
-        LOG_DBG(1) << "Reading from file " << handle->m_fileId
+        LOG_DBG(1) << "Reading from file " << handle->fileId()
                    << " failed with error " << errno;
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.read");
         op.promise.setException(makePosixException(errno));
@@ -298,10 +298,10 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
 
     buf.postallocate(res);
 
-    log<read_write_perf>(handle->m_fileId, "PosixHelper", "read", op.offset,
+    log<read_write_perf>(handle->fileId(), "PosixHelper", "read", op.offset,
         op.size, logTimer.stop());
 
-    LOG_DBG(2) << "Read " << res << " bytes from file " << handle->m_fileId;
+    LOG_DBG(2) << "Read " << res << " bytes from file " << handle->fileId();
 
     ONE_METRIC_TIMERCTX_STOP(op.timer, res);
 
@@ -352,7 +352,7 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
 
     LOG_DBG(2) << "Attempting to write " << iobuf->length()
                << " bytes at offset " << op.offset << " to file "
-               << handle->m_fileId;
+               << handle->fileId();
 
     for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
         res = retry(
@@ -364,7 +364,7 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
             [](int result) { return result != -1; });
 
         if (res == -1) {
-            LOG(ERROR) << "Writing to file " << handle->m_fileId
+            LOG(ERROR) << "Writing to file " << handle->fileId()
                        << " failed with error " << errno;
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.write");
             op.promise.setException(makePosixException(errno));
@@ -373,10 +373,10 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         size += res;
     }
 
-    log<read_write_perf>(handle->m_fileId, "PosixHelper", "write", op.offset,
+    log<read_write_perf>(handle->fileId(), "PosixHelper", "write", op.offset,
         size, logTimer.stop());
 
-    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId
+    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->fileId()
                << " at offset " << op.offset;
 
     ONE_METRIC_TIMERCTX_STOP(op.timer, size);
@@ -398,7 +398,7 @@ void PosixFileHandle::OpExec::operator()(ReleaseOp &op) const
     }
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.release");
-    LOG_DBG(2) << "Closing file " << handle->m_fileId;
+    LOG_DBG(2) << "Closing file " << handle->fileId();
     setResult(op.promise, "close", close, handle->m_fh);
 }
 
@@ -416,7 +416,7 @@ void PosixFileHandle::OpExec::operator()(FsyncOp &op) const
     }
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.fsync");
-    LOG_DBG(2) << "Syncing file " << handle->m_fileId;
+    LOG_DBG(2) << "Syncing file " << handle->fileId();
     setResult(op.promise, "fsync", ::fsync, handle->m_fh);
 }
 
@@ -434,7 +434,7 @@ void PosixFileHandle::OpExec::operator()(FlushOp &op) const
     }
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.flush");
-    LOG_DBG(2) << "Flushing file " << handle->m_fileId;
+    LOG_DBG(2) << "Flushing file " << handle->fileId();
     op.promise.setValue();
 }
 

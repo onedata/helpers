@@ -439,7 +439,7 @@ folly::Future<folly::Unit> XRootDFileHandle::fsync(
             });
 }
 
-const Timeout &XRootDFileHandle::timeout() { return m_helper->timeout(); }
+const Timeout &XRootDFileHandle::timeout() { return helper()->timeout(); }
 
 XRootDHelper::XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
     std::shared_ptr<folly::IOExecutor> executor,

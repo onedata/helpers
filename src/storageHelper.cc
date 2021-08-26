@@ -245,7 +245,7 @@ folly::Future<folly::Unit> FileHandle::fsync(bool /*isDataSync*/)
 
 bool FileHandle::needsDataConsistencyCheck() { return false; }
 
-folly::fbstring FileHandle::fileId() const { return m_fileId; }
+const folly::fbstring &FileHandle::fileId() const { return m_fileId; }
 
 std::size_t FileHandle::wouldPrefetch(
     const off_t /*offset*/, const std::size_t /*size*/)

@@ -59,7 +59,7 @@ public:
     /**
      * A reference to @c *this typed as an @c Inbox.
      */
-    Inbox<LowerLayer> &inbox = *this;
+    Inbox<LowerLayer> &inbox = *this; // NOLINT
 
     /**
      * Sends a message to the server and sets up to receive a reply.

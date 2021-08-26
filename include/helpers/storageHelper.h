@@ -394,7 +394,7 @@ public:
 
     virtual bool needsDataConsistencyCheck();
 
-    virtual folly::fbstring fileId() const;
+    virtual const folly::fbstring &fileId() const;
 
     virtual std::size_t wouldPrefetch(off_t offset, std::size_t size);
 
@@ -414,7 +414,11 @@ public:
     virtual folly::Future<folly::Unit> refreshHelperParams(
         std::shared_ptr<StorageHelperParams> params);
 
-protected:
+    const Params &openParams() const { return m_openParams; }
+
+    const Params &paramsOverride() const { return m_paramsOverride; }
+
+private:
     folly::fbstring m_fileId;
     Params m_openParams;
     std::shared_ptr<StorageHelper> m_helper;

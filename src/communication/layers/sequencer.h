@@ -147,7 +147,7 @@ public:
     /**
      * A reference to @c *this typed as a @c Sequencer.
      */
-    Sequencer<LowerLayer, Scheduler> &sequencer = *this;
+    Sequencer<LowerLayer, Scheduler> &sequencer = *this; // NOLINT
 
     /**
      * Wraps lower layer's @c setOnMessageCallback.

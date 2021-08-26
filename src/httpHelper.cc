@@ -163,8 +163,8 @@ HTTPFileHandle::HTTPFileHandle(
 
     // Try to parse the fileId as URL - if it contains Host - treat it
     // as an external resource and create a separate HTTP session pool key
-    auto poolKeyAndUri =
-        std::dynamic_pointer_cast<HTTPHelper>(m_helper)->relativizeURI(fileId);
+    auto poolKeyAndUri = std::dynamic_pointer_cast<HTTPHelper>(this->helper())
+                             ->relativizeURI(fileId);
     m_sessionPoolKey = std::move(poolKeyAndUri.first);
     m_effectiveFileId = std::move(poolKeyAndUri.second);
 }
@@ -182,7 +182,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.http.read");
 
-    auto helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<HTTPHelper>(this->helper());
 
     auto sessionPoolKey = m_sessionPoolKey;
     auto effectiveFileId = m_effectiveFileId;
@@ -195,8 +195,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
 
     return helper->connect(sessionPoolKey)
         .thenValue([fileId = effectiveFileId, redirectURL, offset, size,
-                       retryCount, timer = std::move(timer),
-                       helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper),
+                       retryCount, timer = std::move(timer), helper,
                        self = shared_from_this()](
                        HTTPSession *session) mutable {
             auto getRequest = std::make_shared<HTTPGET>(helper.get(), session);
@@ -271,7 +270,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
         });
 }
 
-const Timeout &HTTPFileHandle::timeout() { return m_helper->timeout(); }
+const Timeout &HTTPFileHandle::timeout() { return helper()->timeout(); }
 
 HTTPHelper::HTTPHelper(std::shared_ptr<HTTPHelperParams> params,
     std::shared_ptr<folly::IOExecutor> executor,

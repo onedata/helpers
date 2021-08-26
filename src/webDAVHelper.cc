@@ -203,7 +203,7 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.read");
 
-    auto helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<WebDAVHelper>(this->helper());
 
     auto sessionPoolKey = WebDAVSessionPoolKey{};
 
@@ -214,9 +214,7 @@ folly::Future<folly::IOBufQueue> WebDAVFileHandle::read(const off_t offset,
 
     return helper->connect(sessionPoolKey)
         .thenValue([fileId = m_fileId, redirectURL, offset, size, retryCount,
-                       timer = std::move(timer),
-                       helper =
-                           std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
+                       timer = std::move(timer), helper,
                        self = shared_from_this()](
                        WebDAVSession *session) mutable {
             auto getRequest =
@@ -303,7 +301,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.webdav.write");
 
-    auto helper = std::dynamic_pointer_cast<WebDAVHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<WebDAVHelper>(this->helper());
 
     auto sessionPoolKey = WebDAVSessionPoolKey{};
 
@@ -315,8 +313,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
     return helper->connect(sessionPoolKey)
         .thenValue([fileId = m_fileId, offset, buf = std::move(buf),
                        timer = std::move(timer), retryCount, redirectURL,
-                       helper =
-                           std::dynamic_pointer_cast<WebDAVHelper>(m_helper),
+                       helper,
                        s = std::weak_ptr<WebDAVFileHandle>{shared_from_this()}](
                        WebDAVSession *session) mutable {
             auto self = s.lock();
@@ -419,7 +416,7 @@ folly::Future<std::size_t> WebDAVFileHandle::write(const off_t offset,
         });
 }
 
-const Timeout &WebDAVFileHandle::timeout() { return m_helper->timeout(); }
+const Timeout &WebDAVFileHandle::timeout() { return helper()->timeout(); }
 
 WebDAVHelper::WebDAVHelper(std::shared_ptr<WebDAVHelperParams> params,
     std::shared_ptr<folly::IOExecutor> executor,

@@ -129,7 +129,7 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
 
     const auto &size = op.size;
     const auto &offset = op.offset;
-    const auto &fileId = handle->m_fileId;
+    const auto &fileId = handle->fileId();
     auto &timer = op.timer;
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
@@ -186,7 +186,7 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
     }
 
     auto &buf = op.buf;
-    const auto &fileId = handle->m_fileId;
+    const auto &fileId = handle->fileId();
     auto &timer = op.timer;
 
     std::size_t size = buf.chainLength();
@@ -208,7 +208,7 @@ void NullDeviceFileHandle::OpExec::operator()(ReleaseOp &op) const
         return;
     }
 
-    auto &fileId = handle->m_fileId;
+    auto &fileId = handle->fileId();
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.release");
 
@@ -234,7 +234,7 @@ void NullDeviceFileHandle::OpExec::operator()(FlushOp &op) const
         return;
     }
 
-    auto &fileId = handle->m_fileId;
+    auto &fileId = handle->fileId();
 
     LOG_DBG(2) << "Flushing file " << fileId;
 
@@ -258,7 +258,7 @@ void NullDeviceFileHandle::OpExec::operator()(FsyncOp &op) const
         return;
     }
 
-    auto &fileId = handle->m_fileId;
+    auto &fileId = handle->fileId();
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.fsync");
 
