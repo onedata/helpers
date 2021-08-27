@@ -235,7 +235,7 @@ static inline std::string print_stacktrace()
             // mangled name is now in [begin_name, begin_offset) and caller
             // offset in [begin_offset, end_offset). now apply
             // __cxa_demangle():
-            int status;
+            int status = 0;
             char *ret = abi::__cxa_demangle(
                 begin_name, funcname, &funcnamesize, &status);
             if (status == 0) {
@@ -256,8 +256,8 @@ static inline std::string print_stacktrace()
         }
     }
 
-    free(funcname);   // NOLINT(hicpp-no-malloc)
-    free(symbollist); // NOLINT(hicpp-no-malloc)
+    free(funcname);   // NOLINT
+    free(symbollist); // NOLINT
 
     return out.str();
 }
