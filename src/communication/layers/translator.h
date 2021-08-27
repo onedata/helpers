@@ -181,8 +181,8 @@ public:
         };
 
         // NOLINTNEXTLINE
-        LowerLayer::communicate(messages::serialize(std::forward<CliMsg>(msg)),
-            std::move(callback), retries);
+        LowerLayer::communicate(messages::serialize(std::move(msg)),
+            std::move(callback), retries); // NOLINT
 
         return future;
     }

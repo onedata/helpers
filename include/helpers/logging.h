@@ -69,12 +69,12 @@
 /**
  * Logs a value in octal format
  */
-#define LOG_OCT(X) "0" << std::oct << X << std::dec
+#define LOG_OCT(X) "0" << std::oct << (X) << std::dec
 
 /**
  * Logs a value in hexadecimal format
  */
-#define LOG_HEX(X) "0x" << std::hex << X << std::dec
+#define LOG_HEX(X) "0x" << std::hex << (X) << std::dec
 
 /**
  * Appends to stream a serialized vector of strings
@@ -144,7 +144,7 @@
  * Logs current stack trace, should be used in `catch` blocks.
  */
 #define LOG_STACKTRACE(X, MSG)                                                 \
-    LOG_DBG(X) << MSG << '\n' << ::one::logging::print_stacktrace();
+    LOG_DBG(X) << (MSG) << '\n' << ::one::logging::print_stacktrace();
 
 namespace one {
 namespace logging {
