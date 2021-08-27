@@ -56,6 +56,11 @@ public:
     using LowerLayer::LowerLayer;
     ~Inbox() override = default;
 
+    Inbox(const Inbox &) = delete;
+    Inbox(Inbox &&) = delete;
+    Inbox &operator=(const Inbox &) = delete;
+    Inbox &operator=(Inbox &&) = delete;
+
     /**
      * A reference to @c *this typed as an @c Inbox.
      */

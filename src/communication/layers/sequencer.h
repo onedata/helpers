@@ -144,6 +144,11 @@ public:
     using LowerLayer::LowerLayer;
     ~Sequencer() override;
 
+    Sequencer(const Sequencer &) = delete;
+    Sequencer(Sequencer &&) = delete;
+    Sequencer &operator=(const Sequencer &) = delete;
+    Sequencer &operator=(Sequencer &&) = delete;
+
     /**
      * A reference to @c *this typed as a @c Sequencer.
      */

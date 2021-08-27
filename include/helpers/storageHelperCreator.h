@@ -170,7 +170,7 @@ public:
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #endif
 
-    ~StorageHelperCreator();
+    ~StorageHelperCreator() = default;
 
     /**
      * Produces storage helper object.

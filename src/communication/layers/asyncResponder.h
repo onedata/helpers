@@ -33,6 +33,11 @@ public:
 
     ~AsyncResponder() override;
 
+    AsyncResponder(const AsyncResponder &) = delete;
+    AsyncResponder(AsyncResponder &&) = delete;
+    AsyncResponder &operator=(const AsyncResponder &) = delete;
+    AsyncResponder &operator=(AsyncResponder &&) = delete;
+
     /**
      * A reference to @c *this typed as a @c AsyncResponder.
      */

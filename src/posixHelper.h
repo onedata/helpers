@@ -44,6 +44,12 @@ class UserCtxSetter {
 public:
     UserCtxSetter(uid_t uid, gid_t gid);
     ~UserCtxSetter();
+
+    UserCtxSetter(const UserCtxSetter &) = delete;
+    UserCtxSetter(UserCtxSetter &&) = delete;
+    UserCtxSetter &operator=(const UserCtxSetter &) = delete;
+    UserCtxSetter &operator=(UserCtxSetter &&) = delete;
+
     bool valid() const;
 
 private:
@@ -83,6 +89,11 @@ public:
      * not been yet called.
      */
     ~PosixFileHandle() override;
+
+    PosixFileHandle(const PosixFileHandle &) = delete;
+    PosixFileHandle(PosixFileHandle &&) = delete;
+    PosixFileHandle &operator=(const PosixFileHandle &) = delete;
+    PosixFileHandle &operator=(PosixFileHandle &&) = delete;
 
     folly::Future<folly::IOBufQueue> read(
         off_t offset, std::size_t size) override;

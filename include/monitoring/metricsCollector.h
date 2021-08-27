@@ -33,6 +33,11 @@ public:
      */
     virtual ~MetricsCollector();
 
+    MetricsCollector(const MetricsCollector &) = delete;
+    MetricsCollector(MetricsCollector &&) = delete;
+    MetricsCollector &operator=(const MetricsCollector &) = delete;
+    MetricsCollector &operator=(MetricsCollector &&) = delete;
+
     /**
      * Configure the monitoring metrics collector.
      * @param monitoringConfiguration New configuration.
