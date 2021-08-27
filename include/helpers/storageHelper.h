@@ -328,8 +328,8 @@ public:
      * @param parameters Parameters for helper creation.
      * @returns A new instance of @c StorageHelper .
      */
-    virtual StorageHelperPtr createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER) = 0;
+    virtual StorageHelperPtr createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) = 0;
 
     /**
      * Returns a list of helper specific parameters which can be overriden on
