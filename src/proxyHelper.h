@@ -75,7 +75,7 @@ public:
      */
     ProxyHelper(folly::fbstring storageId,
         communication::Communicator &communicator,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONECLIENT);
 
     folly::fbstring name() const override { return PROXY_HELPER_NAME; };
@@ -119,7 +119,7 @@ public:
     {
         auto storageId = getParam(parameters, "storageId");
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         return std::make_shared<ProxyHelper>(std::move(storageId),
             m_communicator, std::move(timeout), executionContext);

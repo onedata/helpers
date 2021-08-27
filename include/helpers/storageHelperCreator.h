@@ -31,7 +31,7 @@ namespace buffering {
 
 class BufferAgentsMemoryLimitGuard;
 
-namespace {
+namespace constants {
 constexpr std::size_t kMB = 1024 * 1024;
 constexpr std::size_t kReadBufferMinSize = 5 * kMB;
 constexpr std::size_t kReadBufferMaxSize = 10 * kMB;
@@ -40,20 +40,21 @@ constexpr std::size_t kWriteBufferMaxSize = 50 * kMB;
 constexpr int kWriteBufferFlushDelaySeconds = 5;
 constexpr int kTargetLatencyNanoSeconds = 1000;
 constexpr double kPrefetchPowerBase = 1.3;
-} // namespace
+} // namespace constants
 
 struct BufferLimits {
-    explicit BufferLimits(std::size_t readBufferMinSize_ = kReadBufferMinSize,
-        std::size_t readBufferMaxSize_ = kReadBufferMaxSize,
+    explicit BufferLimits(
+        std::size_t readBufferMinSize_ = constants::kReadBufferMinSize,
+        std::size_t readBufferMaxSize_ = constants::kReadBufferMaxSize,
         std::chrono::seconds readBufferPrefetchDuration_ =
             std::chrono::seconds{1},
-        std::size_t writeBufferMinSize_ = kWriteBufferMinSize,
-        std::size_t writeBufferMaxSize_ = kWriteBufferMaxSize,
+        std::size_t writeBufferMinSize_ = constants::kWriteBufferMinSize,
+        std::size_t writeBufferMaxSize_ = constants::kWriteBufferMaxSize,
         std::chrono::seconds writeBufferFlushDelay_ =
-            std::chrono::seconds{kWriteBufferFlushDelaySeconds},
+            std::chrono::seconds{constants::kWriteBufferFlushDelaySeconds},
         std::chrono::nanoseconds targetLatency_ =
-            std::chrono::nanoseconds{kTargetLatencyNanoSeconds},
-        double prefetchPowerBase_ = kPrefetchPowerBase,
+            std::chrono::nanoseconds{constants::kTargetLatencyNanoSeconds},
+        double prefetchPowerBase_ = constants::kPrefetchPowerBase,
         std::size_t readBuffersTotalSize_ = 0,
         std::size_t writeBuffersTotalSize_ = 0)
         : readBufferMinSize{readBufferMinSize_}

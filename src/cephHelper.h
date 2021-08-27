@@ -66,7 +66,7 @@ public:
     CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     /**
@@ -192,7 +192,7 @@ public:
         const auto &userName = getParam(parameters, "username");
         const auto &key = getParam(parameters, "key");
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         LOG_FCALL() << LOG_FARG(clusterName) << LOG_FARG(monHost)
                     << LOG_FARG(poolName) << LOG_FARG(userName)

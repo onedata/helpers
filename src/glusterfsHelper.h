@@ -138,7 +138,7 @@ public:
         folly::fbstring volume, folly::fbstring transport,
         folly::fbstring xlatorOptions,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     virtual ~GlusterFSHelper() = default;
@@ -287,7 +287,7 @@ public:
             getParam<std::string>(parameters, "xlatorOptions", "");
 
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
             port, volume, transport, xlatorOptions, m_executor,

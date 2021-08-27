@@ -70,7 +70,7 @@ std::error_code getReturnCode(const Outcome &outcome)
 {
     LOG_FCALL();
     if (outcome.IsSuccess())
-        return one::helpers::SUCCESS_CODE;
+        return one::helpers::constants::SUCCESS_CODE;
 
     auto error = std::errc::io_error;
     auto search = ErrorMappings().find(outcome.GetError().GetErrorType());
@@ -303,7 +303,7 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto code = getReturnCode(outcome);
 
-    if (code != SUCCESS_CODE) {
+    if (code != constants::SUCCESS_CODE) {
         // In case the read is from outside of the valid range, return empty buf
         if (outcome.GetError().GetExceptionName() == "InvalidRange") {
             auto readBytes = outcome.GetResult().GetContentLength();
@@ -752,7 +752,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 
     auto code = getReturnCode(outcome);
 
-    if (code != SUCCESS_CODE) {
+    if (code != constants::SUCCESS_CODE) {
         LOG_DBG(2) << "Getting object " << normalizedKey
                    << " info failed with error "
                    << outcome.GetError().GetMessage();
@@ -871,7 +871,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
     auto code = getReturnCode(outcome);
 
-    if (code != SUCCESS_CODE) {
+    if (code != constants::SUCCESS_CODE) {
         LOG_DBG(1) << "Listing objects from prefix " << normalizedPrefix
                    << " failed with error " << outcome.GetError().GetMessage();
         throwOnError("ListObject", outcome);

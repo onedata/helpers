@@ -24,20 +24,20 @@
 #include <string>
 #include <system_error>
 
-namespace {
+namespace one {
+namespace communication {
+namespace layers {
+
+constexpr auto kMagicCookie = 1234432178;
+
+namespace detail {
 inline std::uint64_t initializeMsgIdSeed()
 {
     auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch());
     return time.count();
 }
-} // namespace
-
-namespace one {
-namespace communication {
-namespace layers {
-
-constexpr auto kMagicCookie = 1234432178;
+} // namespace detail
 
 /**
  * @c Inbox is responsible for handling incoming messages. It stores a
@@ -112,7 +112,7 @@ private:
 
     tbb::concurrent_hash_map<std::string, CommunicateCallbackData> m_callbacks;
 
-    std::uint64_t m_seed = initializeMsgIdSeed();
+    std::uint64_t m_seed = detail::initializeMsgIdSeed();
     /// The counter will loop after sending ~65000 messages, providing us with
     /// a natural size bound for m_callbacks.
     std::atomic<std::uint16_t> m_nextMsgId{0};

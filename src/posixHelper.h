@@ -81,7 +81,7 @@ public:
         const folly::fbstring &fileId, uid_t uid, gid_t gid, int fileHandle,
         std::shared_ptr<PosixHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
 
     /**
      * Destructor.
@@ -125,7 +125,7 @@ private:
     PosixFileHandle(const folly::fbstring &fileId, uid_t uid, gid_t gid,
         int fileHandle, std::shared_ptr<PosixHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
 
     void initOpScheduler(std::shared_ptr<PosixFileHandle>);
 

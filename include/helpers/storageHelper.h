@@ -85,13 +85,13 @@ constexpr auto HTTP_HELPER_NAME = "http";
 constexpr auto XROOTD_HELPER_NAME = "xrootd";
 #endif
 
-namespace {
+namespace constants {
 constexpr std::chrono::milliseconds ASYNC_OPS_TIMEOUT{120000};
 const std::error_code SUCCESS_CODE{};
 constexpr int IO_RETRY_COUNT{4};
 constexpr std::chrono::milliseconds IO_RETRY_INITIAL_DELAY{10};
 constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
-} // namespace
+} // namespace constants
 
 /**
  * Generic retry function wrapper.
@@ -105,9 +105,10 @@ constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
  */
 template <typename OpFunc, typename CondFunc>
 inline auto retry(OpFunc &&op, CondFunc &&condition,
-    int retryCount = IO_RETRY_COUNT,
-    std::chrono::milliseconds retryInitialDelay = IO_RETRY_INITIAL_DELAY,
-    float retryBackoff = IO_RETRY_DELAY_BACKOFF_FACTOR)
+    int retryCount = constants::IO_RETRY_COUNT,
+    std::chrono::milliseconds retryInitialDelay =
+        constants::IO_RETRY_INITIAL_DELAY,
+    float retryBackoff = constants::IO_RETRY_DELAY_BACKOFF_FACTOR)
 {
     auto ret = op();
     auto retryIt = 0;
@@ -435,7 +436,7 @@ public:
     virtual void initializeFromParams(const Params &parameters)
     {
         m_timeout = Timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         auto storagePathTypeString =
             getParam<std::string>(parameters, "storagePathType", "canonical");

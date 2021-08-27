@@ -56,7 +56,7 @@ public:
     static std::shared_ptr<NullDeviceFileHandle> create(
         const folly::fbstring &fileId, std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
 
     /**
      * Destructor.
@@ -89,7 +89,7 @@ private:
     NullDeviceFileHandle(const folly::fbstring &fileId,
         std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
 
     template <typename T, typename F>
     folly::Future<T> simulateStorageIssues(
@@ -180,7 +180,7 @@ public:
         std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
         double simulatedFilesystemGrowSpeed, size_t simulatedFileSize,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; };
@@ -467,7 +467,7 @@ public:
             getParam<double>(parameters, "simulatedFilesystemGrowSpeed", 0.0);
 
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         auto simulatedFilesystemParametersParsed =
             parseSimulatedFilesystemParameters(
