@@ -260,8 +260,8 @@ static inline std::string print_stacktrace()
 
     return out.str();
 }
-} // logging
-} // one
+} // namespace logging
+} // namespace one
 
 // Definition of custom spdlog based loggers
 namespace one {
