@@ -255,8 +255,8 @@ static inline std::string print_stacktrace()
         }
     }
 
-    free(funcname);
-    free(symbollist);
+    free(funcname);   // NOLINT(hicpp-no-malloc)
+    free(symbollist); // NOLINT(hicpp-no-malloc)
 
     return out.str();
 }
