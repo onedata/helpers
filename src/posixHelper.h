@@ -159,7 +159,7 @@ private:
 
     friend struct OpExec;
     struct OpExec : public boost::static_visitor<> {
-        OpExec(const std::shared_ptr<PosixFileHandle> &);
+        explicit OpExec(const std::shared_ptr<PosixFileHandle> &);
         std::unique_ptr<UserCtxSetter> startDrain();
         void operator()(ReadOp &) const;
         void operator()(WriteOp &) const;
@@ -289,7 +289,7 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    PosixHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit PosixHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
     }

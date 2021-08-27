@@ -81,7 +81,7 @@ protected:
             one::helpers::buffering::BufferAgentsMemoryLimitGuard>(limits);
     }
 
-    one::helpers::buffering::BufferLimits limits = {};
+    one::helpers::buffering::BufferLimits limits{};
     std::shared_ptr<one::helpers::buffering::BufferAgentsMemoryLimitGuard>
         limitGuard;
 };

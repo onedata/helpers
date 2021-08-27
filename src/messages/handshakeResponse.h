@@ -32,6 +32,7 @@ public:
      * @param serverMessage Protocol Buffers message representing @c
      * HandshakeResponse counterpart.
      */
+    // NOLINTNEXTLINE
     HandshakeResponse(std::unique_ptr<ProtocolServerMessage> serverMessage);
 
     /**

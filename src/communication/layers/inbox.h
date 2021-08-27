@@ -54,7 +54,7 @@ public:
         std::function<void(const std::error_code &ec, ServerMessagePtr)>;
 
     using LowerLayer::LowerLayer;
-    ~Inbox() override = default;
+    virtual ~Inbox() = default; // NOLINT
 
     Inbox(const Inbox &) = delete;
     Inbox(Inbox &&) = delete;

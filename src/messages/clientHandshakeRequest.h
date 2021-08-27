@@ -34,7 +34,7 @@ public:
      * Constructor.
      * @param sessionId Id of session to be used in handshake
      * */
-    ClientHandshakeRequest(std::string sessionId);
+    explicit ClientHandshakeRequest(std::string sessionId);
 
     /**
      * Constructor.

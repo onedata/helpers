@@ -30,7 +30,13 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
     using LowerLayer::send;
-    ~BinaryTranslator() override = default;
+
+    virtual ~BinaryTranslator() = default; // NOLINT
+
+    BinaryTranslator(const BinaryTranslator &) = delete;
+    BinaryTranslator(BinaryTranslator &&) = delete;
+    BinaryTranslator &operator=(const BinaryTranslator &) = delete;
+    BinaryTranslator &operator=(BinaryTranslator &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c BinaryTranslator.

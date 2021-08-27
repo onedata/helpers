@@ -25,7 +25,7 @@ template <class LowerLayer> class Replier : public LowerLayer {
 public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    ~Replier() override = default;
+    virtual ~Replier() = default; // NOLINT
 
     /**
      * A reference to @c *this typed as a @c Replier.

@@ -131,8 +131,8 @@ public:
         uint64_t sequenceNumberAck() const { return m_seqNumAck; }
 
     private:
-        uint64_t m_seqNum;    // expected sequence number
-        uint64_t m_seqNumAck; // first unacknowledged sequence number
+        uint64_t m_seqNum{};    // expected sequence number
+        uint64_t m_seqNumAck{}; // first unacknowledged sequence number
         // buffer of messages with sequence number greater than expected
         // sequnece number sorted in ascending sequence number order
         tbb::concurrent_priority_queue<ServerMessagePtr, GreaterSeqNum>
@@ -142,7 +142,7 @@ public:
     using Callback = typename LowerLayer::Callback;
     using SchedulerPtr = std::shared_ptr<Scheduler>;
     using LowerLayer::LowerLayer;
-    ~Sequencer() override;
+    virtual ~Sequencer();
 
     Sequencer(const Sequencer &) = delete;
     Sequencer(Sequencer &&) = delete;

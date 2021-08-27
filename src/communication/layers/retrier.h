@@ -30,7 +30,12 @@ template <class LowerLayer> class Retrier : public LowerLayer {
 public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    ~Retrier() override = default;
+    virtual ~Retrier() = default;
+
+    Retrier(const Retrier &) = delete;
+    Retrier(Retrier &&) = delete;
+    Retrier &operator=(const Retrier &) = delete;
+    Retrier &operator=(Retrier &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Retrier.

@@ -43,7 +43,7 @@ constexpr double kPrefetchPowerBase = 1.3;
 } // namespace
 
 struct BufferLimits {
-    BufferLimits(std::size_t readBufferMinSize_ = kReadBufferMinSize,
+    explicit BufferLimits(std::size_t readBufferMinSize_ = kReadBufferMinSize,
         std::size_t readBufferMaxSize_ = kReadBufferMaxSize,
         std::chrono::seconds readBufferPrefetchDuration_ =
             std::chrono::seconds{1},

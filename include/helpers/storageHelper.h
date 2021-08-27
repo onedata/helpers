@@ -232,7 +232,7 @@ public:
      * Constructor.
      * @param whatArg Name of the missing parameter.
      */
-    MissingParameterException(const folly::fbstring &whatArg)
+    explicit MissingParameterException(const folly::fbstring &whatArg)
         : std::out_of_range{
               "missing helper parameter: '" + whatArg.toStdString() + "'"}
     {
@@ -468,7 +468,7 @@ public:
     using StorageHelperParamsPromise =
         folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
 
-    StorageHelper(
+    explicit StorageHelper(
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
         : m_params{std::make_shared<StorageHelperParamsPromise>()}
         , m_executionContext{executionContext}

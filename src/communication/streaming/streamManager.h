@@ -38,7 +38,7 @@ public:
      * and for subscription to incoming messages.
      * @todo Communicator as a reference
      */
-    StreamManager(std::shared_ptr<Communicator> communicator);
+    explicit StreamManager(std::shared_ptr<Communicator> communicator);
 
     /**
      * Creates a new @c Stream.

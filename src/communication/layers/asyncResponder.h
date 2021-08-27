@@ -31,7 +31,7 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
 
-    ~AsyncResponder() override;
+    virtual ~AsyncResponder();
 
     AsyncResponder(const AsyncResponder &) = delete;
     AsyncResponder(AsyncResponder &&) = delete;
