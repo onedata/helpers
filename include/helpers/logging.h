@@ -171,7 +171,8 @@ std::string containerToErlangBinaryString(const TSeq &bytes)
     std::vector<std::string> bytesValues;
 
     std::for_each(bytes.begin(), bytes.end(), [&](const char &byte) {
-        return bytesValues.push_back(std::to_string((uint8_t)byte));
+        return bytesValues.push_back(
+            std::to_string(static_cast<uint8_t>(byte)));
     });
 
     return std::string("<<") + boost::algorithm::join(bytesValues, ",") + ">>";
