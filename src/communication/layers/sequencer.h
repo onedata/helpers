@@ -142,7 +142,7 @@ public:
     using Callback = typename LowerLayer::Callback;
     using SchedulerPtr = std::shared_ptr<Scheduler>;
     using LowerLayer::LowerLayer;
-    ~Sequencer() override; // NOLINT
+    virtual ~Sequencer(); // NOLINT
 
     Sequencer(const Sequencer &) = delete;
     Sequencer(Sequencer &&) = delete;

@@ -31,7 +31,7 @@ public:
     using LowerLayer::LowerLayer;
     using LowerLayer::send;
 
-    ~BinaryTranslator() override = default; // NOLINT
+    virtual ~BinaryTranslator() = default; // NOLINT
 
     BinaryTranslator(const BinaryTranslator &) = delete;
     BinaryTranslator(BinaryTranslator &&) = delete;
