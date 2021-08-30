@@ -1,4 +1,5 @@
 Checks: >-
+  *,
   -abseil*,
   -android*,
   -*braces-around-statements,

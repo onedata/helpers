@@ -45,7 +45,7 @@ std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
     auto ptr = std::shared_ptr<NullDeviceFileHandle>(new NullDeviceFileHandle(
-        std::move(fileId), std::move(helper), std::move(executor), timeout));
+        fileId, std::move(helper), std::move(executor), timeout));
     ptr->initOpScheduler();
     return ptr;
 }
@@ -208,11 +208,9 @@ void NullDeviceFileHandle::OpExec::operator()(ReleaseOp &op) const
         return;
     }
 
-    auto &fileId = handle->fileId();
-
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.release");
 
-    LOG_DBG(2) << "Closing file " << fileId;
+    LOG_DBG(2) << "Closing file " << handle->fileId();
 
     op.promise.setValue();
 }
@@ -234,9 +232,7 @@ void NullDeviceFileHandle::OpExec::operator()(FlushOp &op) const
         return;
     }
 
-    auto &fileId = handle->fileId();
-
-    LOG_DBG(2) << "Flushing file " << fileId;
+    LOG_DBG(2) << "Flushing file " << handle->fileId();
 
     op.promise.setValue();
 }
@@ -258,11 +254,9 @@ void NullDeviceFileHandle::OpExec::operator()(FsyncOp &op) const
         return;
     }
 
-    auto &fileId = handle->fileId();
-
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.fsync");
 
-    LOG_DBG(2) << "Syncing file " << fileId;
+    LOG_DBG(2) << "Syncing file " << handle->fileId();
 
     op.promise.setValue();
 }

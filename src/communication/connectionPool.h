@@ -116,7 +116,7 @@ public:
     /**
      * Initialize the SSL context for communication sockets.
      */
-    std::shared_ptr<folly::SSLContext> createSSLContext();
+    std::shared_ptr<folly::SSLContext> createSSLContext() const;
 
     /**
      * Sends a message through one of the managed connections.

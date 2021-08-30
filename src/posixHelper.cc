@@ -191,9 +191,8 @@ std::shared_ptr<PosixFileHandle> PosixFileHandle::create(
     const int fileHandle, std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
-    auto ptr = std::shared_ptr<PosixFileHandle>(
-        new PosixFileHandle(std::move(fileId), uid, gid, fileHandle,
-            std::move(helper), std::move(executor), timeout));
+    auto ptr = std::shared_ptr<PosixFileHandle>(new PosixFileHandle(fileId, uid,
+        gid, fileHandle, std::move(helper), std::move(executor), timeout));
     ptr->initOpScheduler(ptr);
     return ptr;
 }

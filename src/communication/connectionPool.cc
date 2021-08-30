@@ -150,7 +150,7 @@ bool ConnectionPool::setupOpenSSLCABundlePath(SSL_CTX *ctx)
     return false;
 }
 
-std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext()
+std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
 {
     auto context =
         std::make_shared<folly::SSLContext>(folly::SSLContext::TLSv1_2);

@@ -30,7 +30,7 @@ template <class LowerLayer> class Retrier : public LowerLayer {
 public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    virtual ~Retrier() = default;
+    ~Retrier() override = default; // NOLINT
 
     Retrier(const Retrier &) = delete;
     Retrier(Retrier &&) = delete;

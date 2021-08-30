@@ -45,7 +45,7 @@ public:
     using CommunicateCallback =
         std::function<void(const std::error_code &ec, std::unique_ptr<SrvMsg>)>;
 
-    virtual ~Translator() = default;
+    ~Translator() override = default; // NOLINT
 
     Translator(const Translator &) = delete;
     Translator(Translator &&) = delete;
