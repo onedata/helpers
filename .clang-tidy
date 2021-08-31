@@ -3,50 +3,34 @@ Checks: >-
   -abseil*,
   -android*,
   -*braces-around-statements,
-  -bugprone-branch-clone,
-  -bugprone-exception-escape,
-  -cert-err58-cpp,
   -clang-analyzer-alpha.*,
   -clang-analyzer-cplusplus.NewDelete,
-  -clang-analyzer-cplusplus.NewDeleteLeaks,
   -clang-analyzer-optin.cplusplus.VirtualCall,
-  -clang-diagnostic-infinite-recursion,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-explicit-virtual-functions,
-  -cppcoreguidelines-special-member-functions,
-  -cppcoreguidelines-non-private-member-variables-in-classes,
   -fuchsia*,
   -google-readability-todo,
-  -google-explicit-constructor,
   -hicpp-no-array-decay,
   -hicpp-signed-bitwise,
-  -hicpp-uppercase-literal-suffix,
-  -hicpp-vararg,-google-runtime-references,
-  -hicpp-use-override,
-  -hicpp-special-member-functions,
-  -hicpp-explicit-conversions,
+  -google-runtime-references,
   -llvm-header-guard,
-  -llvm-namespace-comment,
-  -llvm-qualified-auto,
-  -misc-non-private-member-variables-in-classes,
   -modernize-avoid-bind,
   -modernize-use-trailing-return-type,
-  -modernize-use-override,
   -modernize-use-default-member-init,
   -mpi*,
   -objc*,
   -*osx*,
-  -performance-unnecessary-value-param,
-  -readability-uppercase-literal-suffix,
-  -readability-qualified-auto,
-  -readability-convert-member-functions-to-static,
-  -readability-make-member-function-const,
-  -readability-avoid-const-params-in-decls,
   -zircon*
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'helpers/include|helpers/src'
 CheckOptions:
   - key:             readability-identifier-naming.ClassMemberPrefix
     value:           'm_'
+  - key:             performance-unnecessary-value-param.AllowedTypes
+    value:           shared_ptr
+  - key:             misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
+    value:           1
+  - key:             hicpp-special-member-functions.AllowSoleDefaultDtor
+    value:           1
+  - key:             cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value:           1

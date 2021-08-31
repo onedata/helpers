@@ -63,7 +63,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     auto reconnectDelay = CLIENT_RECONNECT_DELAYS.at(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
-    if (reconnectAttempt == 0u) {
+    if (reconnectAttempt == 0U) {
         LOG(INFO) << "Creating new connection with id " << connectionId()
                   << " to " << host << ":" << port;
     }
@@ -73,7 +73,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                   << reconnectDelay << " ms. Attempt: " << reconnectAttempt;
     }
 
-    auto executor = group_.get();
+    auto *executor = group_.get();
 
     return folly::makeFuture()
         .via(executor)
@@ -119,7 +119,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                             // connection to clproto if required for this
                             // connection
                             [this, pipeline, addressStr, host](
-                                auto && /*unit*/) {
+                                auto && /*unit*/) mutable {
                                 auto sock = std::dynamic_pointer_cast<
                                     folly::AsyncSocket>(
                                     pipeline->getTransport());
@@ -132,7 +132,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                         << addressStr;
 
                                     auto upgradeRequest =
-                                        pipeline
+                                        pipeline // NOLINT
                                             ->getHandler<codec::
                                                     CLProtoUpgradeResponseHandler>()
                                             ->makeUpgradeRequest(
@@ -177,7 +177,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                         // before handling any other requests
                         .thenValue([this, pipeline](auto && /*unit*/) {
                             if (m_performCLProtoHandshake) {
-                                auto handshakeHandler = pipeline->getHandler<
+                                auto *handshakeHandler = pipeline->getHandler<
                                     codec::CLProtoHandshakeResponseHandler>();
 
                                 auto handshake =

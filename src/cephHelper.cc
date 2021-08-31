@@ -40,10 +40,9 @@ inline bool CephRetryCondition(int result, const std::string &operation)
     return ret;
 }
 
-CephFileHandle::CephFileHandle(folly::fbstring fileId,
-    std::shared_ptr<CephHelper> helper, librados::IoCtx &ioCTX)
+CephFileHandle::CephFileHandle(
+    folly::fbstring fileId, std::shared_ptr<CephHelper> helper)
     : FileHandle{std::move(fileId), std::move(helper)}
-    , m_ioCTX{ioCTX}
 {
     LOG_FCALL() << LOG_FARG(fileId);
 }
@@ -55,7 +54,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.ceph.read");
 
-    auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<CephHelper>(this->helper());
 
     return helper->connect().thenValue(
         [this, offset, size,
@@ -72,23 +71,23 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
             libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
             LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
-                       << offset << " from file " << m_fileId;
+                       << offset << " from file " << fileId();
 
             auto ret = retry(
                 [&]() {
-                    return rs.read(m_fileId.toStdString(), &data, size, offset);
+                    return rs.read(fileId().toStdString(), &data, size, offset);
                 },
                 std::bind(CephRetryCondition, _1, "read"));
 
             if (ret < 0) {
-                LOG_DBG(1) << "Read failed from " << m_fileId
+                LOG_DBG(1) << "Read failed from " << fileId()
                            << " with error:" << ret;
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.read");
                 return makeFuturePosixException<folly::IOBufQueue>(ret);
             }
 
             LOG_DBG(2) << "Read " << ret << " bytes at offset " << offset
-                       << " from file " << m_fileId;
+                       << " from file " << fileId();
 
             data.copy(0, ret, raw);
             buffer.postallocate(ret);
@@ -106,7 +105,7 @@ folly::Future<std::size_t> CephFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.ceph.write");
 
-    auto helper = std::dynamic_pointer_cast<CephHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<CephHelper>(this->helper());
 
     return helper->connect().thenValue(
         [this, buf = std::move(buf), offset, helper,
@@ -121,7 +120,7 @@ folly::Future<std::size_t> CephFileHandle::write(
             librados::bufferlist data;
 
             if (size > 0u) {
-                for (auto &byteRange : *buf.front())
+                for (const auto &byteRange : *buf.front())
                     data.append(ceph::buffer::create_static(byteRange.size(),
                         reinterpret_cast<char *>(        // NOLINT
                             const_cast<unsigned char *>( // NOLINT
@@ -129,19 +128,19 @@ folly::Future<std::size_t> CephFileHandle::write(
             }
 
             LOG_DBG(2) << "Attempting to write " << size << " bytes at offset "
-                       << offset << " to file " << m_fileId;
+                       << offset << " to file " << fileId();
             libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
             auto ret = retry(
                 [&, data = std::move(data)]() {
                     auto written =
-                        rs.write(m_fileId.toStdString(), data, size, offset);
+                        rs.write(fileId().toStdString(), data, size, offset);
                     return written;
                 },
                 std::bind(CephRetryCondition, _1, "write"));
 
             if (ret < 0) {
-                LOG_DBG(1) << "Write failed to" << m_fileId
+                LOG_DBG(1) << "Write failed to" << fileId()
                            << " with error:" << ret;
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.ceph.errors.write");
                 return makeFuturePosixException<std::size_t>(ret);
@@ -151,7 +150,7 @@ folly::Future<std::size_t> CephFileHandle::write(
                 writeCb(ret);
 
             LOG_DBG(2) << "Written " << ret << " bytes at offset " << offset
-                       << " to file " << m_fileId;
+                       << " to file " << fileId();
 
             ONE_METRIC_TIMERCTX_STOP(timer, size);
 
@@ -159,7 +158,7 @@ folly::Future<std::size_t> CephFileHandle::write(
         });
 }
 
-const Timeout &CephFileHandle::timeout() { return m_helper->timeout(); }
+const Timeout &CephFileHandle::timeout() { return helper()->timeout(); }
 
 CephHelper::CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
     folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
@@ -190,8 +189,7 @@ folly::Future<FileHandlePtr> CephHelper::open(const folly::fbstring &fileId,
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto handle =
-        std::make_shared<CephFileHandle>(fileId, shared_from_this(), m_ioCTX);
+    auto handle = std::make_shared<CephFileHandle>(fileId, shared_from_this());
 
     return folly::makeFuture(std::move(handle));
 }

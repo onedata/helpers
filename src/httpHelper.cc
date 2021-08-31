@@ -55,7 +55,6 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case HTTPStatus::MethodNotAllowed:
             return ENOTSUP;
         case HTTPStatus::NotAcceptable:
-            return EACCES;
         case HTTPStatus::ProxyAuthenticationRequired:
             return EACCES;
         case HTTPStatus::RequestTimeout:
@@ -65,21 +64,17 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case HTTPStatus::Gone:
             return ENXIO;
         case HTTPStatus::LengthRequired:
-            return EINVAL;
         case HTTPStatus::PreconditionFailed:
             return EINVAL;
         case HTTPStatus::PayloadTooLarge:
             return EFBIG;
         case HTTPStatus::URITooLong:
-            return EINVAL;
         case HTTPStatus::UnsupportedMediaType:
             return EINVAL;
         case HTTPStatus::RangeNotSatisfiable:
             return ERANGE;
         case HTTPStatus::ExpectationFailed:
-            return EINVAL;
         case HTTPStatus::UpgradeRequired:
-            return EINVAL;
         case HTTPStatus::PreconditionRequired:
             return EINVAL;
         case HTTPStatus::TooManyRequests:
@@ -93,7 +88,6 @@ int httpStatusToPosixError(uint16_t httpStatus)
         case HTTPStatus::NotImplemented:
             return ENOTSUP;
         case HTTPStatus::BadGateway:
-            return ENXIO;
         case HTTPStatus::ServiceUnavailable:
             return ENXIO;
         case HTTPStatus::GatewayTimeout:
@@ -108,15 +102,19 @@ int httpStatusToPosixError(uint16_t httpStatus)
 }
 
 // Retry only in case one of these errors occured
-const std::set<int> HTTP_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
-    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENONET,
-    ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED,
-    ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO, ENOMEDIUM,
-    ECANCELED};
+const std::set<int> &HTTPRetryErrors()
+{
+    static const std::set<int> HTTP_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES,
+        EBUSY, EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK,
+        ENONET, ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH,
+        ECONNABORTED, ECONNRESET, ENOTCONN, EHOSTDOWN, EHOSTUNREACH, EREMOTEIO,
+        ENOMEDIUM, ECANCELED};
+    return HTTP_RETRY_ERRORS;
+}
 
 inline bool shouldRetryError(int ec)
 {
-    return HTTP_RETRY_ERRORS.find(ec) != HTTP_RETRY_ERRORS.cend();
+    return HTTPRetryErrors().find(ec) != HTTPRetryErrors().cend();
 }
 
 inline auto retryDelay(int retriesLeft)
@@ -155,7 +153,7 @@ void HTTPSession::reset()
 }
 
 HTTPFileHandle::HTTPFileHandle(
-    folly::fbstring fileId, std::shared_ptr<HTTPHelper> helper)
+    const folly::fbstring &fileId, std::shared_ptr<HTTPHelper> helper)
     : FileHandle{fileId, std::move(helper)}
     , m_fileId{fileId}
     , m_effectiveFileId{fileId}
@@ -165,8 +163,8 @@ HTTPFileHandle::HTTPFileHandle(
 
     // Try to parse the fileId as URL - if it contains Host - treat it
     // as an external resource and create a separate HTTP session pool key
-    auto poolKeyAndUri =
-        std::dynamic_pointer_cast<HTTPHelper>(m_helper)->relativizeURI(fileId);
+    auto poolKeyAndUri = std::dynamic_pointer_cast<HTTPHelper>(this->helper())
+                             ->relativizeURI(fileId);
     m_sessionPoolKey = std::move(poolKeyAndUri.first);
     m_effectiveFileId = std::move(poolKeyAndUri.second);
 }
@@ -174,7 +172,7 @@ HTTPFileHandle::HTTPFileHandle(
 folly::Future<folly::IOBufQueue> HTTPFileHandle::read(
     const off_t offset, const std::size_t size)
 {
-    return read(offset, size, kHTTPRetryCount);
+    return read(offset, size, kHTTPRetryCount, {});
 }
 
 folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
@@ -184,7 +182,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.http.read");
 
-    auto helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<HTTPHelper>(this->helper());
 
     auto sessionPoolKey = m_sessionPoolKey;
     auto effectiveFileId = m_effectiveFileId;
@@ -197,8 +195,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
 
     return helper->connect(sessionPoolKey)
         .thenValue([fileId = effectiveFileId, redirectURL, offset, size,
-                       retryCount, timer = std::move(timer),
-                       helper = std::dynamic_pointer_cast<HTTPHelper>(m_helper),
+                       retryCount, timer = std::move(timer), helper,
                        self = shared_from_this()](
                        HTTPSession *session) mutable {
             auto getRequest = std::make_shared<HTTPGET>(helper.get(), session);
@@ -228,7 +225,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                 .thenValue([self, offset, size, retryCount](
                                                auto && /*unit*/) {
                                     return self->read(
-                                        offset, size, retryCount - 1);
+                                        offset, size, retryCount - 1, {});
                                 });
                         }
 
@@ -256,7 +253,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                 .thenValue([self, offset, size, retryCount](
                                                auto && /*unit*/) {
                                     return self->read(
-                                        offset, size, retryCount - 1);
+                                        offset, size, retryCount - 1, {});
                                 });
                         }
 
@@ -273,7 +270,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
         });
 }
 
-const Timeout &HTTPFileHandle::timeout() { return m_helper->timeout(); }
+const Timeout &HTTPFileHandle::timeout() { return helper()->timeout(); }
 
 HTTPHelper::HTTPHelper(std::shared_ptr<HTTPHelperParams> params,
     std::shared_ptr<folly::IOExecutor> executor,
@@ -294,7 +291,7 @@ HTTPHelper::~HTTPHelper()
 
     // Close any pending sessions
     for (auto const &pool : m_sessionPool) {
-        for (auto &s : pool.second) {
+        for (const auto &s : pool.second) {
             if (s->session != nullptr && s->evb != nullptr) {
                 s->evb->runInEventBaseThreadAndWait([session = s->session] {
                     session->setInfoCallback(nullptr);
@@ -341,7 +338,7 @@ folly::Future<FileHandlePtr> HTTPHelper::open(const folly::fbstring &fileId,
 }
 
 std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
-    const folly::fbstring &fileId)
+    const folly::fbstring &fileId) const
 {
     std::pair<HTTPSessionPoolKey, folly::fbstring> res;
 
@@ -543,7 +540,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
             << "HTTP idle session connection pool empty - delaying request by "
                "10ms. In case this message shows frequently, consider "
                "increasing connectionPoolSize for the given storage.";
-        const auto kHTTPIdleSessionWaitDelay = 10ul;
+        const auto kHTTPIdleSessionWaitDelay = 10UL;
         return folly::makeFuture()
             .delayed(std::chrono::milliseconds(kHTTPIdleSessionWaitDelay))
             .thenValue([this, key](auto && /*unit*/) { return connect(key); });
@@ -624,7 +621,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
                             ? folly::SSLContext::SSLVerifyPeerEnum::VERIFY
                             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
-                    auto sslCtx = sslContext->getSSLCtx();
+                    auto *sslCtx = sslContext->getSSLCtx();
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
                     SSL_CTX_set_max_proto_version(sslCtx, TLS1_2_VERSION);
 #endif
@@ -666,7 +663,7 @@ bool HTTPHelper::setupOpenSSLCABundlePath(SSL_CTX *ctx)
         "/etc/pki/tls/certs/ca-bundle.trust.crt",
         "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"};
 
-    if (auto sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
+    if (auto *sslCertFileEnv = std::getenv("SSL_CERT_FILE")) {
         caBundlePossibleLocations.push_front(sslCertFileEnv);
     }
 
@@ -746,26 +743,26 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     auto isExternal = std::get<2>(session->key);
 
     m_request.setHTTPVersion(kHTTPVersionMajor, kHTTPVersionMinor);
-    if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("User-Agent") == 0U) {
         m_request.getHeaders().add("User-Agent", "Onedata");
     }
-    if (m_request.getHeaders().getNumberOfValues("Accept") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Accept") == 0U) {
         m_request.getHeaders().add("Accept", "*/*");
     }
-    if (m_request.getHeaders().getNumberOfValues("Connection") == 0u) {
-        if ((p->maxRequestsPerSession() > 0u) &&
+    if (m_request.getHeaders().getNumberOfValues("Connection") == 0U) {
+        if ((p->maxRequestsPerSession() > 0U) &&
             (m_session->session->getNumTxnServed() >=
                 p->maxRequestsPerSession()))
             m_request.getHeaders().add("Connection", "Close");
         else
             m_request.getHeaders().add("Connection", "Keep-Alive");
     }
-    if (m_request.getHeaders().getNumberOfValues("Host") == 0u) {
+    if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
         m_request.getHeaders().add("Host",
             fmt::format("{}:{}", std::get<0>(session->key).toStdString(),
                 std::get<1>(session->key)));
     }
-    if (m_request.getHeaders().getNumberOfValues("Authorization") == 0u &&
+    if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U &&
         !isExternal) {
         if (p->credentialsType() == HTTPCredentialsType::NONE) { }
         else if (p->credentialsType() == HTTPCredentialsType::BASIC) {
@@ -813,7 +810,7 @@ folly::Future<proxygen::HTTPTransaction *> HTTPRequest::startTransaction()
     assert(eventBase() != nullptr);
 
     return folly::via(eventBase(), [this]() {
-        auto session = m_session->session;
+        auto *session = m_session->session;
 
         if (m_session->closedByRemote || !m_session->sessionValid ||
             session == nullptr || session->isClosing()) {
@@ -834,7 +831,7 @@ folly::Future<proxygen::HTTPTransaction *> HTTPRequest::startTransaction()
                    << maxOutcomingStreams << ", " << outcomingStreams << ", "
                    << processedTransactions << "\n";
 
-        auto txn = session->newTransaction(this);
+        auto *txn = session->newTransaction(this);
         if (txn == nullptr) {
             m_helper->releaseSession(std::move(m_session)); // NOLINT
             throw makePosixException(EAGAIN);
@@ -852,30 +849,38 @@ void HTTPRequest::setTransaction(proxygen::HTTPTransaction *txn) noexcept
 
 void HTTPRequest::detachTransaction() noexcept
 {
-    if (m_session != nullptr) {
-        m_helper->releaseSession(std::move(m_session)); // NOLINT
-        m_session = nullptr;
+    try {
+        if (m_session != nullptr) {
+            m_helper->releaseSession(std::move(m_session)); // NOLINT
+            m_session = nullptr;
+        }
+        m_destructionGuard.reset();
     }
-    m_destructionGuard.reset();
+    catch (...) {
+    }
 }
 
 void HTTPRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
-    if (msg->getHeaders().getNumberOfValues("Connection") != 0u) {
-        if (msg->getHeaders().rawGet("Connection") == "close") {
-            LOG_DBG(4) << "Received 'Connection: close'";
-            m_session->closedByRemote = true;
+    try {
+        if (msg->getHeaders().getNumberOfValues("Connection") != 0U) {
+            if (msg->getHeaders().rawGet("Connection") == "close") {
+                LOG_DBG(4) << "Received 'Connection: close'";
+                m_session->closedByRemote = true;
+            }
         }
-    }
-    if (msg->getHeaders().getNumberOfValues("Location") != 0u) {
-        LOG_DBG(2) << "Received 302 redirect response to: "
-                   << msg->getHeaders().rawGet("Location");
-        m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
-    }
-    m_resultCode = msg->getStatusCode();
+        if (msg->getHeaders().getNumberOfValues("Location") != 0U) {
+            LOG_DBG(2) << "Received 302 redirect response to: "
+                       << msg->getHeaders().rawGet("Location");
+            m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
+        }
+        m_resultCode = msg->getStatusCode();
 
-    processHeaders(msg);
+        processHeaders(msg);
+    }
+    catch (...) {
+    }
 }
 
 void HTTPRequest::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept { }
@@ -953,33 +958,41 @@ void HTTPGET::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
 void HTTPGET::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 void HTTPGET::onEOM() noexcept
 {
-    if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
-        return;
-    }
+    try {
+        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                HTTPFoundException{m_redirectURL.toString()});
+            return;
+        }
 
-    auto result = httpStatusToPosixError(m_resultCode);
-    if (result == 0) {
-        if (!m_firstByteRequest) {
-            m_resultPromise.setValue(std::move(*m_resultBody));
+        auto result = httpStatusToPosixError(m_resultCode);
+        if (result == 0) {
+            if (!m_firstByteRequest) {
+                m_resultPromise.setValue(std::move(*m_resultBody));
+            }
+            else {
+                auto str = m_resultBody->pop_front()->moveToFbString();
+                auto iobufq =
+                    folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
+                iobufq.append(str.c_str(), 1);
+                m_resultPromise.setValue(std::move(iobufq));
+            }
         }
         else {
-            auto str = m_resultBody->pop_front()->moveToFbString();
-            auto iobufq =
-                folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
-            iobufq.append(str.c_str(), 1);
-            m_resultPromise.setValue(std::move(iobufq));
+            m_resultPromise.setException(makePosixException(result));
         }
     }
-    else {
-        m_resultPromise.setException(makePosixException(result));
+    catch (...) {
     }
 }
 
@@ -1009,42 +1022,46 @@ void HTTPHEAD::processHeaders(
 {
     std::map<folly::fbstring, folly::fbstring> res{};
 
-    if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
-        // The request is being redirected to another URL
-        m_resultPromise.setException(
-            HTTPFoundException{m_redirectURL.toString()});
-        return;
-    }
-
-    auto result = httpStatusToPosixError(m_resultCode);
-
-    if (result != 0) {
-        m_resultPromise.setException(makePosixException(result));
-    }
-    else {
-        // Ensure that the server allows reading byte ranges from resources
-        if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0u ||
-            msg->getHeaders().rawGet("accept-ranges") != "bytes") {
-            LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
-                       << msg->getPath();
-            m_resultPromise.setException(makePosixException(ENOTSUP));
+    try {
+        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                HTTPFoundException{m_redirectURL.toString()});
             return;
         }
 
-        if (msg->getHeaders().getNumberOfValues("content-type") != 0u) {
-            res.emplace(
-                "content-type", msg->getHeaders().rawGet("content-type"));
-        }
-        if (msg->getHeaders().getNumberOfValues("last-modified") != 0u) {
-            res.emplace(
-                "last-modified", msg->getHeaders().rawGet("last-modified"));
-        }
-        if (msg->getHeaders().getNumberOfValues("content-length") != 0u) {
-            res.emplace(
-                "content-length", msg->getHeaders().rawGet("content-length"));
-        }
+        auto result = httpStatusToPosixError(m_resultCode);
 
-        m_resultPromise.setValue(std::move(res));
+        if (result != 0) {
+            m_resultPromise.setException(makePosixException(result));
+        }
+        else {
+            // Ensure that the server allows reading byte ranges from resources
+            if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0U ||
+                msg->getHeaders().rawGet("accept-ranges") != "bytes") {
+                LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
+                           << msg->getPath();
+                m_resultPromise.setException(makePosixException(ENOTSUP));
+                return;
+            }
+
+            if (msg->getHeaders().getNumberOfValues("content-type") != 0U) {
+                res.emplace(
+                    "content-type", msg->getHeaders().rawGet("content-type"));
+            }
+            if (msg->getHeaders().getNumberOfValues("last-modified") != 0U) {
+                res.emplace(
+                    "last-modified", msg->getHeaders().rawGet("last-modified"));
+            }
+            if (msg->getHeaders().getNumberOfValues("content-length") != 0U) {
+                res.emplace("content-length",
+                    msg->getHeaders().rawGet("content-length"));
+            }
+
+            m_resultPromise.setValue(std::move(res));
+        }
+    }
+    catch (...) {
     }
 }
 
@@ -1052,7 +1069,11 @@ void HTTPHEAD::onEOM() noexcept { }
 
 void HTTPHEAD::onError(const proxygen::HTTPException &error) noexcept
 {
-    m_resultPromise.setException(error);
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
 }
 
 } // namespace helpers

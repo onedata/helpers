@@ -60,7 +60,7 @@ public:
         const auto storagePathType =
             getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
             getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
 
@@ -89,7 +89,8 @@ public:
      */
     SwiftHelper(folly::fbstring containerName, const folly::fbstring &authUrl,
         const folly::fbstring &tenantName, const folly::fbstring &userName,
-        const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT,
+        const folly::fbstring &password,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };

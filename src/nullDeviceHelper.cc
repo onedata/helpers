@@ -37,21 +37,20 @@ boost::once_flag NullDeviceFileHandle::m_nullReadBufferInitialized =
     BOOST_ONCE_INIT;
 boost::once_flag NullDeviceHelper::m_nullMountTimeOnceFlag = BOOST_ONCE_INIT;
 std::vector<uint8_t> NullDeviceFileHandle::m_nullReadBuffer = {};
-// NOLINTNEXTLINE
 std::chrono::time_point<std::chrono::system_clock>
-    NullDeviceHelper::m_mountTime = {};
+    NullDeviceHelper::m_mountTime = {}; // NOLINT(cert-err58-cpp)
 
 std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
-    folly::fbstring fileId, std::shared_ptr<NullDeviceHelper> helper,
+    const folly::fbstring &fileId, std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
     auto ptr = std::shared_ptr<NullDeviceFileHandle>(new NullDeviceFileHandle(
-        std::move(fileId), std::move(helper), std::move(executor), timeout));
+        fileId, std::move(helper), std::move(executor), timeout));
     ptr->initOpScheduler();
     return ptr;
 }
 
-NullDeviceFileHandle::NullDeviceFileHandle(folly::fbstring fileId,
+NullDeviceFileHandle::NullDeviceFileHandle(const folly::fbstring &fileId,
     std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : FileHandle{fileId, std::move(helper)}
@@ -89,7 +88,7 @@ NullDeviceFileHandle::OpExec::OpExec(
 {
 }
 
-std::unique_ptr<folly::Unit> NullDeviceFileHandle::OpExec::startDrain()
+std::unique_ptr<folly::Unit> NullDeviceFileHandle::OpExec::startDrain() const
 {
     if (auto handle = m_handle.lock()) {
         return std::make_unique<folly::Unit>();
@@ -130,7 +129,7 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
 
     const auto &size = op.size;
     const auto &offset = op.offset;
-    const auto &fileId = handle->m_fileId;
+    const auto &fileId = handle->fileId();
     auto &timer = op.timer;
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
@@ -187,7 +186,7 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
     }
 
     auto &buf = op.buf;
-    const auto &fileId = handle->m_fileId;
+    const auto &fileId = handle->fileId();
     auto &timer = op.timer;
 
     std::size_t size = buf.chainLength();
@@ -209,11 +208,9 @@ void NullDeviceFileHandle::OpExec::operator()(ReleaseOp &op) const
         return;
     }
 
-    auto &fileId = handle->m_fileId;
-
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.release");
 
-    LOG_DBG(2) << "Closing file " << fileId;
+    LOG_DBG(2) << "Closing file " << handle->fileId();
 
     op.promise.setValue();
 }
@@ -235,9 +232,7 @@ void NullDeviceFileHandle::OpExec::operator()(FlushOp &op) const
         return;
     }
 
-    auto &fileId = handle->m_fileId;
-
-    LOG_DBG(2) << "Flushing file " << fileId;
+    LOG_DBG(2) << "Flushing file " << handle->fileId();
 
     op.promise.setValue();
 }
@@ -259,11 +254,9 @@ void NullDeviceFileHandle::OpExec::operator()(FsyncOp &op) const
         return;
     }
 
-    auto &fileId = handle->m_fileId;
-
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.nulldevice.fsync");
 
-    LOG_DBG(2) << "Syncing file " << fileId;
+    LOG_DBG(2) << "Syncing file " << handle->fileId();
 
     op.promise.setValue();
 }
@@ -335,7 +328,7 @@ bool NullDeviceHelper::storageIssuesEnabled() const noexcept
 
 template <typename T, typename F>
 folly::Future<T> NullDeviceHelper::simulateStorageIssues(
-    folly::fbstring operationName, F &&func)
+    const folly::fbstring &operationName, F &&func)
 {
     if (storageIssuesEnabled())
         return folly::makeFuture()

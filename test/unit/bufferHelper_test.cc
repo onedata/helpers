@@ -58,7 +58,7 @@ public:
 
     const one::helpers::Timeout &timeout() override
     {
-        return one::helpers::ASYNC_OPS_TIMEOUT;
+        return one::helpers::constants::ASYNC_OPS_TIMEOUT;
     }
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; }
@@ -81,7 +81,7 @@ protected:
             one::helpers::buffering::BufferAgentsMemoryLimitGuard>(limits);
     }
 
-    one::helpers::buffering::BufferLimits limits = {};
+    one::helpers::buffering::BufferLimits limits{};
     std::shared_ptr<one::helpers::buffering::BufferAgentsMemoryLimitGuard>
         limitGuard;
 };
@@ -120,7 +120,7 @@ folly::Future<std::size_t> FileHandle::write(const off_t offset,
 
 const one::helpers::Timeout &FileHandle::timeout()
 {
-    return one::helpers::ASYNC_OPS_TIMEOUT;
+    return one::helpers::constants::ASYNC_OPS_TIMEOUT;
 }
 
 // FileHandle implementation

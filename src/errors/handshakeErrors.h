@@ -38,8 +38,8 @@ enum class ErrorCode {
  */
 class HandshakeErrorCategory : public std::error_category {
 public:
-    virtual const char *name() const noexcept override;
-    virtual std::string message(int ev) const override;
+    const char *name() const noexcept override;
+    std::string message(int ev) const override;
 };
 
 /**

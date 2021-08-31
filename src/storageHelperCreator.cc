@@ -177,7 +177,6 @@ StorageHelperCreator::StorageHelperCreator(
 }
 #endif
 
-StorageHelperCreator::~StorageHelperCreator() = default;
 std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     const folly::fbstring &name,
     const std::unordered_map<folly::fbstring, folly::fbstring> &args,

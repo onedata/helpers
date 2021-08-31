@@ -32,39 +32,49 @@
 
 namespace {
 
-std::map<Aws::S3::S3Errors, std::errc> g_errors = {
-    {Aws::S3::S3Errors::INVALID_PARAMETER_VALUE, std::errc::invalid_argument},
-    {Aws::S3::S3Errors::MISSING_ACTION, std::errc::not_supported},
-    {Aws::S3::S3Errors::SERVICE_UNAVAILABLE, std::errc::host_unreachable},
-    {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
-    {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
-    {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-    {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
-    {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::no_such_file_or_directory},
-    {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
-    {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
-        std::errc::no_such_file_or_directory}};
+const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
+{
+    const static std::map<Aws::S3::S3Errors, std::errc> g_errors = {
+        {Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
+            std::errc::invalid_argument},
+        {Aws::S3::S3Errors::MISSING_ACTION, std::errc::not_supported},
+        {Aws::S3::S3Errors::SERVICE_UNAVAILABLE, std::errc::host_unreachable},
+        {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
+        {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
+        {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
+        {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::NO_SUCH_BUCKET,
+            std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
+            std::errc::no_such_file_or_directory}};
+    return g_errors;
+}
 
 // Retry only in case one of these errors occured
-const std::set<Aws::S3::S3Errors> S3_RETRY_ERRORS = {
-    Aws::S3::S3Errors::INTERNAL_FAILURE,
-    Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
-    Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
-    Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
-    Aws::S3::S3Errors::REQUEST_EXPIRED, Aws::S3::S3Errors::SERVICE_UNAVAILABLE,
-    Aws::S3::S3Errors::SLOW_DOWN, Aws::S3::S3Errors::THROTTLING,
-    Aws::S3::S3Errors::NETWORK_CONNECTION};
+const std::set<Aws::S3::S3Errors> &S3RetryErrors()
+{
+    static const std::set<Aws::S3::S3Errors> S3_RETRY_ERRORS = {
+        Aws::S3::S3Errors::INTERNAL_FAILURE,
+        Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
+        Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
+        Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
+        Aws::S3::S3Errors::REQUEST_EXPIRED,
+        Aws::S3::S3Errors::SERVICE_UNAVAILABLE, Aws::S3::S3Errors::SLOW_DOWN,
+        Aws::S3::S3Errors::THROTTLING, Aws::S3::S3Errors::NETWORK_CONNECTION};
+    return S3_RETRY_ERRORS;
+}
 
 template <typename Outcome>
 std::error_code getReturnCode(const Outcome &outcome)
 {
     LOG_FCALL();
     if (outcome.IsSuccess())
-        return one::helpers::SUCCESS_CODE;
+        return one::helpers::constants::SUCCESS_CODE;
 
     auto error = std::errc::io_error;
-    auto search = g_errors.find(outcome.GetError().GetErrorType());
-    if (search != g_errors.end())
+    auto search = ErrorMappings().find(outcome.GetError().GetErrorType());
+    if (search != ErrorMappings().end())
         error = search->second;
 
     return {static_cast<int>(error), std::system_category()};
@@ -96,7 +106,7 @@ template <typename T>
 bool S3RetryCondition(const T &outcome, const std::string &operation)
 {
     auto result = outcome.IsSuccess() ||
-        !S3_RETRY_ERRORS.count(outcome.GetError().GetErrorType());
+        !S3RetryErrors().count(outcome.GetError().GetErrorType());
 
     if (!result) {
         LOG(WARNING) << "Retrying S3 helper operation '" << operation
@@ -113,8 +123,9 @@ bool S3RetryCondition(const T &outcome, const std::string &operation)
 namespace one {
 namespace helpers {
 
-S3Helper::S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-    folly::fbstring accessKey, folly::fbstring secretKey,
+S3Helper::S3Helper(const folly::fbstring &hostname,
+    const folly::fbstring &bucketName, const folly::fbstring &accessKey,
+    const folly::fbstring &secretKey,
     const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
     const mode_t dirMode, const bool useHttps, Timeout timeout,
     StoragePathType storagePathType)
@@ -239,7 +250,7 @@ folly::IOBufQueue S3Helper::getObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-    if (size == 0u)
+    if (size == 0U)
         return buf;
 
     auto effectiveKey = toEffectiveKey(key);
@@ -292,7 +303,7 @@ folly::IOBufQueue S3Helper::getObject(
 
     auto code = getReturnCode(outcome);
 
-    if (code != SUCCESS_CODE) {
+    if (code != constants::SUCCESS_CODE) {
         // In case the read is from outside of the valid range, return empty buf
         if (outcome.GetError().GetExceptionName() == "InvalidRange") {
             auto readBytes = outcome.GetResult().GetContentLength();
@@ -502,7 +513,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
-    for (auto offset = 0ul; offset < keys.size();
+    for (auto offset = 0UL; offset < keys.size();
          offset += MAX_DELETE_OBJECTS) {
         Vector<ObjectIdentifier> keyBatch;
         keyBatch.reserve(MAX_DELETE_OBJECTS);
@@ -510,7 +521,8 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         const std::size_t batchSize =
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
+        for (const auto &key :
+            folly::range(keys.begin(), keys.begin() + batchSize)) {
             const auto effectiveKey = toEffectiveKey(key).toStdString();
 
             ObjectIdentifier oi{};
@@ -740,7 +752,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 
     auto code = getReturnCode(outcome);
 
-    if (code != SUCCESS_CODE) {
+    if (code != constants::SUCCESS_CODE) {
         LOG_DBG(2) << "Getting object " << normalizedKey
                    << " info failed with error "
                    << outcome.GetError().GetMessage();
@@ -859,7 +871,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
 
     auto code = getReturnCode(outcome);
 
-    if (code != SUCCESS_CODE) {
+    if (code != constants::SUCCESS_CODE) {
         LOG_DBG(1) << "Listing objects from prefix " << normalizedPrefix
                    << " failed with error " << outcome.GetError().GetMessage();
         throwOnError("ListObject", outcome);
@@ -871,7 +883,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
                << " object keys";
 
     // Add regular objects as file entries
-    for (auto &object : outcome.GetResult().GetContents()) {
+    for (const auto &object : outcome.GetResult().GetContents()) {
         if (object.GetKey().empty() || object.GetKey() == "/")
             continue;
 

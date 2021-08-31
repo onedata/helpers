@@ -332,7 +332,7 @@ private:
             static_cast<off_t>(m_cache.front()->offset + m_cache.front()->size);
     }
 
-    std::pair<std::size_t, double> resetBlockSize()
+    static std::pair<std::size_t, double> resetBlockSize()
     {
         LOG_FCALL();
         return {0, 1.0};

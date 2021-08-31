@@ -24,20 +24,20 @@
 #include <string>
 #include <system_error>
 
-namespace {
+namespace one {
+namespace communication {
+namespace layers {
+
+constexpr auto kMagicCookie = 1234432178;
+
+namespace detail {
 inline std::uint64_t initializeMsgIdSeed()
 {
     auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch());
     return time.count();
 }
-}
-
-namespace one {
-namespace communication {
-namespace layers {
-
-constexpr auto kMagicCookie = 1234432178;
+} // namespace detail
 
 /**
  * @c Inbox is responsible for handling incoming messages. It stores a
@@ -54,12 +54,17 @@ public:
         std::function<void(const std::error_code &ec, ServerMessagePtr)>;
 
     using LowerLayer::LowerLayer;
-    virtual ~Inbox() = default;
+    virtual ~Inbox() = default; // NOLINT
+
+    Inbox(const Inbox &) = delete;
+    Inbox(Inbox &&) = delete;
+    Inbox &operator=(const Inbox &) = delete;
+    Inbox &operator=(Inbox &&) = delete;
 
     /**
      * A reference to @c *this typed as an @c Inbox.
      */
-    Inbox<LowerLayer> &inbox = *this;
+    Inbox<LowerLayer> &inbox = *this; // NOLINT
 
     /**
      * Sends a message to the server and sets up to receive a reply.
@@ -68,7 +73,7 @@ public:
      * @return A future which should be fulfiled with server's reply.
      */
     void communicate(ClientMessagePtr message, CommunicateCallback callback,
-        const int retries = DEFAULT_RETRY_NUMBER);
+        int retries = DEFAULT_RETRY_NUMBER);
 
     /**
      * Subscribes a given callback to messages received from the server.
@@ -107,7 +112,7 @@ private:
 
     tbb::concurrent_hash_map<std::string, CommunicateCallbackData> m_callbacks;
 
-    std::uint64_t m_seed = initializeMsgIdSeed();
+    std::uint64_t m_seed = detail::initializeMsgIdSeed();
     /// The counter will loop after sending ~65000 messages, providing us with
     /// a natural size bound for m_callbacks.
     std::atomic<std::uint16_t> m_nextMsgId{0};
@@ -155,9 +160,9 @@ void Inbox<LowerLayer>::communicate(
                 }
             }
             else if (message->GetDescriptor()->FindOneofByName(
-                         "message_body")) {
+                         "message_body") != nullptr) {
                 auto messageBodyCase = message->message_body_case();
-                if (messageBodyCase) {
+                if (messageBodyCase != 0U) {
                     messageName =
                         message->GetDescriptor()
                             ->FindOneofByName("message_body")
@@ -176,7 +181,7 @@ void Inbox<LowerLayer>::communicate(
             std::chrono::system_clock::now(), messageName};
     }
 
-    auto sendErrorCallback = [this, messageId = std::move(messageId)](
+    auto sendErrorCallback = [this, messageId = messageId](
                                  const std::error_code &ec) {
         if (ec) {
             typename decltype(m_callbacks)::accessor acc;
@@ -236,8 +241,8 @@ template <class LowerLayer> auto Inbox<LowerLayer>::connect()
         const bool handled = m_callbacks.find(acc, messageId);
 
         for (const auto &sub : m_subscriptions)
-            if (sub.predicate(*message, handled))
-                sub.callback(*message);
+            if (sub.predicate()(*message, handled))
+                sub.callback()(*message);
 
         if (handled) {
             auto callback = std::move(*(acc->second.callback));

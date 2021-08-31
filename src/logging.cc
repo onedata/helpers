@@ -21,5 +21,5 @@ constexpr const char read_write_perf::fmt[];    // NOLINT
 
 std::ostream &operator<<(std::ostream &os, const folly::fbstring &c)
 {
-    return os << c;
+    return os << c.toStdString();
 }

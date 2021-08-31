@@ -30,7 +30,13 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
     using LowerLayer::send;
-    virtual ~BinaryTranslator() = default;
+
+    virtual ~BinaryTranslator() = default; // NOLINT
+
+    BinaryTranslator(const BinaryTranslator &) = delete;
+    BinaryTranslator(BinaryTranslator &&) = delete;
+    BinaryTranslator &operator=(const BinaryTranslator &) = delete;
+    BinaryTranslator &operator=(BinaryTranslator &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c BinaryTranslator.
@@ -64,7 +70,7 @@ public:
      * @see ConnectionPool::send()
      */
     auto send(ClientMessagePtr message, Callback callback,
-        const int retries = DEFAULT_RETRY_NUMBER);
+        int retries = DEFAULT_RETRY_NUMBER);
 };
 
 template <class LowerLayer>
@@ -79,7 +85,7 @@ auto BinaryTranslator<LowerLayer>::setHandshake(
         },
 
         [onHandshakeResponse = std::move(onHandshakeResponse)](
-            std::string message) {
+            const std::string &message) {
             /// @todo A potential place for optimization [static serverMsg]
             auto serverMsg = std::make_unique<clproto::ServerMessage>();
 
@@ -102,7 +108,7 @@ auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
 {
     return LowerLayer::setOnMessageCallback([onMessageCallback = std::move(
                                                  onMessageCallback)](
-                                                std::string message) {
+                                                const std::string &message) {
         LOG_DBG(2) << "Received low level message of size: " << message.size();
         auto serverMsg = std::make_unique<clproto::ServerMessage>();
         if (serverMsg->ParseFromString(message)) {

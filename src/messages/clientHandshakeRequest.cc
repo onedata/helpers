@@ -71,11 +71,11 @@ std::unique_ptr<ProtocolClientMessage>
 ClientHandshakeRequest::serializeAndDestroy()
 {
     auto clientMsg = std::make_unique<ProtocolClientMessage>();
-    auto handshakeRequestMsg = clientMsg->mutable_client_handshake_request();
+    auto *handshakeRequestMsg = clientMsg->mutable_client_handshake_request();
     handshakeRequestMsg->set_session_id(m_sessionId);
 
     if (m_macaroon) {
-        auto macaroonMsg = handshakeRequestMsg->mutable_macaroon();
+        auto *macaroonMsg = handshakeRequestMsg->mutable_macaroon();
         macaroonMsg->set_macaroon(m_macaroon.get());
     }
 

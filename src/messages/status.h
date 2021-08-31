@@ -25,7 +25,7 @@ namespace one {
 
 namespace clproto {
 class Status;
-}
+} // namespace clproto
 
 namespace messages {
 
@@ -39,7 +39,7 @@ public:
      * Constructor.
      * @param code Status code.
      */
-    Status(std::error_code ec);
+    explicit Status(std::error_code ec);
 
     /**
      * Constructor.
@@ -53,13 +53,13 @@ public:
      * @param serverMessage Protocol Buffers message representing @c
      * Status counterpart.
      */
-    Status(std::unique_ptr<ProtocolServerMessage> serverMessage);
+    explicit Status(std::unique_ptr<ProtocolServerMessage> serverMessage);
 
     /**
      * Constructor.
      * @param status Protocol Buffers message representing the status.
      */
-    Status(clproto::Status &status);
+    explicit Status(clproto::Status &status);
 
     /**
      * @return Status code.

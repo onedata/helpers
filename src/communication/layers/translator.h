@@ -45,7 +45,12 @@ public:
     using CommunicateCallback =
         std::function<void(const std::error_code &ec, std::unique_ptr<SrvMsg>)>;
 
-    virtual ~Translator() = default;
+    virtual ~Translator() = default; // NOLINT
+
+    Translator(const Translator &) = delete;
+    Translator(Translator &&) = delete;
+    Translator &operator=(const Translator &) = delete;
+    Translator &operator=(Translator &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Translator.
@@ -59,8 +64,8 @@ public:
      * @param retires The retries argument to pass to the lower layer.
      * @see ConnectionPool::send()
      */
-    auto send(messages::ClientMessage &&msg,
-        const int retries = DEFAULT_RETRY_NUMBER);
+    auto send(
+        messages::ClientMessage &&msg, int retries = DEFAULT_RETRY_NUMBER);
 
     /**
      * Wraps lower layer's @c setHandshake.
@@ -176,8 +181,8 @@ public:
         };
 
         // NOLINTNEXTLINE
-        LowerLayer::communicate(
-            messages::serialize(std::move(msg)), std::move(callback), retries);
+        LowerLayer::communicate(messages::serialize(std::move(msg)),
+            std::move(callback), retries); // NOLINT
 
         return future;
     }

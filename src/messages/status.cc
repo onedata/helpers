@@ -25,11 +25,11 @@ namespace {
 using Translation = boost::bimap<one::clproto::Status::Code,
     boost::bimaps::multiset_of<std::errc>>;
 
-Translation createTranslation()
+const Translation &GetTranslation()
 {
     using namespace one::clproto; // NOLINT(google-build-using-namespace)
 
-    const std::vector<Translation::value_type> pairs{
+    std::vector<Translation::value_type> pairs{
         {Status_Code_ok, static_cast<std::errc>(0)},
         {Status_Code_eafnosupport, std::errc::address_family_not_supported},
         {Status_Code_eaddrinuse, std::errc::address_in_use},
@@ -110,10 +110,10 @@ Translation createTranslation()
         {Status_Code_eoverflow, std::errc::value_too_large},
         {Status_Code_eprototype, std::errc::wrong_protocol_type}};
 
-    return {pairs.begin(), pairs.end()};
-}
+    static const Translation translation{pairs.begin(), pairs.end()};
 
-const Translation translation = createTranslation();
+    return translation;
+}
 } // namespace
 
 namespace one {
@@ -137,9 +137,9 @@ Status::Status(std::unique_ptr<ProtocolServerMessage> serverMessage)
 
 Status::Status(clproto::Status &status)
 {
-    auto searchResult = translation.left.find(status.code());
+    auto searchResult = GetTranslation().left.find(status.code());
     std::errc errc = std::errc::protocol_error;
-    if (searchResult == translation.left.end()) {
+    if (searchResult == GetTranslation().left.end()) {
         LOG(ERROR) << "Unknown error code received: " << status.code();
     }
     else {
@@ -184,12 +184,12 @@ std::string Status::toString() const
 std::unique_ptr<ProtocolClientMessage> Status::serializeAndDestroy()
 {
     auto clientMsg = std::make_unique<ProtocolClientMessage>();
-    auto statusMsg = clientMsg->mutable_status();
+    auto *statusMsg = clientMsg->mutable_status();
 
     auto searchResult =
-        translation.right.find(static_cast<std::errc>(m_code.value()));
+        GetTranslation().right.find(static_cast<std::errc>(m_code.value()));
 
-    assert(searchResult != translation.right.end()); // NOLINT
+    assert(searchResult != GetTranslation().right.end()); // NOLINT
 
     statusMsg->set_code(searchResult->second);
 

@@ -15,26 +15,28 @@
 #include <XrdCl/XrdClFileSystemOperations.hh>
 
 #include <set>
+#include <utility>
 
 namespace one {
 namespace helpers {
 
 namespace {
 
-const std::set<int> XROOTD_RETRY_ERRORS = {
-    kXR_Cancelled, kXR_inProgress, kXR_Overloaded, kXR_FileLocked};
-
 inline bool shouldRetryError(const XrdCl::PipelineException &ex)
 {
+    static const std::set<int> XROOTD_RETRY_ERRORS = {
+        kXR_Cancelled, kXR_inProgress, kXR_Overloaded, kXR_FileLocked};
+
     auto ec = ex.GetError().errNo;
+
     return XROOTD_RETRY_ERRORS.find(ec) != XROOTD_RETRY_ERRORS.cend();
 }
 
-const auto kXRootDRetryMinimumDelay = std::chrono::milliseconds{5};
-
 inline auto retryDelay(int retriesLeft)
 {
+    const auto kXRootDRetryMinimumDelay = std::chrono::milliseconds{5};
     const unsigned int kXRootDRetryBaseDelay_ms = 100;
+
     return kXRootDRetryMinimumDelay +
         std::chrono::milliseconds{kXRootDRetryBaseDelay_ms *
             (kXRootDRetryCount - retriesLeft) *
@@ -90,25 +92,25 @@ inline auto modeToAccess(const mode_t mode)
 
     Access::Mode access{Access::None};
 
-    if ((mode & S_IRUSR) != 0u)
+    if ((mode & S_IRUSR) != 0U)
         access |= Access::UR;
-    if ((mode & S_IWUSR) != 0u)
+    if ((mode & S_IWUSR) != 0U)
         access |= Access::UW;
-    if ((mode & S_IXUSR) != 0u)
+    if ((mode & S_IXUSR) != 0U)
         access |= Access::UX;
 
-    if ((mode & S_IRGRP) != 0u)
+    if ((mode & S_IRGRP) != 0U)
         access |= Access::GR;
-    if ((mode & S_IWGRP) != 0u)
+    if ((mode & S_IWGRP) != 0U)
         access |= Access::GW;
-    if ((mode & S_IXGRP) != 0u)
+    if ((mode & S_IXGRP) != 0U)
         access |= Access::GX;
 
-    if ((mode & S_IROTH) != 0u)
+    if ((mode & S_IROTH) != 0U)
         access |= Access::OR;
-    if ((mode & S_IWOTH) != 0u)
+    if ((mode & S_IWOTH) != 0U)
         access |= Access::OW;
-    if ((mode & S_IXOTH) != 0u)
+    if ((mode & S_IXOTH) != 0U)
         access |= Access::OX;
 
     return access;
@@ -154,7 +156,7 @@ int xrootdStatusToPosixError(const XrdCl::XRootDStatus &xrootdStatus)
 
 XRootDFileHandle::XRootDFileHandle(folly::fbstring fileId,
     std::unique_ptr<XrdCl::File> &&file, std::shared_ptr<XRootDHelper> helper)
-    : FileHandle{fileId, std::move(helper)}
+    : FileHandle{std::move(fileId), std::move(helper)}
     , m_file{std::move(file)}
 {
 }
@@ -437,7 +439,7 @@ folly::Future<folly::Unit> XRootDFileHandle::fsync(
             });
 }
 
-const Timeout &XRootDFileHandle::timeout() { return m_helper->timeout(); }
+const Timeout &XRootDFileHandle::timeout() { return helper()->timeout(); }
 
 XRootDHelper::XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
     std::shared_ptr<folly::IOExecutor> executor,
@@ -613,7 +615,7 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
     auto f = p.getFuture();
 
     auto file = std::make_unique<XrdCl::File>(true);
-    auto filePtr = file.get();
+    auto *filePtr = file.get();
 
     std::packaged_task<void(XrdCl::XRootDStatus & st)> openTask{
         [this, p = std::move(p), fileId, file = std::move(file)](
@@ -847,7 +849,7 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     auto f = p.getFuture();
 
     auto file = std::make_unique<XrdCl::File>(true);
-    auto filePtr = file.get();
+    auto *filePtr = file.get();
 
     std::packaged_task<void(XrdCl::XRootDStatus & st)> &&openTask{
         [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {

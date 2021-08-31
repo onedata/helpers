@@ -85,13 +85,13 @@ constexpr auto HTTP_HELPER_NAME = "http";
 constexpr auto XROOTD_HELPER_NAME = "xrootd";
 #endif
 
-namespace {
+namespace constants {
 constexpr std::chrono::milliseconds ASYNC_OPS_TIMEOUT{120000};
 const std::error_code SUCCESS_CODE{};
 constexpr int IO_RETRY_COUNT{4};
 constexpr std::chrono::milliseconds IO_RETRY_INITIAL_DELAY{10};
 constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
-} // namespace
+} // namespace constants
 
 /**
  * Generic retry function wrapper.
@@ -105,9 +105,10 @@ constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
  */
 template <typename OpFunc, typename CondFunc>
 inline auto retry(OpFunc &&op, CondFunc &&condition,
-    int retryCount = IO_RETRY_COUNT,
-    std::chrono::milliseconds retryInitialDelay = IO_RETRY_INITIAL_DELAY,
-    float retryBackoff = IO_RETRY_DELAY_BACKOFF_FACTOR)
+    int retryCount = constants::IO_RETRY_COUNT,
+    std::chrono::milliseconds retryInitialDelay =
+        constants::IO_RETRY_INITIAL_DELAY,
+    float retryBackoff = constants::IO_RETRY_DELAY_BACKOFF_FACTOR)
 {
     auto ret = op();
     auto retryIt = 0;
@@ -232,7 +233,7 @@ public:
      * Constructor.
      * @param whatArg Name of the missing parameter.
      */
-    MissingParameterException(const folly::fbstring &whatArg)
+    explicit MissingParameterException(const folly::fbstring &whatArg)
         : std::out_of_range{
               "missing helper parameter: '" + whatArg.toStdString() + "'"}
     {
@@ -328,8 +329,8 @@ public:
      * @param parameters Parameters for helper creation.
      * @returns A new instance of @c StorageHelper .
      */
-    virtual StorageHelperPtr createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER) = 0;
+    virtual StorageHelperPtr createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) = 0;
 
     /**
      * Returns a list of helper specific parameters which can be overriden on
@@ -372,13 +373,13 @@ public:
     std::shared_ptr<StorageHelper> helper();
 
     virtual folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) = 0;
+        off_t offset, std::size_t size) = 0;
 
-    virtual folly::Future<folly::IOBufQueue> read(const off_t offset,
-        const std::size_t size, const std::size_t continuousBlock);
+    virtual folly::Future<folly::IOBufQueue> readContinuous(
+        off_t offset, std::size_t size, std::size_t continuousBlock);
 
     virtual folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
+        off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
 
     virtual folly::Future<std::size_t> multiwrite(
         folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
@@ -394,10 +395,9 @@ public:
 
     virtual bool needsDataConsistencyCheck();
 
-    virtual folly::fbstring fileId() const;
+    virtual const folly::fbstring &fileId() const;
 
-    virtual std::size_t wouldPrefetch(
-        const off_t offset, const std::size_t size);
+    virtual std::size_t wouldPrefetch(off_t offset, std::size_t size);
 
     virtual folly::Future<folly::Unit> flushUnderlying();
 
@@ -415,7 +415,11 @@ public:
     virtual folly::Future<folly::Unit> refreshHelperParams(
         std::shared_ptr<StorageHelperParams> params);
 
-protected:
+    const Params &openParams() const { return m_openParams; }
+
+    const Params &paramsOverride() const { return m_paramsOverride; }
+
+private:
     folly::fbstring m_fileId;
     Params m_openParams;
     std::shared_ptr<StorageHelper> m_helper;
@@ -432,7 +436,7 @@ public:
     virtual void initializeFromParams(const Params &parameters)
     {
         m_timeout = Timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         auto storagePathTypeString =
             getParam<std::string>(parameters, "storagePathType", "canonical");
@@ -465,7 +469,7 @@ public:
     using StorageHelperParamsPromise =
         folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
 
-    StorageHelper(
+    explicit StorageHelper(
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
         : m_params{std::make_shared<StorageHelperParamsPromise>()}
         , m_executionContext{executionContext}
@@ -479,23 +483,22 @@ public:
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
 
     virtual folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask);
+        const folly::fbstring &fileId, int mask);
 
     virtual folly::Future<folly::fbstring> readlink(
         const folly::fbstring &fileId);
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
-        const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count);
+        const folly::fbstring &fileId, off_t offset, std::size_t count);
 
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev);
+        mode_t mode, const FlagsSet &flags, dev_t rdev);
 
     virtual folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, mode_t mode);
 
     virtual folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize);
+        const folly::fbstring &fileId, size_t currentSize);
 
     virtual folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId);
 
@@ -509,13 +512,13 @@ public:
         const folly::fbstring &from, const folly::fbstring &to);
 
     virtual folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, mode_t mode);
 
     virtual folly::Future<folly::Unit> chown(
-        const folly::fbstring &fileId, const uid_t uid, const gid_t gid);
+        const folly::fbstring &fileId, uid_t uid, gid_t gid);
 
-    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize);
+    virtual folly::Future<folly::Unit> truncate(
+        const folly::fbstring &fileId, off_t size, size_t currentSize);
 
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const FlagsSet &flags, const Params &openParams);
@@ -524,20 +527,19 @@ public:
         const FlagsSet &flags, const Params &openParams,
         const Params &helperOverrideParams);
 
-    virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams) = 0;
+    virtual folly::Future<FileHandlePtr> open(
+        const folly::fbstring &fileId, int flags, const Params &openParams) = 0;
 
-    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams,
-        const Params &helperOverrideParams);
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId, int flags,
+        const Params &openParams, const Params &helperOverrideParams);
 
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
-        const off_t offset, const size_t count);
+        off_t offset, size_t count);
 
     virtual folly::Future<folly::Unit> multipartCopy(
         const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
-        const std::size_t blockSize, const std::size_t size);
+        std::size_t blockSize, std::size_t size);
 
     virtual folly::Future<folly::fbstring> getxattr(
         const folly::fbstring &uuid, const folly::fbstring &name);
@@ -553,10 +555,10 @@ public:
         const folly::fbstring &uuid);
 
     virtual folly::Future<folly::Unit> loadBuffer(
-        const folly::fbstring &fileId, const std::size_t size);
+        const folly::fbstring &fileId, std::size_t size);
 
     virtual folly::Future<folly::Unit> flushBuffer(
-        const folly::fbstring &fileId, const std::size_t size);
+        const folly::fbstring &fileId, std::size_t size);
 
     virtual folly::Future<std::size_t> blockSizeForPath(
         const folly::fbstring &fileId);
@@ -649,7 +651,7 @@ private:
     /**
      * Set CPU affinity for a given thread to all available CPU cores.
      */
-    void setCPUAffinity(std::thread &t)
+    static void setCPUAffinity(std::thread &t)
     {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);

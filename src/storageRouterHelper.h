@@ -36,70 +36,72 @@ public:
 
     virtual folly::fbstring name() const override;
 
-    virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
+    virtual folly::Future<struct stat> getattr(
+        const folly::fbstring &fileId) override;
 
     virtual folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask);
+        const folly::fbstring &fileId, const int mask) override;
 
     virtual folly::Future<folly::fbstring> readlink(
-        const folly::fbstring &fileId);
+        const folly::fbstring &fileId) override;
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
         const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count);
+        const std::size_t count) override;
 
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev);
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
 
     virtual folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, const mode_t mode) override;
 
     virtual folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize);
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
-    virtual folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId);
+    virtual folly::Future<folly::Unit> rmdir(
+        const folly::fbstring &fileId) override;
 
     virtual folly::Future<folly::Unit> symlink(
-        const folly::fbstring &from, const folly::fbstring &to);
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     virtual folly::Future<folly::Unit> rename(
-        const folly::fbstring &from, const folly::fbstring &to);
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     virtual folly::Future<folly::Unit> link(
-        const folly::fbstring &from, const folly::fbstring &to);
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     virtual folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode);
+        const folly::fbstring &fileId, const mode_t mode) override;
 
-    virtual folly::Future<folly::Unit> chown(
-        const folly::fbstring &fileId, const uid_t uid, const gid_t gid);
+    virtual folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
+        const uid_t uid, const gid_t gid) override;
 
     virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize);
+        const off_t size, const size_t currentSize) override;
 
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams);
+        const int flags, const Params &openParams) override;
 
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
-        const off_t offset, const size_t count);
+        const off_t offset, const size_t count) override;
 
     virtual folly::Future<folly::Unit> multipartCopy(
         const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
-        const std::size_t size);
+        const std::size_t blockSize, const std::size_t size) override;
 
     virtual folly::Future<folly::fbstring> getxattr(
-        const folly::fbstring &uuid, const folly::fbstring &name);
+        const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     virtual folly::Future<folly::Unit> setxattr(const folly::fbstring &uuid,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace);
+        bool replace) override;
 
     virtual folly::Future<folly::Unit> removexattr(
-        const folly::fbstring &uuid, const folly::fbstring &name);
+        const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &uuid);
+        const folly::fbstring &uuid) override;
 
     virtual folly::Future<folly::Unit> loadBuffer(
         const folly::fbstring &uuid, const std::size_t size) override;
@@ -117,7 +119,7 @@ public:
     virtual folly::fbstring routePath(const folly::fbstring &fileId);
 
 private:
-    folly::fbstring routeRelative(StorageHelperPtr helper,
+    static folly::fbstring routeRelative(const StorageHelperPtr &helper,
         const folly::fbstring &route, const folly::fbstring &fileId);
 
     std::map<folly::fbstring, StorageHelperPtr> m_routes;
@@ -149,7 +151,8 @@ public:
 
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params & /*parameters*/,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         std::map<folly::fbstring, StorageHelperPtr> routes;
         return std::make_shared<StorageRouterHelper>(

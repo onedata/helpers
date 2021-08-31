@@ -61,8 +61,8 @@ public:
      * @param streamId ID number of this stream.
      */
     TypedStream(
-        std::shared_ptr<Communicator> communicator,
-        const std::uint64_t streamId, std::function<void()> unregister = [] {});
+        std::shared_ptr<Communicator> communicator, std::uint64_t streamId,
+        std::function<void()> unregister = [] {});
 
     /**
      * Destructor.
@@ -154,7 +154,7 @@ void TypedStream<Communicator>::send(ClientMessagePtr msg)
 {
     LOG_FCALL();
 
-    auto msgStream = msg->mutable_message_stream();
+    auto *msgStream = msg->mutable_message_stream();
     msgStream->set_stream_id(m_streamId);
     msgStream->set_sequence_number(m_sequenceId++);
     saveAndPass(std::move(msg));
@@ -202,7 +202,7 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
     }
 
     m_communicator->send(
-        std::move(msg), [](auto) {}, 0);
+        std::move(msg), [](auto /*unused*/) {}, 0);
 }
 
 template <class Communicator>

@@ -20,8 +20,8 @@
 namespace one {
 namespace helpers {
 
-ProxyFileHandle::ProxyFileHandle(folly::fbstring fileId,
-    folly::fbstring storageId, Params openParams,
+ProxyFileHandle::ProxyFileHandle(const folly::fbstring &fileId,
+    folly::fbstring storageId, const Params &openParams,
     communication::Communicator &communicator,
     std::shared_ptr<ProxyHelper> helper, Timeout timeout)
     : FileHandle{fileId, openParams, std::move(helper)}
@@ -39,12 +39,12 @@ folly::Future<folly::IOBufQueue> ProxyFileHandle::read(
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
     messages::proxyio::RemoteRead msg{
-        m_openParams, m_storageId, m_fileId, offset, size};
+        openParams(), m_storageId, fileId(), offset, size};
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.proxy.read");
 
     LOG_DBG(2) << "Attempting to read " << size << " bytes from file "
-               << m_fileId;
+               << fileId();
 
     return m_communicator
         .communicate<messages::proxyio::RemoteData>(std::move(msg))
@@ -66,7 +66,7 @@ folly::Future<std::size_t> ProxyFileHandle::write(
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
 
     LOG_DBG(2) << "Attempting to write " << buf.chainLength()
-               << " bytes to file " << m_fileId;
+               << " bytes to file " << fileId();
 
     folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>> buffs;
     buffs.emplace_back(
@@ -81,7 +81,7 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.proxy.write");
 
-    LOG_DBG(2) << "Attempting multiwrite to file " << m_fileId << " from "
+    LOG_DBG(2) << "Attempting multiwrite to file " << fileId() << " from "
                << buffs.size() << " buffers";
 
     folly::fbvector<std::pair<WriteCallback, std::size_t>> postCallbacks;
@@ -97,7 +97,7 @@ folly::Future<std::size_t> ProxyFileHandle::multiwrite(
     }
 
     messages::proxyio::RemoteWrite msg{
-        m_openParams, m_storageId, m_fileId, std::move(stringBuffs)};
+        openParams(), m_storageId, fileId(), std::move(stringBuffs)};
 
     return m_communicator
         .communicate<messages::proxyio::RemoteWriteResult>(std::move(msg))

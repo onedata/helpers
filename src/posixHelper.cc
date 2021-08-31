@@ -73,21 +73,47 @@ static inline int setfsgid(gid_t gid)
 namespace {
 
 // Retry only in case one of these errors occured
-const std::set<int> POSIX_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES, EBUSY,
-    EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE, EDEADLK, EWOULDBLOCK, ENOLINK,
-    EADDRINUSE, EADDRNOTAVAIL, ENETDOWN, ENETUNREACH, ECONNABORTED, ECONNRESET,
-    ENOTCONN, EHOSTUNREACH, ECANCELED, ESTALE
+const std::set<int> &POSIXRetryErrors()
+{
+    static const std::set<int> POSIX_RETRY_ERRORS = {
+        EINTR,
+        EIO,
+        EAGAIN,
+        EACCES,
+        EBUSY,
+        EMFILE,
+        ETXTBSY,
+        ESPIPE,
+        EMLINK,
+        EPIPE,
+        EDEADLK,
+        EWOULDBLOCK,
+        ENOLINK,
+        EADDRINUSE,
+        EADDRNOTAVAIL,
+        ENETDOWN,
+        ENETUNREACH,
+        ECONNABORTED,
+        ECONNRESET,
+        ENOTCONN,
+        EHOSTUNREACH,
+        ECANCELED,
+        ESTALE
 #if !defined(__APPLE__)
-    ,
-    ENONET, EHOSTDOWN, EREMOTEIO, ENOMEDIUM
+        ,
+        ENONET,
+        EHOSTDOWN,
+        EREMOTEIO,
+        ENOMEDIUM
 #endif
-
-};
+    };
+    return POSIX_RETRY_ERRORS;
+}
 
 inline bool POSIXRetryCondition(int result, const std::string &operation)
 {
     auto ret = (result >= 0 ||
-        POSIX_RETRY_ERRORS.find(errno) == POSIX_RETRY_ERRORS.end());
+        POSIXRetryErrors().find(errno) == POSIXRetryErrors().end());
 
     if (!ret) {
         LOG(WARNING) << "Retrying POSIX helper operation '" << operation
@@ -160,19 +186,18 @@ UserCtxSetter::~UserCtxSetter() { }
 bool UserCtxSetter::valid() const { return true; }
 #endif
 
-std::shared_ptr<PosixFileHandle> PosixFileHandle::create(folly::fbstring fileId,
-    const uid_t uid, const gid_t gid, const int fileHandle,
-    std::shared_ptr<PosixHelper> helper,
+std::shared_ptr<PosixFileHandle> PosixFileHandle::create(
+    const folly::fbstring &fileId, const uid_t uid, const gid_t gid,
+    const int fileHandle, std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
 {
-    auto ptr = std::shared_ptr<PosixFileHandle>(
-        new PosixFileHandle(std::move(fileId), uid, gid, fileHandle,
-            std::move(helper), std::move(executor), timeout));
+    auto ptr = std::shared_ptr<PosixFileHandle>(new PosixFileHandle(fileId, uid,
+        gid, fileHandle, std::move(helper), std::move(executor), timeout));
     ptr->initOpScheduler(ptr);
     return ptr;
 }
 
-PosixFileHandle::PosixFileHandle(folly::fbstring fileId, const uid_t uid,
+PosixFileHandle::PosixFileHandle(const folly::fbstring &fileId, const uid_t uid,
     const gid_t gid, const int fileHandle, std::shared_ptr<PosixHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : FileHandle{fileId, std::move(helper)}
@@ -256,14 +281,14 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
     void *data = buf.preallocate(op.size, op.size).first;
 
     LOG_DBG(2) << "Attempting to read " << op.size << " bytes at offset "
-               << op.offset << " from file " << handle->m_fileId;
+               << op.offset << " from file " << handle->fileId();
 
     auto res =
         retry([&]() { return ::pread(handle->m_fh, data, op.size, op.offset); },
             std::bind(POSIXRetryCondition, std::placeholders::_1, "pread"));
 
     if (res == -1) {
-        LOG_DBG(1) << "Reading from file " << handle->m_fileId
+        LOG_DBG(1) << "Reading from file " << handle->fileId()
                    << " failed with error " << errno;
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.read");
         op.promise.setException(makePosixException(errno));
@@ -272,10 +297,10 @@ void PosixFileHandle::OpExec::operator()(ReadOp &op) const
 
     buf.postallocate(res);
 
-    log<read_write_perf>(handle->m_fileId, "PosixHelper", "read", op.offset,
+    log<read_write_perf>(handle->fileId(), "PosixHelper", "read", op.offset,
         op.size, logTimer.stop());
 
-    LOG_DBG(2) << "Read " << res << " bytes from file " << handle->m_fileId;
+    LOG_DBG(2) << "Read " << res << " bytes from file " << handle->fileId();
 
     ONE_METRIC_TIMERCTX_STOP(op.timer, res);
 
@@ -326,18 +351,19 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
 
     LOG_DBG(2) << "Attempting to write " << iobuf->length()
                << " bytes at offset " << op.offset << " to file "
-               << handle->m_fileId;
+               << handle->fileId();
 
     for (std::size_t iov_off = 0; iov_off < iov_size; iov_off += IOV_MAX) {
         res = retry(
             [&]() {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 return ::writev(handle->m_fh, iov.data() + iov_off,
                     std::min<std::size_t>(IOV_MAX, iov_size - iov_off));
             },
             [](int result) { return result != -1; });
 
         if (res == -1) {
-            LOG(ERROR) << "Writing to file " << handle->m_fileId
+            LOG(ERROR) << "Writing to file " << handle->fileId()
                        << " failed with error " << errno;
             ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.errors.write");
             op.promise.setException(makePosixException(errno));
@@ -346,10 +372,10 @@ void PosixFileHandle::OpExec::operator()(WriteOp &op) const
         size += res;
     }
 
-    log<read_write_perf>(handle->m_fileId, "PosixHelper", "write", op.offset,
+    log<read_write_perf>(handle->fileId(), "PosixHelper", "write", op.offset,
         size, logTimer.stop());
 
-    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->m_fileId
+    LOG_DBG(2) << "Written " << size << " bytes to file " << handle->fileId()
                << " at offset " << op.offset;
 
     ONE_METRIC_TIMERCTX_STOP(op.timer, size);
@@ -371,7 +397,7 @@ void PosixFileHandle::OpExec::operator()(ReleaseOp &op) const
     }
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.release");
-    LOG_DBG(2) << "Closing file " << handle->m_fileId;
+    LOG_DBG(2) << "Closing file " << handle->fileId();
     setResult(op.promise, "close", close, handle->m_fh);
 }
 
@@ -389,7 +415,7 @@ void PosixFileHandle::OpExec::operator()(FsyncOp &op) const
     }
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.fsync");
-    LOG_DBG(2) << "Syncing file " << handle->m_fileId;
+    LOG_DBG(2) << "Syncing file " << handle->fileId();
     setResult(op.promise, "fsync", ::fsync, handle->m_fh);
 }
 
@@ -407,7 +433,7 @@ void PosixFileHandle::OpExec::operator()(FlushOp &op) const
     }
 
     ONE_METRIC_COUNTER_INC("comp.helpers.mod.posix.flush");
-    LOG_DBG(2) << "Flushing file " << handle->m_fileId;
+    LOG_DBG(2) << "Flushing file " << handle->fileId();
     op.promise.setValue();
 }
 
@@ -538,8 +564,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
             dir = retry([&]() { return opendir(filePath.c_str()); },
                 [](DIR *d) {
                     return d != nullptr ||
-                        POSIX_RETRY_ERRORS.find(errno) ==
-                        POSIX_RETRY_ERRORS.end();
+                        POSIXRetryErrors().find(errno) ==
+                        POSIXRetryErrors().end();
                 });
 
             if (dir == nullptr) {
@@ -554,8 +580,8 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::readdir(
             while ((dp = retry([&]() { return ::readdir(dir); },
                         [](struct dirent *de) {
                             return de != nullptr ||
-                                POSIX_RETRY_ERRORS.find(errno) ==
-                                POSIX_RETRY_ERRORS.end();
+                                POSIXRetryErrors().find(errno) ==
+                                POSIXRetryErrors().end();
                         })) != nullptr &&
                 count_ > 0) {
                 if (strcmp(static_cast<char *>(dp->d_name), ".") != 0 &&
@@ -645,7 +671,7 @@ folly::Future<folly::Unit> PosixHelper::mknod(const folly::fbstring &fileId,
             if (S_ISREG(mode)) {
                 res = retry(
                     [&]() {
-                        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+                        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
                         return ::open(filePath.c_str(),
                             O_CREAT | O_EXCL | O_WRONLY, mode);
                     },
@@ -846,7 +872,7 @@ folly::Future<FileHandlePtr> PosixHelper::open(const folly::fbstring &fileId,
 
             int res = retry(
                 [&]() {
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
                     return ::open(filePath.c_str(), flags);
                 },
                 std::bind(POSIXRetryCondition, std::placeholders::_1, "open"));
@@ -1029,6 +1055,7 @@ folly::Future<folly::fbvector<folly::fbstring>> PosixHelper::listxattr(
             char *xattrNamePtr = buf.get();
             while (xattrNamePtr < buf.get() + buflen) {
                 ret.emplace_back(xattrNamePtr);
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 xattrNamePtr +=
                     strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) +
                     1;

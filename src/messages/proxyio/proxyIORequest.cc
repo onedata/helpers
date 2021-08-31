@@ -26,10 +26,10 @@ ProxyIORequest::ProxyIORequest(
 std::unique_ptr<ProtocolClientMessage> ProxyIORequest::serializeAndDestroy()
 {
     auto msg = std::make_unique<ProtocolClientMessage>();
-    auto proxyio = msg->mutable_proxyio_request();
+    auto *proxyio = msg->mutable_proxyio_request();
 
     for (auto &parameter : m_parameters) {
-        auto parameterMsg = proxyio->add_parameters();
+        auto *parameterMsg = proxyio->add_parameters();
         parameterMsg->set_key(parameter.first.toStdString());
         parameterMsg->set_value(parameter.second.toStdString());
     }

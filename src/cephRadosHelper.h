@@ -60,7 +60,7 @@ public:
         const auto storagePathType =
             getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
             getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
 
@@ -97,7 +97,7 @@ public:
      */
     CephRadosHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };

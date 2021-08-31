@@ -31,28 +31,42 @@ namespace buffering {
 
 class BufferAgentsMemoryLimitGuard;
 
+namespace constants {
+constexpr std::size_t kMB = 1024 * 1024;
+constexpr std::size_t kReadBufferMinSize = 5 * kMB;
+constexpr std::size_t kReadBufferMaxSize = 10 * kMB;
+constexpr std::size_t kWriteBufferMinSize = 20 * kMB;
+constexpr std::size_t kWriteBufferMaxSize = 50 * kMB;
+constexpr int kWriteBufferFlushDelaySeconds = 5;
+constexpr int kTargetLatencyNanoSeconds = 1000;
+constexpr double kPrefetchPowerBase = 1.3;
+} // namespace constants
+
 struct BufferLimits {
-    BufferLimits(std::size_t readBufferMinSize_ = 5 * 1024 * 1024,
-        std::size_t readBufferMaxSize_ = 10 * 1024 * 1024,
+    explicit BufferLimits(
+        std::size_t readBufferMinSize_ = constants::kReadBufferMinSize,
+        std::size_t readBufferMaxSize_ = constants::kReadBufferMaxSize,
         std::chrono::seconds readBufferPrefetchDuration_ =
             std::chrono::seconds{1},
-        std::size_t writeBufferMinSize_ = 20 * 1024 * 1024,
-        std::size_t writeBufferMaxSize_ = 50 * 1024 * 1024,
-        std::chrono::seconds writeBufferFlushDelay_ = std::chrono::seconds{5},
+        std::size_t writeBufferMinSize_ = constants::kWriteBufferMinSize,
+        std::size_t writeBufferMaxSize_ = constants::kWriteBufferMaxSize,
+        std::chrono::seconds writeBufferFlushDelay_ =
+            std::chrono::seconds{constants::kWriteBufferFlushDelaySeconds},
         std::chrono::nanoseconds targetLatency_ =
-            std::chrono::nanoseconds{1000},
-        double prefetchPowerBase_ = 1.3, std::size_t readBuffersTotalSize_ = 0,
+            std::chrono::nanoseconds{constants::kTargetLatencyNanoSeconds},
+        double prefetchPowerBase_ = constants::kPrefetchPowerBase,
+        std::size_t readBuffersTotalSize_ = 0,
         std::size_t writeBuffersTotalSize_ = 0)
         : readBufferMinSize{readBufferMinSize_}
         , readBufferMaxSize{readBufferMaxSize_}
         , readBuffersTotalSize{readBuffersTotalSize_}
         , prefetchPowerBase{prefetchPowerBase_}
-        , targetLatency{std::move(targetLatency_)}
-        , readBufferPrefetchDuration{std::move(readBufferPrefetchDuration_)}
+        , targetLatency{targetLatency_}
+        , readBufferPrefetchDuration{readBufferPrefetchDuration_}
         , writeBufferMinSize{writeBufferMinSize_}
         , writeBufferMaxSize{writeBufferMaxSize_}
         , writeBuffersTotalSize{writeBuffersTotalSize_}
-        , writeBufferFlushDelay{std::move(writeBufferFlushDelay_)}
+        , writeBufferFlushDelay{writeBufferFlushDelay_}
     {
     }
 
@@ -157,7 +171,7 @@ public:
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #endif
 
-    ~StorageHelperCreator();
+    ~StorageHelperCreator() = default;
 
     /**
      * Produces storage helper object.

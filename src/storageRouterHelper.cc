@@ -82,8 +82,9 @@ StorageHelperPtr StorageRouterHelper::route(const folly::fbstring &fileId)
     return m_routes.at(routePath(fileId));
 }
 
-folly::fbstring StorageRouterHelper::routeRelative(StorageHelperPtr /*helper*/,
-    const folly::fbstring & /*route*/, const folly::fbstring &fileId)
+folly::fbstring StorageRouterHelper::routeRelative(
+    const StorageHelperPtr & /*helper*/, const folly::fbstring & /*route*/,
+    const folly::fbstring &fileId)
 {
     return fileId;
 }
@@ -193,7 +194,8 @@ folly::Future<ListObjectsResult> StorageRouterHelper::listobjects(
 
 folly::Future<folly::Unit> StorageRouterHelper::multipartCopy(
     const folly::fbstring & /*sourceKey*/,
-    const folly::fbstring & /*destinationKey*/, const std::size_t /*size*/)
+    const folly::fbstring & /*destinationKey*/, const std::size_t /*blockSize*/,
+    const std::size_t /*size*/)
 {
     throw std::system_error{
         std::make_error_code(std::errc::function_not_supported)};
@@ -245,7 +247,7 @@ folly::Future<std::size_t> StorageRouterHelper::blockSizeForPath(
 bool StorageRouterHelper::isObjectStorage() const
 {
     // Return true if any of the storages is object storage
-    for (auto &routes : m_routes)
+    for (const auto &routes : m_routes)
         if (routes.second->isObjectStorage())
             return true;
 

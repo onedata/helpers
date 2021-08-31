@@ -35,7 +35,7 @@ public:
      * Constructor
      * @param bufferLimits Reference to application buffer limits
      */
-    BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
+    explicit BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
         : m_bufferLimits{bufferLimits}
         , m_readBuffersReservedSize{0}
         , m_writeBuffersReservedSize{0}
@@ -111,7 +111,12 @@ public:
         std::shared_ptr<BufferAgent> bufferAgent,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 
-    ~BufferedFileHandle()
+    BufferedFileHandle(const BufferedFileHandle &) = delete;
+    BufferedFileHandle &operator=(const BufferedFileHandle &) = delete;
+    BufferedFileHandle(BufferedFileHandle &&) = default;
+    BufferedFileHandle &operator=(BufferedFileHandle &&) = default;
+
+    ~BufferedFileHandle() override
     {
         if (m_bufferMemoryLimitGuard) {
             m_bufferMemoryLimitGuard->releaseBuffers(
@@ -123,10 +128,11 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override
     {
-        return read(offset, size, std::numeric_limits<off_t>::max() - offset);
+        return readContinuous(
+            offset, size, std::numeric_limits<off_t>::max() - offset);
     }
 
-    folly::Future<folly::IOBufQueue> read(const off_t offset,
+    folly::Future<folly::IOBufQueue> readContinuous(const off_t offset,
         const std::size_t size, const std::size_t continuousSize) override
     {
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
@@ -202,7 +208,7 @@ public:
 
     FileHandlePtr wrappedHandle() { return m_wrappedHandle; }
 
-    virtual folly::Future<folly::Unit> refreshHelperParams(
+    folly::Future<folly::Unit> refreshHelperParams(
         std::shared_ptr<StorageHelperParams> params) override
     {
         return m_wrappedHandle->refreshHelperParams(std::move(params));
@@ -418,13 +424,12 @@ public:
         return m_helper->listxattr(uuid);
     }
 
-    virtual folly::Future<std::shared_ptr<StorageHelperParams>>
-    params() const override
+    folly::Future<std::shared_ptr<StorageHelperParams>> params() const override
     {
         return m_helper->params();
     }
 
-    virtual folly::Future<folly::Unit> refreshParams(
+    folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params) override
     {
         LOG_FCALL();

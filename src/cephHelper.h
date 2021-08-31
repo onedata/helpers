@@ -37,8 +37,7 @@ public:
      * @param helper A pointer to the helper that created the handle.
      * @param ioCTX A reference to @c librados::IoCtx for async operations.
      */
-    CephFileHandle(folly::fbstring fileId, std::shared_ptr<CephHelper> helper,
-        librados::IoCtx &ioCTX);
+    CephFileHandle(folly::fbstring fileId, std::shared_ptr<CephHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
@@ -47,9 +46,6 @@ public:
         WriteCallback &&writeCb) override;
 
     const Timeout &timeout() override;
-
-private:
-    librados::IoCtx &m_ioCTX;
 };
 
 /**
@@ -70,7 +66,7 @@ public:
     CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     /**
@@ -196,7 +192,7 @@ public:
         const auto &userName = getParam(parameters, "username");
         const auto &key = getParam(parameters, "key");
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         LOG_FCALL() << LOG_FARG(clusterName) << LOG_FARG(monHost)
                     << LOG_FARG(poolName) << LOG_FARG(userName)

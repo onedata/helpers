@@ -31,7 +31,12 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
 
-    virtual ~AsyncResponder();
+    virtual ~AsyncResponder(); // NOLINT
+
+    AsyncResponder(const AsyncResponder &) = delete;
+    AsyncResponder(AsyncResponder &&) = delete;
+    AsyncResponder &operator=(const AsyncResponder &) = delete;
+    AsyncResponder &operator=(AsyncResponder &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c AsyncResponder.
@@ -53,7 +58,8 @@ public:
         std::function<void(ServerMessagePtr)> onMessageCallback);
 };
 
-template <class LowerLayer> AsyncResponder<LowerLayer>::~AsyncResponder() { }
+template <class LowerLayer>
+AsyncResponder<LowerLayer>::~AsyncResponder() = default;
 
 template <class LowerLayer> auto AsyncResponder<LowerLayer>::connect()
 {

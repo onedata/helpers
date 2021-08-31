@@ -113,7 +113,7 @@ enum class HTTPStatus : uint16_t {
 };
 
 class HTTPHelper;
-class HTTPSession;
+struct HTTPSession;
 
 using HTTPSessionPtr = std::unique_ptr<HTTPSession>;
 // Session key <host, port, isExternal, isHttps>
@@ -299,7 +299,7 @@ public:
      */
     folly::Future<HTTPSession *> connect(HTTPSessionPoolKey key = {});
 
-    std::shared_ptr<folly::Executor> executor() { return m_executor; }
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
     HTTPCredentialsType credentialsType() const
     {
@@ -307,7 +307,7 @@ public:
     }
 
     std::pair<HTTPSessionPoolKey, folly::fbstring> relativizeURI(
-        const folly::fbstring &fileId);
+        const folly::fbstring &fileId) const;
 
     Poco::URI endpoint() const { return P()->endpoint(); }
 
@@ -335,7 +335,7 @@ public:
         }
     };
 
-    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+    static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
     /**
      * In case credentials are provisioned by OAuth2 IdP, this method checks
@@ -537,14 +537,11 @@ public:
      * @param helper A pointer to the helper that created the handle.
      * @param ioCTX A reference to @c librados::IoCtx for async operations.
      */
-    HTTPFileHandle(folly::fbstring fileId, std::shared_ptr<HTTPHelper> helper);
+    HTTPFileHandle(
+        const folly::fbstring &fileId, std::shared_ptr<HTTPHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
-
-    folly::Future<folly::IOBufQueue> read(const off_t offset,
-        const std::size_t size, const int retryCount,
-        const Poco::URI &redirectURL = {});
 
     folly::Future<std::size_t> write(const off_t /*offset*/,
         folly::IOBufQueue /*buf*/, WriteCallback && /*writeCb*/) override
@@ -556,6 +553,10 @@ public:
     const Timeout &timeout() override;
 
 private:
+    folly::Future<folly::IOBufQueue> read(const off_t offset,
+        const std::size_t size, const int retryCount,
+        const Poco::URI &redirectURL);
+
     folly::fbstring m_fileId;
     folly::fbstring m_effectiveFileId;
     HTTPSessionPoolKey m_sessionPoolKey;
@@ -586,7 +587,8 @@ public:
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         return std::make_shared<HTTPHelper>(
             HTTPHelperParams::create(parameters), m_executor, executionContext);

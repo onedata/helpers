@@ -61,21 +61,48 @@ path makeRelative(path parent, path child)
 namespace one {
 namespace helpers {
 
-// Retry only in case one of these errors occured
-const std::set<int> GLUSTERFS_RETRY_ERRORS = {
-    EINTR, EIO, EAGAIN, EACCES, EBUSY, EMFILE, ETXTBSY, ESPIPE, EMLINK, EPIPE,
-    EDEADLK, EWOULDBLOCK, ENOLINK, EADDRINUSE, EADDRNOTAVAIL, ENETDOWN,
-    ENETUNREACH, ECONNABORTED, ECONNRESET, ENOTCONN, EHOSTUNREACH, ECANCELED
-#if !defined(__APPLE__)
-    ,
-    ENONET, EHOSTDOWN, EREMOTEIO, ENOMEDIUM
-#endif
-};
-
-inline bool GlusterFSRetryCondition(int result, const std::string &operation)
+const std::set<int> &GlusterFSRetryErrors()
 {
-    auto ret = (result >= 0 ||
-        GLUSTERFS_RETRY_ERRORS.find(errno) == GLUSTERFS_RETRY_ERRORS.end());
+    static const std::set<int> GLUSTERFS_RETRY_ERRORS = {
+        EINTR,
+        EIO,
+        EAGAIN,
+        EACCES,
+        EBUSY,
+        EMFILE,
+        ETXTBSY,
+        ESPIPE,
+        EMLINK,
+        EPIPE,
+        EDEADLK,
+        EWOULDBLOCK,
+        ENOLINK,
+        EADDRINUSE,
+        EADDRNOTAVAIL,
+        ENETDOWN,
+        ENETUNREACH,
+        ECONNABORTED,
+        ECONNRESET,
+        ENOTCONN,
+        EHOSTUNREACH,
+        ECANCELED
+#if !defined(__APPLE__)
+        ,
+        ENONET,
+        EHOSTDOWN,
+        EREMOTEIO,
+        ENOMEDIUM
+#endif
+    };
+    return GLUSTERFS_RETRY_ERRORS;
+}
+
+// Retry only in case one of these errors occured
+bool GlusterFSRetryCondition(int result, const std::string &operation)
+{
+
+    auto ret = ((result >= 0) ||
+        (GlusterFSRetryErrors().find(errno) == GlusterFSRetryErrors().end()));
 
     if (!ret) {
         LOG(WARNING) << "Retrying GlusterFS helper operation '" << operation
@@ -87,11 +114,11 @@ inline bool GlusterFSRetryCondition(int result, const std::string &operation)
     return ret;
 }
 
-inline bool GlusterFSRetryHandleCondition(
+bool GlusterFSRetryHandleCondition(
     glfs_fd_t *result, const std::string &operation)
 {
-    auto ret = (result != nullptr ||
-        GLUSTERFS_RETRY_ERRORS.find(errno) == GLUSTERFS_RETRY_ERRORS.end());
+    auto ret = ((result != nullptr) ||
+        (GlusterFSRetryErrors().find(errno) == GlusterFSRetryErrors().end()));
 
     if (!ret) {
         LOG(WARNING) << "Retrying GlusterFS helper operation '" << operation
@@ -135,7 +162,7 @@ inline folly::Future<folly::Unit> setContextResult(const std::string &operation,
 static std::map<folly::fbstring, GlusterFSConnection> glusterFSConnections;
 static std::mutex connectionMutex;
 
-GlusterFSFileHandle::GlusterFSFileHandle(folly::fbstring fileId,
+GlusterFSFileHandle::GlusterFSFileHandle(const folly::fbstring &fileId,
     std::shared_ptr<GlusterFSHelper> helper, std::shared_ptr<glfs_fd_t> glfsFd,
     uid_t uid, gid_t gid)
     : FileHandle{fileId, std::move(helper)}
@@ -168,11 +195,11 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.glusterfs.read");
 
-    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
 
     return helper->connect().thenValue(
         [offset, size, glfsFd = m_glfsFd, uid = m_uid, gid = m_gid,
-            fileId = m_fileId, timer = std::move(timer),
+            fileId = fileId(), timer = std::move(timer),
             s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
             auto && /*unit*/) mutable {
             auto self = s.lock();
@@ -222,11 +249,11 @@ folly::Future<std::size_t> GlusterFSFileHandle::write(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.glusterfs.write");
 
-    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
 
     return helper->connect().thenValue(
         [offset, buf = std::move(buf), writeCb = std::move(writeCb),
-            glfsFd = m_glfsFd, uid = m_uid, fileId = m_fileId,
+            glfsFd = m_glfsFd, uid = m_uid, fileId = fileId(),
             timer = std::move(timer), gid = m_gid,
             s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
             auto && /*unit*/) mutable {
@@ -288,7 +315,7 @@ const Timeout &GlusterFSFileHandle::timeout()
 {
     LOG_FCALL();
 
-    return m_helper->timeout();
+    return helper()->timeout();
 }
 
 folly::Future<folly::Unit> GlusterFSFileHandle::release()
@@ -298,7 +325,7 @@ folly::Future<folly::Unit> GlusterFSFileHandle::release()
     if (!m_needsRelease.exchange(false))
         return folly::makeFuture();
 
-    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
 
     return helper->connect().thenValue(
         [glfsFd = m_glfsFd, uid = m_uid, gid = m_gid,
@@ -321,7 +348,7 @@ folly::Future<folly::Unit> GlusterFSFileHandle::flush()
 {
     LOG_FCALL();
 
-    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
 
     return helper->connect().thenValue(
         [](auto && /*unit*/) { return folly::makeFuture(); });
@@ -331,11 +358,11 @@ folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
 {
     LOG_FCALL() << LOG_FARG(isDataSync);
 
-    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(m_helper);
+    auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
 
     return helper->connect().thenValue(
         [glfsFd = m_glfsFd, isDataSync, uid = m_uid, gid = m_gid,
-            fileId = m_fileId,
+            fileId = fileId(),
             s = std::weak_ptr<GlusterFSFileHandle>{shared_from_this()}](
             auto && /*unit*/) {
             auto self = s.lock();
@@ -1000,6 +1027,7 @@ folly::Future<folly::fbvector<folly::fbstring>> GlusterFSHelper::listxattr(
         char *xattrNamePtr = buf.get();
         while (xattrNamePtr < buf.get() + buflen) {
             ret.emplace_back(xattrNamePtr);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
             xattrNamePtr +=
                 strnlen(xattrNamePtr, buflen - (buf.get() - xattrNamePtr)) + 1;
         }

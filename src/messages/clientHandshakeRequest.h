@@ -22,7 +22,7 @@ namespace messages {
 
 namespace handshake {
 enum class SessionMode { normal = 1, open_handle };
-}
+} // namespace handshake
 
 /**
  * The HandshakeRequest class represents a message that is sent by the client to
@@ -34,7 +34,7 @@ public:
      * Constructor.
      * @param sessionId Id of session to be used in handshake
      * */
-    ClientHandshakeRequest(std::string sessionId);
+    explicit ClientHandshakeRequest(std::string sessionId);
 
     /**
      * Constructor.

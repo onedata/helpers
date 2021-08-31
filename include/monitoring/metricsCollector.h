@@ -33,6 +33,11 @@ public:
      */
     virtual ~MetricsCollector();
 
+    MetricsCollector(const MetricsCollector &) = delete;
+    MetricsCollector(MetricsCollector &&) = delete;
+    MetricsCollector &operator=(const MetricsCollector &) = delete;
+    MetricsCollector &operator=(MetricsCollector &&) = delete;
+
     /**
      * Configure the monitoring metrics collector.
      * @param monitoringConfiguration New configuration.
@@ -63,7 +68,7 @@ public:
     /**
      * Get the underlying MetricRegistry instance.
      */
-    core::MetricRegistryPtr getRegistry();
+    static core::MetricRegistryPtr getRegistry();
 
     /**
      * Return the MetricsCollector singleton instance
@@ -86,8 +91,8 @@ public:
     static bool isEnabled() { return m_isEnabled; }
 
 protected:
-    std::shared_ptr<MonitoringConfiguration> m_conf;
-    std::shared_ptr<cppmetrics::core::ScheduledReporter> m_reporter;
+    std::shared_ptr<MonitoringConfiguration> m_conf;                 // NOLINT
+    std::shared_ptr<cppmetrics::core::ScheduledReporter> m_reporter; // NOLINT
 
 private:
     static std::shared_ptr<MetricsCollector> m_singleton;

@@ -160,7 +160,7 @@ public:
         const off_t offset, const size_t count) override;
 
     virtual folly::Future<folly::Unit> fillMissingFileBlocks(
-        const folly::fbstring fileId, std::size_t size);
+        const folly::fbstring &fileId, std::size_t size);
 
     virtual bool isObjectStorage() const override { return true; }
 
@@ -175,7 +175,7 @@ public:
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
-    std::shared_ptr<KeyValueHelper> helper() { return m_helper; };
+    std::shared_ptr<KeyValueHelper> helper() const { return m_helper; };
 
     std::vector<folly::fbstring> handleOverridableParams() const override;
 

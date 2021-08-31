@@ -30,7 +30,12 @@ template <class LowerLayer> class Retrier : public LowerLayer {
 public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    virtual ~Retrier() = default;
+    virtual ~Retrier() = default; // NOLINT
+
+    Retrier(const Retrier &) = delete;
+    Retrier(Retrier &&) = delete;
+    Retrier &operator=(const Retrier &) = delete;
+    Retrier &operator=(Retrier &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Retrier.
@@ -47,7 +52,7 @@ public:
      * @return same as lower layer's @c send().
      * @see ConnectionPool::send()
      */
-    void send(std::string message, Callback callback, const int retries);
+    void send(std::string message, Callback callback, int retries);
 };
 
 template <class LowerLayer>

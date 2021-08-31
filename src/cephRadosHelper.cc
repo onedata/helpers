@@ -157,7 +157,7 @@ std::size_t CephRadosHelper::putObject(
 
     auto size = buf.chainLength();
     librados::bufferlist data;
-    for (auto &byteRange : *buf.front())
+    for (const auto &byteRange : *buf.front())
         data.append(ceph::buffer::create_static(byteRange.size(),
             // NOLINTNEXTLINE
             reinterpret_cast<char *>(

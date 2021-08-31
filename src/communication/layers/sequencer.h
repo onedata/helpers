@@ -122,17 +122,17 @@ public:
          * @return Sequence number of expected message, i.e. message that can be
          * immediately forwarded by sequencer.
          */
-        const uint64_t sequenceNumber() const { return m_seqNum; }
+        uint64_t sequenceNumber() const { return m_seqNum; }
 
         /**
          * @return Sequence number of first message that has not been
          * acknowledged.
          */
-        const uint64_t sequenceNumberAck() const { return m_seqNumAck; }
+        uint64_t sequenceNumberAck() const { return m_seqNumAck; }
 
     private:
-        uint64_t m_seqNum;    // expected sequence number
-        uint64_t m_seqNumAck; // first unacknowledged sequence number
+        uint64_t m_seqNum{};    // expected sequence number
+        uint64_t m_seqNumAck{}; // first unacknowledged sequence number
         // buffer of messages with sequence number greater than expected
         // sequnece number sorted in ascending sequence number order
         tbb::concurrent_priority_queue<ServerMessagePtr, GreaterSeqNum>
@@ -142,12 +142,17 @@ public:
     using Callback = typename LowerLayer::Callback;
     using SchedulerPtr = std::shared_ptr<Scheduler>;
     using LowerLayer::LowerLayer;
-    virtual ~Sequencer();
+    virtual ~Sequencer(); // NOLINT
+
+    Sequencer(const Sequencer &) = delete;
+    Sequencer(Sequencer &&) = delete;
+    Sequencer &operator=(const Sequencer &) = delete;
+    Sequencer &operator=(Sequencer &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Sequencer.
      */
-    Sequencer<LowerLayer, Scheduler> &sequencer = *this;
+    Sequencer<LowerLayer, Scheduler> &sequencer = *this; // NOLINT
 
     /**
      * Wraps lower layer's @c setOnMessageCallback.
@@ -186,11 +191,10 @@ public:
 private:
     void sendMessageStreamReset();
 
-    void sendMessageRequest(const uint64_t streamId, const uint64_t lowerSeqNum,
-        const uint64_t upperSeqNum);
+    void sendMessageRequest(
+        uint64_t streamId, uint64_t lowerSeqNum, uint64_t upperSeqNum);
 
-    void sendMessageAcknowledgement(
-        const uint64_t streamId, const uint64_t seqNum);
+    void sendMessageAcknowledgement(uint64_t streamId, uint64_t seqNum);
 
     void periodicMessageRequest();
     void cancelPeriodicMessageRequest();
@@ -263,7 +267,7 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageStreamReset()
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
     clientMsg->mutable_message_stream_reset();
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -272,11 +276,11 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageRequest(
     const uint64_t upperSeqNum)
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
-    auto msgReq = clientMsg->mutable_message_request();
+    auto *msgReq = clientMsg->mutable_message_request();
     msgReq->set_stream_id(streamId);
     msgReq->set_lower_sequence_number(lowerSeqNum);
     msgReq->set_upper_sequence_number(upperSeqNum);
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -284,10 +288,10 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageAcknowledgement(
     const uint64_t streamId, const uint64_t seqNum)
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
-    auto msgAck = clientMsg->mutable_message_acknowledgement();
+    auto *msgAck = clientMsg->mutable_message_acknowledgement();
     msgAck->set_stream_id(streamId);
     msgAck->set_sequence_number(seqNum);
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>

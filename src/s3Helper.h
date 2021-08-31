@@ -82,7 +82,7 @@ public:
         const auto storagePathType =
             getParam<StoragePathType>(parameters, "storagePathType");
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
             getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
 
@@ -120,11 +120,11 @@ public:
      * should be used to sign requests.
      * @param timeout Asynchronous operations timeout.
      */
-    S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-        folly::fbstring accessKey, folly::fbstring secretKey,
+    S3Helper(const folly::fbstring &hostname, const folly::fbstring &bucketName,
+        const folly::fbstring &accessKey, const folly::fbstring &secretKey,
         const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
         const mode_t dirMode, const bool useHttps = true,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
@@ -159,7 +159,7 @@ public:
     const Timeout &timeout() override { return m_timeout; }
 
 private:
-    folly::fbstring getRegion(const folly::fbstring &hostname);
+    static folly::fbstring getRegion(const folly::fbstring &hostname);
 
     folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
     folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;

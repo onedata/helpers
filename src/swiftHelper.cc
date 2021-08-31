@@ -34,27 +34,40 @@ namespace helpers {
 
 namespace {
 
-std::unordered_map<Poco::Net::HTTPResponse::HTTPStatus, std::errc> errors = {
-    {Poco::Net::HTTPResponse::HTTPStatus::HTTP_NOT_FOUND,
-        std::errc::no_such_file_or_directory},
-    {Poco::Net::HTTPResponse::HTTPStatus::HTTP_REQUESTED_RANGE_NOT_SATISFIABLE,
-        std::errc::no_such_file_or_directory},
-    {Poco::Net::HTTPResponse::HTTPStatus::HTTP_REQUEST_TIMEOUT,
-        std::errc::timed_out},
-    {Poco::Net::HTTPResponse::HTTPStatus::HTTP_LENGTH_REQUIRED,
-        std::errc::invalid_argument},
-    {Poco::Net::HTTPResponse::HTTPStatus::HTTP_UNAUTHORIZED,
-        std::errc::permission_denied},
-};
+const std::unordered_map<Poco::Net::HTTPResponse::HTTPStatus, std::errc> &
+ErrorMappings()
+{
+    static const std::unordered_map<Poco::Net::HTTPResponse::HTTPStatus,
+        std::errc>
+        errors = {
+            {Poco::Net::HTTPResponse::HTTPStatus::HTTP_NOT_FOUND,
+                std::errc::no_such_file_or_directory},
+            {Poco::Net::HTTPResponse::HTTPStatus::
+                    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE,
+                std::errc::no_such_file_or_directory},
+            {Poco::Net::HTTPResponse::HTTPStatus::HTTP_REQUEST_TIMEOUT,
+                std::errc::timed_out},
+            {Poco::Net::HTTPResponse::HTTPStatus::HTTP_LENGTH_REQUIRED,
+                std::errc::invalid_argument},
+            {Poco::Net::HTTPResponse::HTTPStatus::HTTP_UNAUTHORIZED,
+                std::errc::permission_denied},
+        };
+    return errors;
+}
 
 // Retry only in case one of these errors occured
-const std::set<Poco::Net::HTTPResponse::HTTPStatus> SWIFT_RETRY_ERRORS = {
-    Poco::Net::HTTPResponse::HTTPStatus::HTTP_REQUEST_TIMEOUT,
-    Poco::Net::HTTPResponse::HTTPStatus::HTTP_GONE,
-    Poco::Net::HTTPResponse::HTTPStatus::HTTP_INTERNAL_SERVER_ERROR,
-    Poco::Net::HTTPResponse::HTTPStatus::HTTP_BAD_GATEWAY,
-    Poco::Net::HTTPResponse::HTTPStatus::HTTP_SERVICE_UNAVAILABLE,
-    Poco::Net::HTTPResponse::HTTPStatus::HTTP_GATEWAY_TIMEOUT};
+const std::set<Poco::Net::HTTPResponse::HTTPStatus> &SWIFTRetryErrors()
+{
+    static const std::set<Poco::Net::HTTPResponse::HTTPStatus>
+        SWIFT_RETRY_ERRORS = {
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_REQUEST_TIMEOUT,
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_GONE,
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_INTERNAL_SERVER_ERROR,
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_BAD_GATEWAY,
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_SERVICE_UNAVAILABLE,
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_GATEWAY_TIMEOUT};
+    return SWIFT_RETRY_ERRORS;
+}
 
 template <typename Outcome>
 std::error_code getReturnCode(const Outcome &outcome)
@@ -64,8 +77,8 @@ std::error_code getReturnCode(const Outcome &outcome)
     auto statusCode = outcome->getResponse()->getStatus();
 
     auto error = std::errc::io_error;
-    auto search = errors.find(statusCode);
-    if (search != errors.end())
+    auto search = ErrorMappings().find(statusCode);
+    if (search != ErrorMappings().end())
         error = search->second;
 
     return {static_cast<int>(error), std::system_category()};
@@ -102,7 +115,7 @@ bool SWIFTRetryCondition(const Outcome &outcome, const std::string &operation)
 {
     auto statusCode = outcome->getResponse()->getStatus();
     auto ret = (statusCode == Swift::SwiftError::SWIFT_OK ||
-        !SWIFT_RETRY_ERRORS.count(statusCode));
+        !SWIFTRetryErrors().count(statusCode));
 
     if (!ret) {
         LOG(WARNING) << "Retrying SWIFT helper operation '" << operation
@@ -163,7 +176,7 @@ folly::IOBufQueue SwiftHelper::getObject(
 
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
-    const auto newTail =
+    auto *const newTail =
         std::copy(std::istreambuf_iterator<char>{*getResponse->getPayload()},
             std::istreambuf_iterator<char>{}, data);
 
@@ -238,14 +251,15 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
     Swift::Container container(&account, m_containerName.toStdString());
-    for (auto offset = 0ul; offset < keys.size();
+    for (auto offset = 0UL; offset < keys.size();
          offset += MAX_DELETE_OBJECTS) {
         std::vector<std::string> keyBatch;
 
         const std::size_t batchSize =
             std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize))
+        for (const auto &key :
+            folly::range(keys.begin(), keys.begin() + batchSize))
             keyBatch.emplace_back(key.toStdString());
 
         using DeleteResponsePtr =

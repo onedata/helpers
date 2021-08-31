@@ -32,8 +32,8 @@ class CertificateData;
 } // namespace cert
 
 namespace detail {
-const auto kDefaultProviderTimeout = 120ul;
-}
+const auto kDefaultProviderTimeout = 120UL;
+} // namespace detail
 
 /**
  * A @c ConnectionPool is responsible for managing connection pipeline
@@ -42,11 +42,6 @@ const auto kDefaultProviderTimeout = 120ul;
 class ConnectionPool {
 public:
     using Callback = std::function<void(const std::error_code &)>;
-
-    /**
-     * A reference to @c *this typed as a @c ConnectionPool.
-     */
-    ConnectionPool &connectionPool = *this;
 
     /**
      * Constructor.
@@ -67,11 +62,13 @@ public:
     ConnectionPool(std::size_t connectionsNumber, std::size_t workersNumber,
         std::string host, uint16_t port, bool verifyServerCertificate,
         bool clprotoUpgrade = true, bool clprotoHandshake = true,
-        const std::chrono::seconds providerTimeout = std::chrono::seconds{
+        std::chrono::seconds providerTimeout = std::chrono::seconds{
             detail::kDefaultProviderTimeout});
 
     ConnectionPool(const ConnectionPool &) = delete;
     ConnectionPool &operator=(const ConnectionPool &) = delete;
+    ConnectionPool(ConnectionPool &&) = delete;
+    ConnectionPool &operator=(ConnectionPool &&) = delete;
 
     /**
      * Creates connections to the remote endpoint specified in the constructor.
@@ -119,7 +116,7 @@ public:
     /**
      * Initialize the SSL context for communication sockets.
      */
-    std::shared_ptr<folly::SSLContext> createSSLContext();
+    std::shared_ptr<folly::SSLContext> createSSLContext() const;
 
     /**
      * Sends a message through one of the managed connections.
@@ -165,7 +162,7 @@ private:
      * @return True when CA file was found and loaded successfuly, false
      * otherwise
      */
-    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+    static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
     const std::size_t m_connectionsNumber;
     const std::string m_host;

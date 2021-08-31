@@ -32,6 +32,7 @@ public:
      * @param serverMessage Protocol Buffers message representing @c
      * HandshakeResponse counterpart.
      */
+    // NOLINTNEXTLINE
     HandshakeResponse(std::unique_ptr<ProtocolServerMessage> serverMessage);
 
     /**
@@ -45,10 +46,10 @@ public:
      */
     std::error_code status() const;
 
-    virtual std::string toString() const override;
+    std::string toString() const override;
 
 private:
-    errors::handshake::ErrorCode translateStatus(
+    static errors::handshake::ErrorCode translateStatus(
         const one::clproto::HandshakeResponse &msg);
 
     errors::handshake::ErrorCode m_status;

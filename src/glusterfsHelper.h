@@ -80,7 +80,7 @@ public:
      * @param glfsFd A reference to @c glfs_fd_t struct for GlusterFS direct
      * access to a file descriptor.
      */
-    GlusterFSFileHandle(folly::fbstring fileId,
+    GlusterFSFileHandle(const folly::fbstring &fileId,
         std::shared_ptr<GlusterFSHelper> helper,
         std::shared_ptr<glfs_fd_t> glfsFd, uid_t uid, gid_t gid);
 
@@ -138,12 +138,12 @@ public:
         folly::fbstring volume, folly::fbstring transport,
         folly::fbstring xlatorOptions,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT,
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     virtual ~GlusterFSHelper() = default;
 
-    folly::fbstring name() const { return GLUSTERFS_HELPER_NAME; };
+    folly::fbstring name() const override { return GLUSTERFS_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -287,7 +287,7 @@ public:
             getParam<std::string>(parameters, "xlatorOptions", "");
 
         Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
             port, volume, transport, xlatorOptions, m_executor,

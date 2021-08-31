@@ -116,7 +116,7 @@ enum class WebDAVStatus : uint16_t {
 };
 
 class WebDAVHelper;
-class WebDAVSession;
+struct WebDAVSession;
 
 using WebDAVSessionPtr = std::unique_ptr<WebDAVSession>;
 using WebDAVSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
@@ -379,7 +379,7 @@ public:
      */
     folly::Future<WebDAVSession *> connect(WebDAVSessionPoolKey key = {});
 
-    std::shared_ptr<folly::Executor> executor() { return m_executor; }
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
     WebDAVRangeWriteSupport rangeWriteSupport() const
     {
@@ -418,7 +418,7 @@ public:
             ispAcc->second.write(std::move(session));
     };
 
-    bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
+    static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
     /**
      * In case credentials are provisioned by OAuth2 IdP, this method checks
@@ -773,7 +773,7 @@ public:
      * @param ioCTX A reference to @c librados::IoCtx for async operations.
      */
     WebDAVFileHandle(
-        folly::fbstring fileId, std::shared_ptr<WebDAVHelper> helper);
+        const folly::fbstring &fileId, std::shared_ptr<WebDAVHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
@@ -819,7 +819,8 @@ public:
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext =
+            ExecutionContext::ONEPROVIDER) override
     {
         return std::make_shared<WebDAVHelper>(
             WebDAVHelperParams::create(parameters), m_executor,

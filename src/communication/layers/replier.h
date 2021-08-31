@@ -25,7 +25,7 @@ template <class LowerLayer> class Replier : public LowerLayer {
 public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    virtual ~Replier() = default;
+    virtual ~Replier() = default; // NOLINT
 
     /**
      * A reference to @c *this typed as a @c Replier.
@@ -41,7 +41,7 @@ public:
      * @see ConnectionPool::send()
      */
     auto reply(const clproto::ServerMessage &replyTo, ClientMessagePtr msg,
-        Callback callback, const int retry = DEFAULT_RETRY_NUMBER);
+        Callback callback, int retry = DEFAULT_RETRY_NUMBER);
 };
 
 template <class LowerLayer>

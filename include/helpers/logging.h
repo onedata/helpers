@@ -69,12 +69,12 @@
 /**
  * Logs a value in octal format
  */
-#define LOG_OCT(X) "0" << std::oct << X << std::dec
+#define LOG_OCT(X) "0" << std::oct << (X) << std::dec
 
 /**
  * Logs a value in hexadecimal format
  */
-#define LOG_HEX(X) "0x" << std::hex << X << std::dec
+#define LOG_HEX(X) "0x" << std::hex << (X) << std::dec
 
 /**
  * Appends to stream a serialized vector of strings
@@ -144,7 +144,7 @@
  * Logs current stack trace, should be used in `catch` blocks.
  */
 #define LOG_STACKTRACE(X, MSG)                                                 \
-    LOG_DBG(X) << MSG << '\n' << ::one::logging::print_stacktrace();
+    LOG_DBG(X) << (MSG) << '\n' << ::one::logging::print_stacktrace();
 
 namespace one {
 namespace logging {
@@ -171,7 +171,8 @@ std::string containerToErlangBinaryString(const TSeq &bytes)
     std::vector<std::string> bytesValues;
 
     std::for_each(bytes.begin(), bytes.end(), [&](const char &byte) {
-        return bytesValues.push_back(std::to_string((uint8_t)byte));
+        return bytesValues.push_back(
+            std::to_string(static_cast<uint8_t>(byte)));
     });
 
     return std::string("<<") + boost::algorithm::join(bytesValues, ",") + ">>";
@@ -214,19 +215,19 @@ static inline std::string print_stacktrace()
 
         // find parentheses and +address offset surrounding the mangled name:
         // ./module(function+0x15c) [0x8048a6d]
-        for (char *p = symbollist[i]; *p; ++p) {
+        for (char *p = symbollist[i]; *p != 0; ++p) {
             if (*p == '(')
                 begin_name = p;
             else if (*p == '+')
                 begin_offset = p;
-            else if (*p == ')' && begin_offset) {
+            else if ((*p == ')') && (begin_offset != nullptr)) {
                 end_offset = p;
                 break;
             }
         }
 
-        if (begin_name && begin_offset && end_offset &&
-            begin_name < begin_offset) {
+        if ((begin_name != nullptr) && (begin_offset != nullptr) &&
+            (end_offset != nullptr) && begin_name < begin_offset) {
             *begin_name++ = '\0';
             *begin_offset++ = '\0';
             *end_offset = '\0';
@@ -234,7 +235,7 @@ static inline std::string print_stacktrace()
             // mangled name is now in [begin_name, begin_offset) and caller
             // offset in [begin_offset, end_offset). now apply
             // __cxa_demangle():
-            int status;
+            int status = 0;
             char *ret = abi::__cxa_demangle(
                 begin_name, funcname, &funcnamesize, &status);
             if (status == 0) {
@@ -255,13 +256,13 @@ static inline std::string print_stacktrace()
         }
     }
 
-    free(funcname);
-    free(symbollist);
+    free(funcname);   // NOLINT
+    free(symbollist); // NOLINT
 
     return out.str();
 }
-} // logging
-} // one
+} // namespace logging
+} // namespace one
 
 // Definition of custom spdlog based loggers
 namespace one {
@@ -288,13 +289,13 @@ template <typename Clock = std::chrono::steady_clock> struct log_timer {
 namespace csv {
 
 struct read_write_perf {
-    static constexpr const char name[] = "read_write_perf";
-    static constexpr const char header[] =
+    static constexpr const char name[] = "read_write_perf"; // NOLINT
+    static constexpr const char header[] =                  // NOLINT
         "Time,File,Class,Operation,Offset,Size,Duration [us]";
-    static constexpr const char fmt[] = "{},{},{},{},{},{}";
+    static constexpr const char fmt[] = "{},{},{},{},{},{}"; // NOLINT
 };
 
-template <typename Tag> void register_logger(std::string path)
+template <typename Tag> void register_logger(const std::string &path)
 {
     using namespace std::chrono;
     auto timestamp =
