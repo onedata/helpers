@@ -19,7 +19,7 @@
 #include <folly/executors/IOExecutor.h>
 #if FUSE_USE_VERSION > 30
 #include <fuse3/fuse.h>
-#elif
+#else
 #include <fuse/fuse.h>
 #endif
 
