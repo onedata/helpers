@@ -28,6 +28,7 @@ else (NSS_LIBRARIES AND NSS_INCLUDE_DIRS)
       pk11pub.h
     PATHS
       ${_NSS_INCLUDEDIR}
+      ${CONDA_BUILD_PREFIX}/include
       /usr/include
       /usr/local/include
       /opt/local/include
@@ -43,6 +44,7 @@ else (NSS_LIBRARIES AND NSS_INCLUDE_DIRS)
       ssl3
     PATHS
       ${_NSS_LIBDIR}
+      ${CONDA_BUILD_PREFIX}/lib
       /usr/lib
       /usr/local/lib
       /opt/local/lib
@@ -54,6 +56,7 @@ else (NSS_LIBRARIES AND NSS_INCLUDE_DIRS)
       smime3
     PATHS
       ${_NSS_LIBDIR}
+      ${CONDA_BUILD_PREFIX}/lib
       /usr/lib
       /usr/local/lib
       /opt/local/lib
@@ -65,6 +68,7 @@ else (NSS_LIBRARIES AND NSS_INCLUDE_DIRS)
       nss3
     PATHS
       ${_NSS_LIBDIR}
+      ${CONDA_BUILD_PREFIX}/lib
       /usr/lib
       /usr/local/lib
       /opt/local/lib
@@ -77,6 +81,7 @@ else (NSS_LIBRARIES AND NSS_INCLUDE_DIRS)
       nssutil3
     PATHS
       ${_NSS_LIBDIR}
+      ${CONDA_BUILD_PREFIX}/lib
       /usr/lib
       /usr/local/lib
       /opt/local/lib
@@ -88,6 +93,7 @@ else (NSS_LIBRARIES AND NSS_INCLUDE_DIRS)
       nspr4
     PATHS
       ${_NSS_LIBDIR}
+      ${CONDA_BUILD_PREFIX}/lib
       /usr/lib
       /usr/local/lib
       /opt/local/lib
