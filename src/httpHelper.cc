@@ -688,6 +688,19 @@ bool HTTPHelper::setupOpenSSLCABundlePath(SSL_CTX *ctx)
     return false;
 }
 
+void HTTPHelper::addCookie(const std::string &host, const std::string &cookie)
+{
+    m_cookies[host].push_back(cookie);
+}
+
+void HTTPHelper::clearCookies(const std::string &host) { m_cookies[host] = {}; }
+
+const std::map<std::string, std::vector<std::string>> &
+HTTPHelper::cookies() const
+{
+    return m_cookies;
+}
+
 void HTTPSession::connectSuccess(
     proxygen::HTTPUpstreamSession *reconnectedSession)
 {
@@ -803,6 +816,15 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
                 folly::sformat("Basic {}", b64BasicAuthorization));
         }
     }
+
+    // Add cookies if any were stored in the cookie jar for this host
+    const auto &cookies = m_helper->cookies();
+    const auto host = std::get<0>(session->key).toStdString();
+    if (cookies.count(host) > 0U) {
+        for (const auto &cookie : cookies.at(host)) {
+            m_request.getHeaders().add("Cookie", cookie);
+        }
+    }
 }
 
 folly::Future<proxygen::HTTPTransaction *> HTTPRequest::startTransaction()
@@ -864,6 +886,14 @@ void HTTPRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
     try {
+        if (VLOG_IS_ON(4)) {
+            LOG_DBG(4) << "Got headers:";
+            msg->getHeaders().forEach(
+                [](const std::string &h, const std::string &v) {
+                    LOG_DBG(4) << "\t " << h << " : " << v;
+                });
+        }
+
         if (msg->getHeaders().getNumberOfValues("Connection") != 0U) {
             if (msg->getHeaders().rawGet("Connection") == "close") {
                 LOG_DBG(4) << "Received 'Connection: close'";
@@ -874,6 +904,21 @@ void HTTPRequest::onHeadersComplete(
             LOG_DBG(2) << "Received 302 redirect response to: "
                        << msg->getHeaders().rawGet("Location");
             m_redirectURL = Poco::URI(msg->getHeaders().rawGet("Location"));
+            // Remember all cookies used for redirect to the host
+            // in location
+            if (msg->getHeaders().getNumberOfValues("set-cookie") > 0U) {
+                auto redirectHost =
+                    Poco::URI(msg->getHeaders().rawGet("location")).getHost();
+
+                m_helper->clearCookies(redirectHost);
+
+                msg->getHeaders().forEachValueOfHeader("set-cookie",
+                    [redirectHost = std::move(redirectHost), helper = m_helper](
+                        const std::string &cookie) {
+                        helper->addCookie(redirectHost, cookie);
+                        return false;
+                    });
+            }
         }
         m_resultCode = msg->getStatusCode();
 
@@ -1036,15 +1081,6 @@ void HTTPHEAD::processHeaders(
             m_resultPromise.setException(makePosixException(result));
         }
         else {
-            // Ensure that the server allows reading byte ranges from resources
-            if (msg->getHeaders().getNumberOfValues("accept-ranges") == 0U ||
-                msg->getHeaders().rawGet("accept-ranges") != "bytes") {
-                LOG(ERROR) << "Accept-ranges bytes not supported for resource: "
-                           << msg->getPath();
-                m_resultPromise.setException(makePosixException(ENOTSUP));
-                return;
-            }
-
             if (msg->getHeaders().getNumberOfValues("content-type") != 0U) {
                 res.emplace(
                     "content-type", msg->getHeaders().rawGet("content-type"));
