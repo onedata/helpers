@@ -342,7 +342,7 @@ public:
 
     void clearCookies(const std::string &host);
 
-    const std::map<std::string, std::vector<std::string>> &cookies() const;
+    std::vector<std::string> cookies(const std::string &host) const;
 
 private:
     void initializeSessionPool(const HTTPSessionPoolKey &key)
@@ -399,7 +399,7 @@ private:
     pxml::NamespaceSupport m_nsMap;
 
     // Cookie jar indexed by hostname
-    std::map<std::string, std::vector<std::string>> m_cookies;
+    tbb::concurrent_hash_map<std::string, std::vector<std::string>> m_cookies;
 };
 
 template <class T> using PAPtr = Poco::AutoPtr<T>;
