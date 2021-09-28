@@ -690,15 +690,30 @@ bool HTTPHelper::setupOpenSSLCABundlePath(SSL_CTX *ctx)
 
 void HTTPHelper::addCookie(const std::string &host, const std::string &cookie)
 {
-    m_cookies[host].push_back(cookie);
+    LOG_FCALL() << LOG_FARG(host) << LOG_FARG(cookie);
+
+    decltype(m_cookies)::accessor cAcc;
+    m_cookies.insert(cAcc, host);
+    cAcc->second.push_back(cookie);
 }
 
-void HTTPHelper::clearCookies(const std::string &host) { m_cookies[host] = {}; }
-
-const std::map<std::string, std::vector<std::string>> &
-HTTPHelper::cookies() const
+void HTTPHelper::clearCookies(const std::string &host)
 {
-    return m_cookies;
+    LOG_FCALL() << LOG_FARG(host);
+
+    decltype(m_cookies)::accessor cAcc;
+    m_cookies.erase(host);
+}
+
+std::vector<std::string> HTTPHelper::cookies(const std::string &host) const
+{
+    LOG_FCALL() << LOG_FARG(host);
+
+    decltype(m_cookies)::accessor cAcc;
+    if (m_cookies.find(cAcc, host))
+        return cAcc->second;
+
+    return {};
 }
 
 void HTTPSession::connectSuccess(
@@ -818,12 +833,10 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     }
 
     // Add cookies if any were stored in the cookie jar for this host
-    const auto &cookies = m_helper->cookies();
     const auto host = std::get<0>(session->key).toStdString();
-    if (cookies.count(host) > 0U) {
-        for (const auto &cookie : cookies.at(host)) {
-            m_request.getHeaders().add("Cookie", cookie);
-        }
+    const auto cookies = m_helper->cookies(host);
+    for (const auto &cookie : cookies) {
+        m_request.getHeaders().add("Cookie", cookie);
     }
 }
 
