@@ -345,6 +345,12 @@ public:
      */
     bool isAccessTokenValid() const;
 
+    void addCookie(const std::string &host, const std::string &cookie);
+
+    void clearCookies(const std::string &host);
+
+    std::vector<std::string> cookies(const std::string &host) const;
+
 private:
     void initializeSessionPool(const HTTPSessionPoolKey &key)
     {
@@ -398,6 +404,9 @@ private:
         m_sessionPool;
 
     pxml::NamespaceSupport m_nsMap;
+
+    // Cookie jar indexed by hostname
+    tbb::concurrent_hash_map<std::string, std::vector<std::string>> m_cookies;
 };
 
 template <class T> using PAPtr = Poco::AutoPtr<T>;
