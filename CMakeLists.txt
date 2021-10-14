@@ -8,6 +8,7 @@ option(WITH_SWIFT "Include Swift direct IO support" ON)
 option(WITH_GLUSTERFS "Include GlusterFS direct IO support" ON)
 option(WITH_WEBDAV "Include WebDAV and HTTP direct IO support" ON)
 option(WITH_XROOTD "Include XRootD direct IO support" ON)
+option(WITH_NFS "Include NFS direct IO support" ON)
 option(WITH_TESTS "Build tests" ON)
 option(BUILD_PROXY_IO "Build Proxy IO helper." ON)
 
@@ -194,6 +195,14 @@ else(WITH_XROOTD)
     add_definitions(-DWITH_XROOTD=0)
 endif(WITH_XROOTD)
 
+if(WITH_NFS)
+    find_package(NFS REQUIRED)
+    add_definitions(-DWITH_NFS=1)
+else(WITH_NFS)
+    add_definitions(-DWITH_NFS=0)
+endif(WITH_NFS)
+
+
 # Setup compile flags
 set(PLATFORM_EXTRA_LIBS
     ${CMAKE_THREAD_LIBS_INIT}
@@ -272,6 +281,10 @@ endif(WITH_WEBDAV)
 if(WITH_XROOTD)
     list(APPEND HELPERS_LIBRARIES ${XROOTD_LIBRARIES})
 endif(WITH_XROOTD)
+
+if(WITH_NFS)
+    list(APPEND HELPERS_LIBRARIES ${NFS_LIBRARIES})
+endif(WITH_NFS)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
 target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})

@@ -27,6 +27,12 @@ if(WITH_XROOTD)
     list(APPEND HELPERS_SYSTEM_INCLUDE_DIRS ${XROOTD_INCLUDE_DIRS})
 endif(WITH_XROOTD)
 
+#
+# Add NFS include dir when building with NFS helper
+#
+if(WITH_NFS)
+    list(APPEND HELPERS_SYSTEM_INCLUDE_DIRS ${NFS_INCLUDE_DIRS})
+endif(WITH_NFS)
 
 #
 # Add GlusterFS include dir when building with GlusterFS helper

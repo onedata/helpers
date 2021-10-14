@@ -19,6 +19,9 @@ WITH_GLUSTERFS		?= ON
 WITH_WEBDAV 		?= ON
 # Build with XRootD storage helper by default
 WITH_XROOTD 		?= ON
+# Build with NFS storage helper by default
+WITH_NFS    		?= ON
+
 
 # Detect compilation on CentOS using Software Collections environment
 ifeq ($(shell awk -F= '/^ID=/{print $$2}' /etc/os-release), "centos")
@@ -38,6 +41,7 @@ endif
 	                       -DWITH_GLUSTERFS=${WITH_GLUSTERFS} \
 	                       -DWITH_WEBDAV=${WITH_WEBDAV} \
 	                       -DWITH_XROOTD=${WITH_XROOTD} \
+	                       -DWITH_NFS=${WITH_NFS} \
 	                       -DWITH_TESTS=${WITH_TESTS} \
 	                       -DTBB_INSTALL_DIR=${TBB_INSTALL_DIR} \
 	                       -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} ..
