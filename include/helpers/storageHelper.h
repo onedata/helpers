@@ -60,6 +60,8 @@ constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
 
 constexpr auto POSIX_HELPER_NAME = "posix";
 
+constexpr auto NFS_HELPER_NAME = "nfs";
+
 constexpr auto PROXY_HELPER_NAME = "proxy";
 
 constexpr auto NULL_DEVICE_HELPER_NAME = "nulldevice";
