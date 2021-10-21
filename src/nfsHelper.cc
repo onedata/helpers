@@ -12,6 +12,7 @@
 #include "monitoring/monitoring.h"
 
 #include <folly/futures/Retrying.h>
+#include <nfsc/libnfs-raw.h>
 
 namespace one {
 namespace helpers {
@@ -88,64 +89,43 @@ NFSFileHandle::NFSFileHandle(const folly::fbstring &fileId,
 
 NFSFileHandle::~NFSFileHandle() { }
 
-namespace {
-void readCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = static_cast<folly::Promise<folly::IOBufQueue> *>(pdata);
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "read"));
-        return;
-    }
-
-    folly::IOBufQueue bufQueue{folly::IOBufQueue::cacheChainLength()};
-    bufQueue.append(folly::IOBuf::takeOwnership(data, status, status));
-
-    promise->setValue(std::move(bufQueue));
-}
-}
-
 folly::Future<folly::IOBufQueue> NFSFileHandle::read(
     const off_t offset, const std::size_t size)
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
-    auto promise = std::make_shared<folly::Promise<folly::IOBufQueue>>();
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nfs.read");
 
     auto nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh, promise, offset, size](
-            size_t retryCounter) {
-            auto future = promise->getFuture();
-            auto error = nfs_pread_async(
-                nfs, nfsFh, offset, size, readCallback, promise.get());
+        [fileId = fileId(), nfs, nfsFh = m_nfsFh, offset, size,
+            timer = std::move(timer)](size_t retryCounter) {
+            folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
+            char *raw =
+                static_cast<char *>(buffer.preallocate(size, size).first);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs read on " << fileId;
+            LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
+                       << offset << " from file " << fileId;
+
+            auto ret = nfs_pread(nfs, nfsFh, offset, size, raw);
+
+            if (ret < 0) {
+                LOG_DBG(1) << "NFS read failed from " << fileId;
 
                 return one::helpers::makeFutureNFSException<folly::IOBufQueue>(
-                    error, "read");
+                    ret, "read");
             }
 
-            return future;
+            buffer.postallocate(ret);
+
+            LOG_DBG(2) << "Read " << ret << " from file " << fileId;
+
+            ONE_METRIC_TIMERCTX_STOP(timer, ret);
+
+            return folly::makeFuture(std::move(buffer));
         })
-        .via(executor().get())
-        .then([promise](auto &&res) { return std::move(res); });
-}
-
-namespace {
-void writeCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = static_cast<folly::Promise<size_t> *>(pdata);
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "write"));
-        return;
-    }
-
-    promise->setValue(status);
-}
+        .via(executor().get());
 }
 
 folly::Future<std::size_t> NFSFileHandle::write(
@@ -156,133 +136,102 @@ folly::Future<std::size_t> NFSFileHandle::write(
     if (buf.empty())
         return folly::makeFuture<std::size_t>(0);
 
-    auto promise = std::make_shared<folly::Promise<std::size_t>>();
-
     auto nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
 
-    const auto size = buf.chainLength();
-
-    auto iobuf = buf.move();
-    if (iobuf->isChained()) {
-        LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
-                   << " of size: " << iobuf->length();
-        iobuf->unshare();
-        iobuf->coalesce();
-    }
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nfs.write");
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh, promise,
-            data = iobuf->writableData(), offset, size](size_t retryCounter) {
-            auto future = promise->getFuture();
+        [fileId = fileId(), nfs, nfsFh = m_nfsFh, buf = std::move(buf), offset,
+            writeCb = std::move(writeCb),
+            timer = std::move(timer)](size_t retryCounter) mutable {
+            const auto size = buf.chainLength();
 
-            auto error = nfs_pwrite_async(
-                nfs, nfsFh, offset, size, data, writeCallback, promise.get());
+            auto iobuf = buf.move();
+            if (iobuf->isChained()) {
+                LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
+                           << " of size: " << iobuf->length();
+                iobuf->unshare();
+                iobuf->coalesce();
+            }
 
-            if (error != 0) {
+            auto ret =
+                nfs_pwrite(nfs, nfsFh, offset, size, iobuf->writableData());
+
+            if (ret < 0) {
                 LOG_DBG(1) << "Failed to call async nfs write on " << fileId;
 
                 return one::helpers::makeFutureNFSException<std::size_t>(
-                    error, "write");
+                    ret, "write");
             }
 
-            return future;
+            if (writeCb)
+                writeCb(ret);
+
+            LOG_DBG(2) << "Written " << ret << " bytes to file " << fileId;
+
+            ONE_METRIC_TIMERCTX_STOP(timer, ret);
+
+            return folly::makeFuture<size_t>(ret);
         })
-        .via(executor().get())
-        .then([promise, buf = std::move(iobuf), writeCb = std::move(writeCb)](
-                  folly::Try<std::size_t> &&res) {
-            if (res.hasValue() && writeCb)
-                writeCb(res.value());
-            return res;
-        });
-}
-
-namespace {
-void releaseCallback(
-    int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = static_cast<folly::Promise<folly::Unit> *>(pdata);
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "release"));
-        return;
-    }
-
-    promise->setValue();
-}
+        .via(executor().get());
 }
 
 folly::Future<folly::Unit> NFSFileHandle::release()
 {
     LOG_FCALL();
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
-
     auto nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh, promise](
+        [fileId = fileId(), nfs, nfsFh = m_nfsFh,
+            s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
             size_t retryCounter) {
-            auto future = promise->getFuture();
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-            auto error =
-                nfs_close_async(nfs, nfsFh, releaseCallback, promise.get());
+            auto ret = nfs_close(nfs, nfsFh);
 
-            if (error != 0) {
+            if (ret != 0) {
                 LOG_DBG(1) << "Failed to call async nfs close on " << fileId;
 
                 return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "release");
+                    ret, "release");
             }
 
-            return future;
+            return folly::makeFuture();
         })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
+        .via(executor().get());
 }
 
 folly::Future<folly::Unit> NFSFileHandle::flush() { return {}; }
-
-namespace {
-void fsyncCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = static_cast<folly::Promise<folly::Unit> *>(pdata);
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "fsync"));
-        return;
-    }
-
-    promise->setValue();
-}
-}
 
 folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
 {
     LOG_FCALL();
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
-
     auto nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh, promise](
+        [fileId = fileId(), nfs, nfsFh = m_nfsFh,
+            s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
             size_t retryCounter) {
-            auto future = promise->getFuture();
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-            auto error =
-                nfs_fsync_async(nfs, nfsFh, fsyncCallback, promise.get());
+            auto ret = nfs_fsync(nfs, nfsFh);
 
-            if (error != 0) {
+            if (ret != 0) {
                 LOG_DBG(1) << "Failed to call async nfs fsync on " << fileId;
 
                 return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "fsync");
+                    ret, "fsync");
             }
 
-            return future;
+            return folly::makeFuture();
         })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
+        .via(executor().get());
 }
 
 NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
@@ -297,128 +246,85 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
     invalidateParams()->setValue(std::move(params));
 }
 
-namespace {
-struct NFSOpenCallbackData {
-    std::shared_ptr<folly::Promise<std::shared_ptr<NFSFileHandle>>> promise{};
-    std::shared_ptr<NFSHelper> helper{};
-    folly::fbstring fileId{};
-};
-
-void openCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *cbData = static_cast<NFSOpenCallbackData *>(pdata);
-    auto *nfsFh = static_cast<struct nfsfh *>(data);
-
-    if (status < 0) {
-        cbData->promise->setException(makeNFSException(status, "open"));
-        return;
-    }
-
-    auto executor = cbData->helper->executor();
-    auto timeout = cbData->helper->timeout();
-    auto handle = std::make_shared<NFSFileHandle>(cbData->fileId,
-        std::move(cbData->helper), nfsFh, std::move(executor), timeout);
-
-    cbData->promise->setValue(std::move(handle));
-}
-}
-
 folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
 
-    auto cbData = std::make_shared<NFSOpenCallbackData>();
+    return connect().thenValue(
+        [this, fileId, flags, helper = shared_from_this(),
+            executor = executor(), timeout = timeout()](auto && /*unit*/) {
+            return folly::futures::retrying(
+                NFSRetryPolicy(constants::IO_RETRY_COUNT),
+                [this, fileId, flags, helper = std::move(helper), executor,
+                    timeout](size_t retryCounter) {
+                    struct nfsfh *nfsFh;
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, cbData, fileId, flags](size_t retryCounter) {
-            auto future = cbData->promise->getFuture();
-            auto error = nfs_open_async(
-                nfs, fileId.c_str(), flags, openCallback, cbData.get());
+                    LOG_DBG(2) << "Attempting to open file " << fileId;
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs open on " << fileId;
+                    auto error = nfs_open(m_nfs, fileId.c_str(), flags, &nfsFh);
 
-                return one::helpers::makeFutureNFSException<
-                    std::shared_ptr<NFSFileHandle>>(error, "open");
-            }
+                    if (error != 0) {
+                        LOG(ERROR) << "NFS open failed on " << fileId;
 
-            return future;
-        })
-        .via(executor().get())
-        .then([cbData](auto &&res) { return res; });
-}
+                        return one::helpers::makeFutureNFSException<
+                            std::shared_ptr<NFSFileHandle>>(error, "open");
+                    }
 
-namespace {
-void getattrCallback(
-    int status, struct nfs_context *nfs, void *statbuf, void *data)
-{
-    auto *promise = (folly::Promise<struct stat> *)data;
-    auto *st = (struct nfs_stat_64 *)statbuf;
-    struct stat stbuf = {};
-
-    if (status < 0) {
-        promise->setException(makePosixException(status));
-    }
-
-    stbuf.st_dev = st->nfs_dev;
-    stbuf.st_ino = st->nfs_ino;
-    stbuf.st_mode = st->nfs_mode;
-    stbuf.st_nlink = st->nfs_nlink;
-    stbuf.st_uid = st->nfs_uid;
-    stbuf.st_gid = st->nfs_gid;
-    stbuf.st_rdev = st->nfs_rdev;
-    stbuf.st_size = st->nfs_size;
-    stbuf.st_blksize = st->nfs_blksize;
-    stbuf.st_blocks = st->nfs_blocks;
-    /*
-     *    stbuf.st_atim = st->nfs_atime;
-     *    stbuf.st_mtim = st->nfs_mtime;
-     *    stbuf.st_ctim = st->nfs_ctime;
-     *
-     */
-    promise->setValue(std::move(stbuf));
-}
+                    return folly::makeFuture<std::shared_ptr<NFSFileHandle>>(
+                        std::make_shared<NFSFileHandle>(fileId,
+                            std::move(helper), nfsFh, executor, timeout));
+                })
+                .via(executor.get());
+        });
 }
 
 folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto promise = std::make_shared<folly::Promise<struct stat>>();
+    return connect().thenValue([this, fileId,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, s = std::move(s)](size_t retryCounter) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException<struct stat>(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId](size_t retryCounter) {
-            auto future = promise->getFuture();
-            auto error = nfs_stat64_async(
-                nfs, fileId.c_str(), getattrCallback, promise.get());
+                struct nfs_stat_64 st;
+                struct stat stbuf = {};
+                auto error = nfs_stat64(m_nfs, fileId.c_str(), &st);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs stat on " << fileId;
+                if (error != 0) {
+                    LOG_DBG(1) << "NFS getattr failed for " << fileId;
 
-                return one::helpers::makeFutureNFSException<struct stat>(
-                    error, "getattr");
-            }
+                    return one::helpers::makeFutureNFSException<struct stat>(
+                        error, "getattr");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
+                stbuf.st_dev = st.nfs_dev;
+                stbuf.st_ino = st.nfs_ino;
+                stbuf.st_mode = st.nfs_mode;
+                stbuf.st_nlink = st.nfs_nlink;
+                stbuf.st_uid = st.nfs_uid;
+                stbuf.st_gid = st.nfs_gid;
+                stbuf.st_rdev = st.nfs_rdev;
+                stbuf.st_size = st.nfs_size;
+                stbuf.st_blksize = st.nfs_blksize;
+                stbuf.st_blocks = st.nfs_blocks;
+                /*
+                 *    stbuf.st_atim = st.nfs_atime;
+                 *    stbuf.st_mtim = st.nfs_mtime;
+                 *    stbuf.st_ctim = st.nfs_ctime;
+                 *
+                 */
 
-namespace {
-void accessCallback(
-    int status, struct nfs_context *nfs, void *statbuf, void *data)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)data;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "access"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture(std::move(stbuf));
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::access(
@@ -426,25 +332,29 @@ folly::Future<folly::Unit> NFSHelper::access(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mask);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId, mask,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, mask, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId, mask](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_access_async(
-                nfs, fileId.c_str(), mask, accessCallback, promise.get());
+                auto ret = nfs_access(m_nfs, fileId.c_str(), mask);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs access on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS access failed on " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "access");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "access");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
@@ -452,67 +362,56 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, fileId, offset, count](size_t retryCounter) {
-            struct nfsdir *nfsdir{};
-            struct nfsdirent *nfsdirent{};
-            folly::fbvector<folly::fbstring> result;
+    return connect().thenValue([this, fileId, offset, count,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, offset, count, s = std::move(s)](
+                size_t retryCounter) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException<
+                        folly::fbvector<folly::fbstring>>(ECANCELED);
 
-            if (nfs_opendir(nfs, fileId.c_str(), &nfsdir)) {
-                LOG(ERROR) << "NFS failed to opendir(): " << nfs_get_error(nfs);
+                struct nfsdir *nfsdir{};
+                struct nfsdirent *nfsdirent{};
+                folly::fbvector<folly::fbstring> result;
 
-                return one::helpers::makeFutureNFSException<
-                    folly::fbvector<folly::fbstring>>(EIO, "readdir");
-            }
+                int ret = nfs_opendir(m_nfs, fileId.c_str(), &nfsdir);
+                if (ret != 0) {
+                    LOG(ERROR)
+                        << "NFS failed to opendir(): " << nfs_get_error(nfs());
 
-            int offset_ = offset;
-            int count_ = count;
-            while ((nfsdirent = nfs_readdir(nfs, nfsdir)) != NULL) {
-                if ((strcmp(nfsdirent->name, ".") != 0) &&
-                    (strcmp(nfsdirent->name, "..") != 0)) {
-                    if (offset_ > 0) {
-                        --offset_;
-                    }
-                    else {
-                        result.push_back(folly::fbstring(nfsdirent->name));
-                        --count_;
+                    return one::helpers::makeFutureNFSException<
+                        folly::fbvector<folly::fbstring>>(ret, "readdir");
+                }
+
+                int offset_ = offset;
+                int count_ = count;
+                while ((nfsdirent = nfs_readdir(m_nfs, nfsdir)) != NULL) {
+                    if ((strcmp(nfsdirent->name, ".") != 0) &&
+                        (strcmp(nfsdirent->name, "..") != 0)) {
+                        if (offset_ > 0) {
+                            --offset_;
+                        }
+                        else {
+                            result.push_back(folly::fbstring(nfsdirent->name));
+                            --count_;
+                        }
                     }
                 }
-            }
 
-            nfs_closedir(nfs, nfsdir);
+                nfs_closedir(m_nfs, nfsdir);
 
-            LOG_DBG(2) << "Read directory " << fileId << " with entries "
-                       << LOG_VEC(result);
+                LOG_DBG(2) << "Read directory " << fileId << " with entries "
+                           << LOG_VEC(result);
 
-            return folly::makeFuture<folly::fbvector<folly::fbstring>>(
-                std::move(result));
-        })
-        .via(executor().get());
-}
-
-namespace {
-constexpr size_t kNFSReadlinkBufferSize = 4096U;
-
-void readlinkCallback(
-    int status, struct nfs_context *nfs, void *link, void *data)
-{
-    auto *promise = (folly::Promise<folly::fbstring> *)data;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "readlink"));
-        return;
-    }
-
-    if (strlen(static_cast<char *>(link)) > kNFSReadlinkBufferSize) {
-        promise->setException(makeNFSException(ENAMETOOLONG, "readlink"));
-        return;
-    }
-
-    folly::fbstring result{static_cast<char *>(link)};
-
-    promise->setValue(std::move(result));
-}
+                return folly::makeFuture<folly::fbvector<folly::fbstring>>(
+                    std::move(result));
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::fbstring> NFSHelper::readlink(
@@ -520,39 +419,40 @@ folly::Future<folly::fbstring> NFSHelper::readlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto promise = std::make_shared<folly::Promise<folly::fbstring>>();
+    return connect().thenValue([this, fileId,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException<folly::fbstring>(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_readlink_async(
-                nfs, fileId.c_str(), readlinkCallback, promise.get());
+                constexpr size_t kNFSReadlinkBufferSize = 4096U;
+                auto buf = folly::IOBuf::create(kNFSReadlinkBufferSize);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs readlink on " << fileId;
+                auto ret = nfs_readlink(m_nfs, fileId.c_str(),
+                    reinterpret_cast<char *>(buf->writableData()),
+                    kNFSReadlinkBufferSize - 1);
 
-                return one::helpers::makeFutureNFSException<folly::fbstring>(
-                    error, "readlink");
-            }
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS readlink failed for " << fileId;
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
+                    return one::helpers::makeFutureNFSException<
+                        folly::fbstring>(ret, "readlink");
+                }
 
-namespace {
-void mknodCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
+                buf->append(ret);
+                auto target = folly::fbstring{buf->moveToFbString().c_str()};
 
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "mknod"));
-        return;
-    }
+                LOG_DBG(2) << "Link " << fileId
+                           << " read successfully - resolves to " << target;
 
-    promise->setValue();
-}
+                return folly::makeFuture(std::move(target));
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::mknod(const folly::fbstring &fileId,
@@ -561,41 +461,35 @@ folly::Future<folly::Unit> NFSHelper::mknod(const folly::fbstring &fileId,
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(unmaskedMode)
                 << LOG_FARG(flagsToMask(flags));
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    const mode_t mode = unmaskedMode | flagsToMask(flags) | S_IFREG;
 
-    const mode_t mode = unmaskedMode | flagsToMask(flags);
+    return connect().thenValue([this, fileId, mode, rdev,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, mode, rdev, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId, mode, rdev](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_mknod_async(
-                nfs, fileId.c_str(), mode, rdev, mknodCallback, promise.get());
+                auto ret = nfs_mknod(m_nfs, fileId.c_str(), mode, rdev);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs mknod on " << fileId;
+                if (ret != 0) {
+                    LOG(ERROR) << "NFS mknod failed on " << fileId
+                               << " with mode " << std::oct << mode << std::dec;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "mknod");
-            }
+                    LOG(ERROR)
+                        << "NFS failed to mknod(): " << nfs_get_error(nfs());
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "mknod");
+                }
 
-namespace {
-void mkdirCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "mkdir"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::mkdir(
@@ -603,40 +497,29 @@ folly::Future<folly::Unit> NFSHelper::mkdir(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId, mode,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, mode, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId, mode](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_mkdir2_async(
-                nfs, fileId.c_str(), mode, mkdirCallback, promise.get());
+                auto ret = nfs_mkdir2(nfs(), fileId.c_str(), mode);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs mkdir on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS mkdir failed for " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "mkdir");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "mkdir");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void unlinkCallback(
-    int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "unlink"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::unlink(
@@ -644,79 +527,58 @@ folly::Future<folly::Unit> NFSHelper::unlink(
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_unlink_async(
-                nfs, fileId.c_str(), unlinkCallback, promise.get());
+                auto ret = nfs_unlink(nfs(), fileId.c_str());
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs unlink on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS unlink failed for " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "unlink");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "unlink");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void rmdirCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "rmdir"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_rmdir_async(
-                nfs, fileId.c_str(), rmdirCallback, promise.get());
+                auto ret = nfs_rmdir(nfs(), fileId.c_str());
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs rmdir on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS rmdir failed for " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "rmdir");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "rmdir");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void symlinkCallback(
-    int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "symlink"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::symlink(
@@ -724,41 +586,30 @@ folly::Future<folly::Unit> NFSHelper::symlink(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, from, to,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, from, to, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, from, to](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_symlink_async(
-                nfs, from.c_str(), to.c_str(), symlinkCallback, promise.get());
+                auto ret = nfs_symlink(nfs(), from.c_str(), to.c_str());
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs symlink from " << from
-                           << " to " << to;
+                if (ret != 0) {
+                    LOG_DBG(1)
+                        << "NFS symlink failed for " << from << " to " << to;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "symlink");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "symlink");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void renameCallback(
-    int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "rename"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::rename(
@@ -766,40 +617,29 @@ folly::Future<folly::Unit> NFSHelper::rename(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, from, to,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, from, to, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, from, to](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_rename_async(
-                nfs, from.c_str(), to.c_str(), renameCallback, promise.get());
+                auto ret = nfs_rename(nfs(), from.c_str(), to.c_str());
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs rename from " << from
-                           << " to " << to;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS rename failed " << from << " to " << to;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "rename");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "rename");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void linkCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "link"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::link(
@@ -807,40 +647,29 @@ folly::Future<folly::Unit> NFSHelper::link(
 {
     LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, from, to,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, from, to, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, from, to](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_link_async(
-                nfs, from.c_str(), to.c_str(), linkCallback, promise.get());
+                auto ret = nfs_link(nfs(), from.c_str(), to.c_str());
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs link from " << from
-                           << " to " << to;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS link failed " << from << " to " << to;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "link");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "link");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void chmodCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "chmod"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::chmod(
@@ -848,39 +677,29 @@ folly::Future<folly::Unit> NFSHelper::chmod(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId, mode,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, mode, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId, mode](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_chmod_async(
-                nfs, fileId.c_str(), mode, chmodCallback, promise.get());
+                auto ret = nfs_chmod(nfs(), fileId.c_str(), mode);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs chmod on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS chmod failed for " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "chmod");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "chmod");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void chownCallback(int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "chown"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::chown(
@@ -888,40 +707,29 @@ folly::Future<folly::Unit> NFSHelper::chown(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId, uid, gid,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [this, fileId, uid, gid, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId, uid, gid](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_chown_async(
-                nfs, fileId.c_str(), uid, gid, chownCallback, promise.get());
+                auto ret = nfs_chown(nfs(), fileId.c_str(), uid, gid);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs chown on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS chown failed for " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "chown");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "chown");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void truncateCallback(
-    int status, struct nfs_context *nfs, void *data, void *pdata)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)pdata;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "truncate"));
-        return;
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
@@ -929,50 +737,37 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
+    return connect().thenValue([this, fileId, size,
+                                   s = std::weak_ptr<NFSHelper>{
+                                       shared_from_this()}](auto && /*unit*/) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [nfs = m_nfs, fileId, size, s = std::move(s)](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [nfs = m_nfs, promise, fileId, size](size_t retryCount) {
-            auto future = promise->getFuture();
-            auto error = nfs_truncate_async(
-                nfs, fileId.c_str(), size, truncateCallback, promise.get());
+                auto ret = nfs_truncate(nfs, fileId.c_str(), size);
 
-            if (error != 0) {
-                LOG_DBG(1) << "Failed to call async nfs truncate on " << fileId;
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS truncate failed on " << fileId;
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    error, "truncate");
-            }
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "truncate");
+                }
 
-            return future;
-        })
-        .via(executor().get())
-        .then([promise](auto &&res) { return res; });
-}
-
-namespace {
-void mountCallback(
-    int status, struct nfs_context *nfs, void *statbuf, void *data)
-{
-    auto *promise = (folly::Promise<folly::Unit> *)data;
-
-    if (status < 0) {
-        promise->setException(makeNFSException(status, "mount"));
-    }
-
-    promise->setValue();
-}
+                return folly::makeFuture();
+            })
+            .via(executor().get());
+    });
 }
 
 folly::Future<folly::Unit> NFSHelper::connect()
 {
     LOG_FCALL();
 
-    auto promise = std::make_shared<folly::Promise<folly::Unit>>();
-
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [this, promise, s = std::weak_ptr<NFSHelper>{shared_from_this()}](
-            size_t n) {
+        [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
             auto self = s.lock();
             if (!self)
                 return makeFutureNFSException(ECANCELED, "connect");
@@ -980,8 +775,9 @@ folly::Future<folly::Unit> NFSHelper::connect()
             if (m_isConnected)
                 return folly::makeFuture();
 
-            LOG_DBG(1) << "Attempting to connect to NFS server at: " << host()
-                       << " path: " << path();
+            LOG(ERROR) << "Attempting (" << n
+                       << ") to connect to NFS server at: " << host()
+                       << " path: " << volume();
 
             m_nfs = nfs_init_context();
             if (m_nfs == nullptr) {
@@ -989,24 +785,25 @@ folly::Future<folly::Unit> NFSHelper::connect()
                 return makeFutureNFSException(EIO, "init");
             }
 
-            auto future = promise->getFuture();
+            nfs_set_version(m_nfs, version());
+            nfs_set_debug(m_nfs, 9);
+            nfs_set_uid(m_nfs, uid());
+            nfs_set_gid(m_nfs, gid());
 
-            auto ret = nfs_mount_async(m_nfs, host().c_str(), path().c_str(),
-                mountCallback, promise.get());
+            LOG(ERROR) << "Calling NFS mount";
+
+            auto ret = nfs_mount(m_nfs, host().c_str(), volume().c_str());
 
             if (ret != 0) {
-                LOG(ERROR) << "Failed to start async nfs mount";
-                return makeFutureNFSException(EIO, "mount");
+                LOG(ERROR) << "NFS mount failed";
+                return makeFutureNFSException(ret, "mount");
             }
 
-            return future;
+            LOG(ERROR) << "NFS mount succeeded";
+
+            return folly::makeFuture();
         })
-        .via(executor().get())
-        .then([this, promise](auto &&res) {
-            if (res.hasValue())
-                m_isConnected = true;
-            return res;
-        });
+        .via(executor().get());
 }
 
 NFSHelperFactory::NFSHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
@@ -1018,7 +815,7 @@ folly::fbstring NFSHelperFactory::name() const { return NFS_HELPER_NAME; }
 
 std::vector<folly::fbstring> NFSHelperFactory::overridableParams() const
 {
-    return {"host", "path", "traverseMounts", "readahead", "tcpSyncnt",
+    return {"host", "volume", "traverseMounts", "readahead", "tcpSyncnt",
         "dirCache", "autoreconnect"};
 }
 
@@ -1026,7 +823,7 @@ std::shared_ptr<StorageHelper> NFSHelperFactory::createStorageHelper(
     const Params &parameters, ExecutionContext executionContext)
 {
     auto params = NFSHelperParams::create(parameters);
-    if (params->version() == 3 || params->version() == 4) {
+    if ((params->version()) == 3 || (params->version() == 4)) {
         return std::make_shared<NFSHelper>(std::move(params), m_executor,
             constants::ASYNC_OPS_TIMEOUT, executionContext);
     }

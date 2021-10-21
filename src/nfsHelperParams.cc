@@ -24,7 +24,7 @@ void NFSHelperParams::initializeFromParams(const Params &parameters)
     StorageHelperParams::initializeFromParams(parameters);
 
     m_host = getParam(parameters, "host").toStdString();
-    m_path = getParam(parameters, "path").toStdString();
+    m_volume = getParam(parameters, "volume").toStdString();
     m_uid = getParam<uid_t>(parameters, "uid", -1);
     m_gid = getParam<gid_t>(parameters, "gid", -1);
     m_traverseMounts = getParam<bool>(parameters, "traverseMounts", true);
@@ -37,7 +37,7 @@ void NFSHelperParams::initializeFromParams(const Params &parameters)
 
 const folly::fbstring &NFSHelperParams::host() const { return m_host; }
 
-const boost::filesystem::path &NFSHelperParams::path() const { return m_path; }
+const boost::filesystem::path &NFSHelperParams::volume() const { return m_volume; }
 
 uid_t NFSHelperParams::uid() const { return m_uid; }
 

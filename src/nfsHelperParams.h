@@ -29,7 +29,7 @@ public:
 
     const folly::fbstring &host() const;
 
-    const boost::filesystem::path &path() const;
+    const boost::filesystem::path &volume() const;
 
     uid_t uid() const;
 
@@ -51,8 +51,8 @@ private:
     // NFS server host and optional port
     folly::fbstring m_host;
 
-    // NFS mount path
-    boost::filesystem::path m_path;
+    // NFS mount volume
+    boost::filesystem::path m_volume;
 
     // UID value to use when talking to the server.
     // default it 65534 on Windows and getuid() on unixen.

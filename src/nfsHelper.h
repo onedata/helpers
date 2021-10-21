@@ -153,7 +153,9 @@ public:
 
     folly::fbstring name() const override { return NFS_HELPER_NAME; };
 
-    const boost::filesystem::path &path() const { return P()->path(); }
+    const boost::filesystem::path &volume() const { return P()->volume(); }
+
+    int version() const { return P()->version(); }
 
     uid_t uid() const { return P()->uid(); }
 
