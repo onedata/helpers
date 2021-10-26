@@ -23,27 +23,29 @@ void NFSHelperParams::initializeFromParams(const Params &parameters)
 {
     StorageHelperParams::initializeFromParams(parameters);
 
+    const auto kNFSDefaultVersion = 3;
+
     m_host = getParam(parameters, "host").toStdString();
     m_volume = getParam(parameters, "volume").toStdString();
-    m_uid = getParam<uid_t>(parameters, "uid", -1);
-    m_gid = getParam<gid_t>(parameters, "gid", -1);
-    m_traverseMounts = getParam<bool>(parameters, "traverseMounts", true);
+    m_uid = getParam<uid_t>(parameters, "uid", 0);
+    m_gid = getParam<gid_t>(parameters, "gid", 0);
     m_readahead = getParam<size_t>(parameters, "readahead", 0);
     m_tcpSyncnt = getParam<int>(parameters, "tcpSyncnt", 0);
     m_dircache = getParam<bool>(parameters, "dircache", true);
     m_autoreconnect = getParam<int>(parameters, "autoreconenct", 0);
-    m_version = getParam<int>(parameters, "version", 3);
+    m_version = getParam<int>(parameters, "version", kNFSDefaultVersion);
 }
 
 const folly::fbstring &NFSHelperParams::host() const { return m_host; }
 
-const boost::filesystem::path &NFSHelperParams::volume() const { return m_volume; }
+const boost::filesystem::path &NFSHelperParams::volume() const
+{
+    return m_volume;
+}
 
 uid_t NFSHelperParams::uid() const { return m_uid; }
 
 gid_t NFSHelperParams::gid() const { return m_gid; }
-
-bool NFSHelperParams::traverseMounts() const { return m_traverseMounts; }
 
 size_t NFSHelperParams::readahead() const { return m_readahead; }
 

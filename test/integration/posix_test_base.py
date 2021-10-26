@@ -13,11 +13,6 @@ import md5
 import pytest
 
 
-@pytest.fixture
-def mountpoint(server):
-    return server.mountpoint
-
-
 @pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper, file_id):
     data = random_str()
@@ -192,9 +187,9 @@ def test_mknod_should_set_premissions(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0644, flags)
 
-    assert 0777&(helper.getattr(file_id).st_mode) == 0654
+    assert 0777&(helper.getattr(file_id).st_mode) == 0644
 
 
 @pytest.mark.mknod_operations_tests
@@ -204,7 +199,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0644, flags)
 
     assert Flag.IFREG in maskToFlags(helper.getattr(file_id).st_mode)
     assert not (Flag.IFCHR in maskToFlags(helper.getattr(file_id).st_mode))
@@ -220,7 +215,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0644, flags)
 
     assert Flag.IFREG in maskToFlags(helper.getattr(file_id).st_mode)
     assert not (Flag.IFCHR in maskToFlags(helper.getattr(file_id).st_mode))

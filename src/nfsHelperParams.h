@@ -35,8 +35,6 @@ public:
 
     gid_t gid() const;
 
-    bool traverseMounts() const;
-
     size_t readahead() const;
 
     int tcpSyncnt() const;
@@ -48,7 +46,7 @@ public:
     int version() const;
 
 private:
-    // NFS server host and optional port
+    // NFS server host
     folly::fbstring m_host;
 
     // NFS mount volume
@@ -61,10 +59,6 @@ private:
     // GID value to use when talking to the server.
     // default it 65534 on Windows and getgid() on unixen.
     gid_t m_gid;
-
-    // Should libnfs try to traverse across nested mounts
-    // automatically or not. Default is 1 == enabled.
-    bool m_traverseMounts{true};
 
     // Enable readahead for files and set the maximum amount
     // of readahead to <int> bytes.

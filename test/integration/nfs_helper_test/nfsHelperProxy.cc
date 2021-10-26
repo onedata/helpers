@@ -30,7 +30,7 @@ using namespace one::helpers;
 /*
  * Minimum 2 threads are required to run helper.
  */
-constexpr int NFS_HELPER_WORKER_THREADS = 10;
+constexpr int NFS_HELPER_WORKER_THREADS = 4;
 
 constexpr std::chrono::milliseconds NFS_HELPER_PROXY_TIMEOUT_MS{10 * 1000};
 
@@ -47,16 +47,15 @@ private:
 
 class NFSHelperProxy {
 public:
-    NFSHelperProxy(std::string host, int port, std::string volume, uid_t uid,
-        gid_t gid, int version)
+    NFSHelperProxy(
+        std::string host, std::string volume, uid_t uid, gid_t gid, int version)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
-              NFS_HELPER_WORKER_THREADS/*,
-              std::make_shared<StorageWorkerFactory>("nfs_t")*/)}
+              NFS_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("nfs_t"))}
     {
         std::unordered_map<folly::fbstring, folly::fbstring> params;
         params["type"] = "nfs";
         params["host"] = host;
-        params["port"] = std::to_string(port);
         params["volume"] = volume;
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
@@ -96,7 +95,7 @@ public:
     int write(std::string fileId, std::string data, int offset)
     {
         ReleaseGIL guard;
-        return m_helper->open(fileId, O_WRONLY | O_CREAT, {})
+        return m_helper->open(fileId, O_RDWR | O_CREAT, {})
             .thenValue([&, helper = m_helper](
                            one::helpers::FileHandlePtr &&handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
@@ -196,46 +195,16 @@ public:
         m_helper->truncate(fileId, offset, size).get();
     }
 
-    std::string getxattr(std::string fileId, std::string name)
-    {
-        ReleaseGIL guard;
-        return m_helper->getxattr(fileId, name).get().toStdString();
-    }
-
-    void setxattr(std::string fileId, std::string name, std::string value,
-        bool create, bool replace)
-    {
-        ReleaseGIL guard;
-        m_helper->setxattr(fileId, name, value, create, replace).get();
-    }
-
-    void removexattr(std::string fileId, std::string name)
-    {
-        ReleaseGIL guard;
-        m_helper->removexattr(fileId, name).get();
-    }
-
-    std::vector<std::string> listxattr(std::string fileId)
-    {
-        ReleaseGIL guard;
-        std::vector<std::string> res;
-        for (auto &xattr : m_helper->listxattr(fileId).get()) {
-            res.emplace_back(xattr.toStdString());
-        }
-        return res;
-    }
-
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::NFSHelper> m_helper;
 };
 
 namespace {
-boost::shared_ptr<NFSHelperProxy> create(std::string host, int port,
-    std::string volume, uid_t uid, gid_t gid, int version)
+boost::shared_ptr<NFSHelperProxy> create(
+    std::string host, std::string volume, uid_t uid, gid_t gid, int version)
 {
-    return boost::make_shared<NFSHelperProxy>(
-        host, port, volume, uid, gid, version);
+    return boost::make_shared<NFSHelperProxy>(host, volume, uid, gid, version);
 }
 } // namespace
 
@@ -258,9 +227,5 @@ BOOST_PYTHON_MODULE(nfs_helper)
         .def("link", &NFSHelperProxy::link)
         .def("chmod", &NFSHelperProxy::chmod)
         .def("chown", &NFSHelperProxy::chown)
-        .def("truncate", &NFSHelperProxy::truncate)
-        .def("getxattr", &NFSHelperProxy::getxattr)
-        .def("setxattr", &NFSHelperProxy::setxattr)
-        .def("removexattr", &NFSHelperProxy::removexattr)
-        .def("listxattr", &NFSHelperProxy::listxattr);
+        .def("truncate", &NFSHelperProxy::truncate);
 }

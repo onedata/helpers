@@ -23,19 +23,6 @@ namespace helpers {
 class NFSHelper;
 
 /**
- * This class holds a NFS client object which should be maintained
- * between handles creation and destruction.
- */
-struct NFSv3Client {
-    char *server{};
-    char *eksport{};
-    uint32_t mountPort{};
-    struct nfsfh *nfsfh{};
-    int isFinished{};
-    bool isConnected{};
-};
-
-/**
  * The @c FileHandle implementation for GlusterFS storage helper.
  */
 class NFSFileHandle : public FileHandle,
@@ -76,7 +63,6 @@ public:
     std::shared_ptr<folly::Executor> executor() { return m_executor; };
 
 private:
-    // std::shared_ptr<NFSClient> m_client;
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
@@ -161,7 +147,19 @@ public:
 
     gid_t gid() const { return P()->gid(); }
 
+    size_t maxReadSize() const { return m_maxReadSize; }
+
+    size_t maxWriteSize() const { return m_maxWriteSize; }
+
     const folly::fbstring &host() const { return P()->host(); }
+
+    bool dircache() const { return P()->dircache(); }
+
+    int tcpSyncnt() const { return P()->tcpSyncnt(); }
+
+    bool autoreconnect() const { return P()->autoreconnect(); }
+
+    size_t readahead() const { return P()->readahead(); }
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
@@ -171,13 +169,12 @@ private:
         return std::dynamic_pointer_cast<NFSHelperParams>(params().get());
     }
 
-    // std::shared_ptr<NFSClient> m_client;
-
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
     struct nfs_context *m_nfs{};
-    struct rpc_context *m_mountContext{};
+    size_t m_maxReadSize{};
+    size_t m_maxWriteSize{};
     std::atomic_bool m_isConnected{false};
 };
 
