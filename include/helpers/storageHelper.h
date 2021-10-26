@@ -348,8 +348,7 @@ public:
      *        the common values, if allowed by helper
      */
     StorageHelperPtr createStorageHelperWithOverride(Params parameters,
-        const Params &overrideParameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
+        const Params &overrideParameters, ExecutionContext executionContext);
 };
 
 /**

@@ -44,7 +44,8 @@ TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
 
     Params empty;
 
-    auto defaultNullHelper = factory.createStorageHelper(empty);
+    auto defaultNullHelper =
+        factory.createStorageHelper(empty, ExecutionContext::ONECLIENT);
 
     Params p1;
     p1.emplace("type", "nulldevice");
@@ -56,7 +57,8 @@ TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
     p1.emplace("simulatedFilesystemParameters", "");
     p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
 
-    auto nullHelper1 = factory.createStorageHelper(p1);
+    auto nullHelper1 =
+        factory.createStorageHelper(p1, ExecutionContext::ONECLIENT);
 }
 
 TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)

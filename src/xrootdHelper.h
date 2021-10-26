@@ -209,9 +209,8 @@ public:
         return {"url", "timeout", "credentialsType", "credentials"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         return std::make_shared<XRootDHelper>(
             XRootDHelperParams::create(parameters), m_executor,

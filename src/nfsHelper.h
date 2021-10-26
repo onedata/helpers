@@ -39,7 +39,7 @@ public:
         std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh,
         std::shared_ptr<folly::Executor> executor, Timeout timeout);
 
-    ~NFSFileHandle() override;
+    ~NFSFileHandle() override = default;
 
     NFSFileHandle(const NFSFileHandle &) = delete;
     NFSFileHandle(NFSFileHandle &&) = delete;
@@ -192,9 +192,8 @@ public:
     folly::fbstring name() const;
 
     std::vector<folly::fbstring> overridableParams() const override;
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override;
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override;
 
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;

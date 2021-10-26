@@ -151,8 +151,7 @@ public:
 
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params & /*parameters*/,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+        ExecutionContext executionContext) override
     {
         std::map<folly::fbstring, StorageHelperPtr> routes;
         return std::make_shared<StorageRouterHelper>(

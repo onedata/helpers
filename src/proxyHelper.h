@@ -113,9 +113,8 @@ public:
 
     virtual folly::fbstring name() const override { return PROXY_HELPER_NAME; }
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         auto storageId = getParam(parameters, "storageId");
         Timeout timeout{getParam<std::size_t>(

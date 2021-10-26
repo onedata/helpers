@@ -48,7 +48,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
     p1.emplace("credentials", "admin:password");
 
     auto helper1 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p1));
+        factory.createStorageHelper(p1, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper1->endpoint().getScheme(), "http");
     EXPECT_EQ(helper1->endpoint().getPort(), 80);
@@ -59,7 +59,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
     p2.emplace("credentials", "admin:password");
 
     auto helper2 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p2));
+        factory.createStorageHelper(p2, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper2->endpoint().getScheme(), "http");
     EXPECT_EQ(helper2->endpoint().getPort(), 80);
@@ -71,7 +71,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
     p3.emplace("credentials", "admin:password");
 
     auto helper3 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p3));
+        factory.createStorageHelper(p3, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper3->endpoint().getScheme(), "http");
     EXPECT_EQ(helper3->endpoint().getPort(), 80);
@@ -84,7 +84,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
     p4.emplace("authorizationHeader", "");
 
     auto helper4 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p4));
+        factory.createStorageHelper(p4, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper4->endpoint().getScheme(), "http");
     EXPECT_EQ(helper4->endpoint().getPort(), 8080);
@@ -101,7 +101,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
     p1.emplace("credentials", "admin:password");
 
     auto helper1 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p1));
+        factory.createStorageHelper(p1, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper1->endpoint().getScheme(), "https");
     EXPECT_EQ(helper1->endpoint().getPort(), 443);
@@ -113,7 +113,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
     p2.emplace("credentials", "admin:password");
 
     auto helper2 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p2));
+        factory.createStorageHelper(p2, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper2->endpoint().getScheme(), "https");
     EXPECT_EQ(helper2->endpoint().getPort(), 443);
@@ -127,7 +127,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
     p3.emplace("maximumUploadSize", "100000000000");
 
     auto helper3 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p3));
+        factory.createStorageHelper(p3, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper3->endpoint().getScheme(), "https");
     EXPECT_EQ(helper3->endpoint().getPort(), 8080);
@@ -150,7 +150,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldCheckAccessTokenTTL)
     p1.emplace("accessTokenTTL", "61");
 
     auto helper1 = std::dynamic_pointer_cast<WebDAVHelper>(
-        factory.createStorageHelper(p1));
+        factory.createStorageHelper(p1, ExecutionContext::ONECLIENT));
 
     EXPECT_EQ(helper1->credentialsType(), WebDAVCredentialsType::OAUTH2);
     EXPECT_EQ(helper1->oauth2IdP(), "github");

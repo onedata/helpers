@@ -48,9 +48,8 @@ public:
         return {"monitorHostname", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         const auto &clusterName = getParam(parameters, "clusterName");
         const auto &monHost = getParam(parameters, "monitorHostname");

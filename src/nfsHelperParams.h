@@ -41,7 +41,7 @@ public:
 
     bool dircache() const;
 
-    bool autoreconnect() const;
+    int autoreconnect() const;
 
     int version() const;
 

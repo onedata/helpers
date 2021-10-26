@@ -450,9 +450,8 @@ public:
         folly::Optional<size_t>>
     parseSimulatedFilesystemParameters(const std::string &params);
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         const auto latencyMin = getParam<int>(parameters, "latencyMin", 0);
         const auto latencyMax = getParam<int>(parameters, "latencyMax", 0);

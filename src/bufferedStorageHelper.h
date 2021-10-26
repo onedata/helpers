@@ -198,9 +198,8 @@ public:
         return {};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         return {};
     }
@@ -208,7 +207,7 @@ public:
     std::shared_ptr<BufferedStorageHelper> createStorageHelper(
         StorageHelperPtr bufferStorageHelper,
         StorageHelperPtr mainStorageHelper, const Params &parameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        ExecutionContext executionContext)
     {
         return std::make_shared<BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
