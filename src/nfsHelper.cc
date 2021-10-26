@@ -318,12 +318,11 @@ folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
-    auto openFunc = [this, fileId, helper = shared_from_this(),
-                        executor = executor(),
+    auto openFunc = [fileId, helper = shared_from_this(), executor = executor(),
                         timeout = timeout()](auto &&mode) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, mode, helper, executor, timeout](size_t retryCount) {
+            [fileId, mode, helper, executor, timeout](size_t retryCount) {
                 struct nfsfh *nfsFh{nullptr};
 
                 LOG_DBG(2) << "Attempting to open file " << fileId
