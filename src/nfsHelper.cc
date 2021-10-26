@@ -373,7 +373,7 @@ folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
                                        shared_from_this()}](auto && /*unit*/) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, s](size_t retryCount) {
+            [fileId, s](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<struct stat>(ECANCELED);
@@ -424,7 +424,7 @@ folly::Future<folly::Unit> NFSHelper::access(
                                        shared_from_this()}](auto && /*unit*/) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, mask, s](size_t retryCount) {
+            [fileId, mask, s](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
@@ -512,7 +512,7 @@ folly::Future<folly::fbstring> NFSHelper::readlink(
                                        shared_from_this()}](auto && /*unit*/) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, s](size_t retryCount) {
+            [fileId, s](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<folly::fbstring>(ECANCELED);
