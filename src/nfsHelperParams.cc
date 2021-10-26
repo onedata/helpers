@@ -32,7 +32,7 @@ void NFSHelperParams::initializeFromParams(const Params &parameters)
     m_readahead = getParam<size_t>(parameters, "readahead", 0);
     m_tcpSyncnt = getParam<int>(parameters, "tcpSyncnt", 0);
     m_dircache = getParam<bool>(parameters, "dircache", true);
-    m_autoreconnect = getParam<int>(parameters, "autoreconenct", 1);
+    m_autoreconnect = getParam<int>(parameters, "autoreconnect", 1);
     m_version = getParam<int>(parameters, "version", kNFSDefaultVersion);
 }
 

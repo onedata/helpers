@@ -172,10 +172,10 @@ private:
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
-    struct nfs_context *m_nfs{};
+    static thread_local struct nfs_context *m_nfs;
     size_t m_maxReadSize{};
     size_t m_maxWriteSize{};
-    std::atomic_bool m_isConnected{false};
+    static thread_local bool m_isConnected;
 };
 
 /**

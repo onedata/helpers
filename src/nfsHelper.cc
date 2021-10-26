@@ -94,52 +94,64 @@ folly::Future<folly::IOBufQueue> NFSFileHandle::read(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nfs.read");
 
-    auto *nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
-    const size_t maxBlock =
-        std::dynamic_pointer_cast<NFSHelper>(helper())->maxReadSize();
+    auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh, maxBlock, offset, size,
-            timer = std::move(timer)](size_t retryCount) {
-            folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
-            char *raw =
-                static_cast<char *>(buffer.preallocate(size, size).first);
+    auto readOp = [this, helperPtr, fileId = fileId(), offset, size,
+                      timer = std::move(timer),
+                      s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
+                      size_t retryCount) {
+        auto self = s.lock();
+        if (!self)
+            return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
 
-            LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
-                       << offset << " from file " << fileId;
+        auto *nfs = helperPtr->nfs();
+        const size_t maxBlock = helperPtr->maxReadSize();
 
-            int ret = 0;
-            size_t bufOffset = 0;
+        folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
+        char *raw = static_cast<char *>(buffer.preallocate(size, size).first);
 
-            while (bufOffset < size) {
-                ret = nfs_pread(nfs, nfsFh, offset + bufOffset, // NOLINT
-                    std::min(maxBlock, size - bufOffset),
-                    raw + bufOffset); // NOLINT
+        LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
+                   << offset << " from file " << fileId;
 
-                if (ret == 0)
-                    break;
+        int ret = 0;
+        size_t bufOffset = 0;
 
-                if (ret < 0) {
-                    LOG_DBG(1) << "NFS read failed from " << fileId
-                               << " with error: " << nfs_get_error(nfs)
-                               << " - retry " << retryCount;
+        while (bufOffset < size) {
+            ret = nfs_pread(nfs, m_nfsFh,
+                offset + bufOffset,                   // NOLINT
+                std::min(maxBlock, size - bufOffset), // NOLINT
+                raw + bufOffset);                     // NOLINT
 
-                    return one::helpers::makeFutureNFSException<
-                        folly::IOBufQueue>(ret, "read");
-                }
+            if (ret == 0)
+                break;
 
-                bufOffset += ret;
+            if (ret < 0) {
+                LOG_DBG(1) << "NFS read failed from " << fileId
+                           << " with error: " << nfs_get_error(nfs)
+                           << " - retry " << retryCount;
+
+                return one::helpers::makeFutureNFSException<folly::IOBufQueue>(
+                    ret, "read");
             }
 
-            buffer.postallocate(bufOffset);
+            bufOffset += ret;
+        }
 
-            LOG_DBG(2) << "Read " << bufOffset << " from file " << fileId;
+        buffer.postallocate(bufOffset);
 
-            ONE_METRIC_TIMERCTX_STOP(timer, bufOffset);
+        LOG_DBG(2) << "Read " << bufOffset << " from file " << fileId;
 
-            return folly::makeFuture(std::move(buffer));
-        })
-        .via(executor().get());
+        ONE_METRIC_TIMERCTX_STOP(timer, bufOffset);
+
+        return folly::makeFuture(std::move(buffer));
+    };
+
+    return helperPtr->connect().thenValue(
+        [this, readOp = std::move(readOp)](auto && /*unit*/) {
+            return folly::futures::retrying(
+                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(readOp))
+                .via(executor().get());
+        });
 }
 
 folly::Future<std::size_t> NFSFileHandle::write(
@@ -147,84 +159,106 @@ folly::Future<std::size_t> NFSFileHandle::write(
 {
     LOG_FCALL() << LOG_FARG(offset);
 
-    if (buf.empty())
-        return folly::makeFuture<std::size_t>(0);
-
-    auto *nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
-    const size_t maxBlock =
-        std::dynamic_pointer_cast<NFSHelper>(helper())->maxWriteSize();
-
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.nfs.write");
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh, maxBlock,
-            buf = std::move(buf), offset, writeCb = std::move(writeCb),
-            timer = std::move(timer)](size_t retryCount) mutable {
-            const auto size = buf.chainLength();
+    if (buf.empty()) {
+        ONE_METRIC_TIMERCTX_STOP(timer, 0);
+        return folly::makeFuture<std::size_t>(0);
+    }
 
-            auto iobuf = buf.move();
-            if (iobuf->isChained()) {
-                LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
-                           << " of size: " << iobuf->length();
-                iobuf->unshare();
-                iobuf->coalesce();
+    auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
+
+    auto writeOp = [this, helperPtr, fileId = fileId(), offset,
+                       buf = std::move(buf), timer = std::move(timer),
+                       writeCb = std::move(writeCb),
+                       s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
+                       size_t retryCount) mutable {
+        auto self = s.lock();
+        if (!self)
+            return makeFuturePosixException<std::size_t>(ECANCELED);
+
+        auto *nfs = helperPtr->nfs();
+        const size_t maxBlock = helperPtr->maxWriteSize();
+
+        const auto size = buf.chainLength();
+
+        auto iobuf = buf.move();
+        if (iobuf->isChained()) {
+            LOG_DBG(2) << "Coalescing chained buffer at offset " << offset
+                       << " of size: " << iobuf->length();
+            iobuf->unshare();
+            iobuf->coalesce();
+        }
+
+        int ret = 0;
+        std::size_t bufOffset = 0;
+        while (bufOffset < size) {
+            ret = nfs_pwrite(nfs, m_nfsFh, offset + bufOffset, // NOLINT
+                std::min(maxBlock, size - bufOffset),          // NOLINT
+                iobuf->writableData() + bufOffset);            // NOLINT
+
+            if (ret < 0) {
+                LOG_DBG(1) << "NFS write failed for " << fileId << " : "
+                           << nfs_get_error(nfs) << " - retry " << retryCount;
+
+                return one::helpers::makeFutureNFSException<std::size_t>(
+                    ret, "write");
             }
 
-            int ret = 0;
-            size_t bufOffset = 0;
-            while (bufOffset < size) {
-                ret = nfs_pwrite(nfs, nfsFh, offset + bufOffset, // NOLINT
-                    std::min(maxBlock, size - bufOffset),        // NOLINT
-                    iobuf->writableData() + bufOffset);          // NOLINT
+            bufOffset += ret;
+        }
 
-                if (ret < 0) {
-                    LOG_DBG(1)
-                        << "NFS write failed for " << fileId << " : "
-                        << nfs_get_error(nfs) << " - retry " << retryCount;
+        if (writeCb)
+            writeCb(bufOffset);
 
-                    return one::helpers::makeFutureNFSException<std::size_t>(
-                        ret, "write");
-                }
+        LOG_DBG(2) << "Written " << bufOffset << " bytes to file " << fileId;
 
-                bufOffset += ret;
-            }
+        ONE_METRIC_TIMERCTX_STOP(timer, bufOffset);
 
-            if (writeCb)
-                writeCb(bufOffset);
+        return folly::makeFuture(bufOffset);
+    };
 
-            LOG_DBG(2) << "Written " << bufOffset << " bytes to file "
-                       << fileId;
-
-            ONE_METRIC_TIMERCTX_STOP(timer, bufOffset);
-
-            return folly::makeFuture(bufOffset);
-        })
-        .via(executor().get());
+    return helperPtr->connect().thenValue(
+        [this, writeOp = std::move(writeOp)](auto && /*unit*/) mutable {
+            return folly::futures::retrying(
+                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(writeOp))
+                .via(executor().get());
+        });
 }
 
 folly::Future<folly::Unit> NFSFileHandle::release()
 {
     LOG_FCALL();
 
-    auto *nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
+    auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh,
-            self = std::shared_ptr<NFSFileHandle>{shared_from_this()}](
-            size_t retryCount) {
-            auto ret = nfs_close(nfs, nfsFh);
+    auto releaseOp = [this, helperPtr, fileId = fileId(),
+                         s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
+                         size_t retryCount) {
+        auto self = s.lock();
+        if (!self)
+            return folly::makeFuture(); // makeFuturePosixException(ECANCELED);
 
-            if (ret != 0) {
-                LOG_DBG(1) << "Failed to release file " << fileId << " - retry "
-                           << retryCount;
+        auto *nfs = helperPtr->nfs();
+        auto ret = nfs_close(nfs, m_nfsFh);
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    ret, "release");
-            }
+        if (ret != 0) {
+            LOG_DBG(1) << "Failed to release file " << fileId << " - retry "
+                       << retryCount;
 
-            return folly::makeFuture();
-        })
-        .via(executor().get());
+            return one::helpers::makeFutureNFSException<folly::Unit>(
+                ret, "release");
+        }
+
+        return folly::makeFuture();
+    };
+
+    return helperPtr->connect().thenValue(
+        [this, releaseOp = std::move(releaseOp)](auto && /*unit*/) {
+            return folly::futures::retrying(
+                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(releaseOp))
+                .via(executor().get());
+        });
 }
 
 folly::Future<folly::Unit> NFSFileHandle::flush() { return {}; }
@@ -233,29 +267,36 @@ folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
 {
     LOG_FCALL();
 
-    auto *nfs = std::dynamic_pointer_cast<NFSHelper>(helper())->nfs();
+    auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [fileId = fileId(), nfs, nfsFh = m_nfsFh,
-            s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-            size_t retryCount) {
-            auto self = s.lock();
-            if (!self)
-                return makeFuturePosixException<folly::Unit>(ECANCELED);
+    auto fsyncOp = [this, helperPtr, fileId = fileId(),
+                       s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
+                       size_t retryCount) {
+        auto self = s.lock();
+        if (!self)
+            return makeFuturePosixException(ECANCELED);
 
-            auto ret = nfs_fsync(nfs, nfsFh);
+        auto *nfs = helperPtr->nfs();
 
-            if (ret != 0) {
-                LOG_DBG(1) << "Failed to fsync file " << fileId << " - retry "
-                           << retryCount;
+        auto ret = nfs_fsync(nfs, m_nfsFh);
 
-                return one::helpers::makeFutureNFSException<folly::Unit>(
-                    ret, "fsync");
-            }
+        if (ret != 0) {
+            LOG_DBG(1) << "Failed to fsync file " << fileId << " - retry "
+                       << retryCount;
 
-            return folly::makeFuture();
-        })
-        .via(executor().get());
+            return one::helpers::makeFutureNFSException<folly::Unit>(
+                ret, "fsync");
+        }
+
+        return folly::makeFuture();
+    };
+
+    return helperPtr->connect().thenValue(
+        [this, fsyncOp = std::move(fsyncOp)](auto && /*unit*/) {
+            return folly::futures::retrying(
+                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(fsyncOp))
+                .via(executor().get());
+        });
 }
 
 NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
@@ -269,6 +310,9 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
     invalidateParams()->setValue(std::move(params));
 }
+
+thread_local struct nfs_context *NFSHelper::m_nfs = nullptr;
+thread_local bool NFSHelper::m_isConnected = false;
 
 folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
