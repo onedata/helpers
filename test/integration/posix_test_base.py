@@ -12,6 +12,10 @@ import md5
 
 import pytest
 
+@pytest.fixture
+def mountpoint(server):
+    return server.mountpoint
+
 
 @pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper, file_id):
