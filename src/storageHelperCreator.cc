@@ -43,6 +43,10 @@
 #include "xrootdHelper.h"
 #endif
 
+#if WITH_NFS
+#include "nfsHelper.h"
+#endif
+
 namespace one {
 namespace helpers {
 
@@ -71,6 +75,9 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
+#if WITH_NFS
+    std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
     std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
     communication::Communicator &communicator,
@@ -102,6 +109,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_XROOTD
     m_xrootdExecutor{std::move(xrootdExecutor)}
+    ,
+#endif
+#if WITH_NFS
+    m_nfsExecutor{std::move(nfsExecutor)}
     ,
 #endif
     m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
@@ -136,6 +147,9 @@ StorageHelperCreator::StorageHelperCreator(
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
+#if WITH_NFS
+    std::shared_ptr<folly::IOExecutor> nfsExecutor,
+#endif
     std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
     std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
     ExecutionContext executionContext)
@@ -165,6 +179,10 @@ StorageHelperCreator::StorageHelperCreator(
 #endif
 #if WITH_XROOTD
     m_xrootdExecutor{std::move(xrootdExecutor)}
+    ,
+#endif
+#if WITH_NFS
+    m_nfsExecutor{std::move(nfsExecutor)}
     ,
 #endif
     m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
@@ -288,6 +306,13 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
         helper = XRootDHelperFactory{m_xrootdExecutor}
                      .createStorageHelperWithOverride(
                          args, overrideParams, m_executionContext);
+#endif
+
+#if WITH_NFS
+    if (name == NFS_HELPER_NAME)
+        helper =
+            NFSHelperFactory{m_nfsExecutor}.createStorageHelperWithOverride(
+                args, overrideParams, m_executionContext);
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)

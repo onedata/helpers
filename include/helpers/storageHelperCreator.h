@@ -138,6 +138,9 @@ public:
 #if WITH_XROOTD
         std::shared_ptr<folly::IOExecutor> xrootdExecutor,
 #endif
+#if WITH_NFS
+        std::shared_ptr<folly::IOExecutor> nfsExecutor,
+#endif
         std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
         communication::Communicator &m_communicator,
         std::size_t bufferSchedulerWorkers = 1,
@@ -164,6 +167,9 @@ public:
 #endif
 #if WITH_XROOTD
         std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
+#if WITH_NFS
+        std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
         std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
         std::size_t bufferSchedulerWorkers = 1,
@@ -214,6 +220,9 @@ private:
 #endif
 #if WITH_XROOTD
     std::shared_ptr<folly::IOExecutor> m_xrootdExecutor;
+#endif
+#if WITH_NFS
+    std::shared_ptr<folly::IOExecutor> m_nfsExecutor;
 #endif
 
     std::shared_ptr<folly::IOExecutor> m_nullDeviceExecutor;
