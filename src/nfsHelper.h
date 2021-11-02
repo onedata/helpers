@@ -173,8 +173,8 @@ private:
     Timeout m_timeout;
 
     static thread_local struct nfs_context *m_nfs;
-    size_t m_maxReadSize{};
-    size_t m_maxWriteSize{};
+    static thread_local size_t m_maxReadSize;
+    static thread_local size_t m_maxWriteSize;
     static thread_local bool m_isConnected;
 };
 

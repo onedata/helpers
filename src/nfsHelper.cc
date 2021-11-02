@@ -237,7 +237,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
                          size_t retryCount) {
         auto self = s.lock();
         if (!self)
-            return folly::makeFuture(); // makeFuturePosixException(ECANCELED);
+            return folly::makeFuture();
 
         auto *nfs = helperPtr->nfs();
         auto ret = nfs_close(nfs, m_nfsFh);
@@ -313,6 +313,8 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
 thread_local struct nfs_context *NFSHelper::m_nfs = nullptr;
 thread_local bool NFSHelper::m_isConnected = false;
+thread_local size_t NFSHelper::m_maxWriteSize = 0;
+thread_local size_t NFSHelper::m_maxReadSize = 0;
 
 folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
@@ -919,7 +921,7 @@ folly::Future<folly::Unit> NFSHelper::connect()
             if (m_maxWriteSize < kTransferSizeWarningThreshold)
                 LOG(WARNING)
                     << "NFS server at " << host()
-                    << " has very low write transfer size: " << m_maxReadSize;
+                    << " has very low write transfer size: " << m_maxWriteSize;
 
             return folly::makeFuture();
         })
