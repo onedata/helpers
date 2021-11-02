@@ -243,8 +243,8 @@ folly::Future<folly::Unit> NFSFileHandle::release()
         auto ret = nfs_close(nfs, m_nfsFh);
 
         if (ret != 0) {
-            LOG_DBG(1) << "Failed to release file " << fileId << " - retry "
-                       << retryCount;
+            LOG(WARNING) << "Failed to release file " << fileId << " due to "
+                         << nfs_get_error(nfs) << " - retry " << retryCount;
 
             return one::helpers::makeFutureNFSException<folly::Unit>(
                 ret, "release");
@@ -628,8 +628,9 @@ folly::Future<folly::Unit> NFSHelper::unlink(
                 auto ret = nfs_unlink(nfs(), fileId.c_str());
 
                 if (ret != 0) {
-                    LOG_DBG(1) << "NFS unlink failed for " << fileId
-                               << " - retry " << retryCount;
+                    LOG(WARNING)
+                        << "NFS unlink failed for " << fileId << " due to "
+                        << nfs_get_error(nfs()) << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "unlink");
@@ -658,8 +659,9 @@ folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
                 auto ret = nfs_rmdir(nfs(), fileId.c_str());
 
                 if (ret != 0) {
-                    LOG_DBG(1) << "NFS rmdir failed for " << fileId
-                               << " - retry " << retryCount;
+                    LOG(WARNING)
+                        << "NFS rmdir failed for " << fileId << " due to "
+                        << nfs_get_error(nfs()) << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "rmdir");
@@ -844,8 +846,9 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
                 auto ret = nfs_truncate(nfs, fileId.c_str(), size);
 
                 if (ret != 0) {
-                    LOG_DBG(1) << "NFS truncate failed on " << fileId
-                               << " - retry " << retryCount;
+                    LOG(WARNING)
+                        << "NFS truncate failed on " << fileId << " due to "
+                        << nfs_get_error(nfs) << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "truncate");
