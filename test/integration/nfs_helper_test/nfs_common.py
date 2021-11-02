@@ -69,7 +69,7 @@ def create_server(request, version, volume):
     uid = 0
     gid = 0
 
-    tmp_dir = tempfile.mkdtemp(dir=common.HOST_STORAGE_PATH, prefix="helpers_nfs_")
+    tmp_dir = tempfile.mkdtemp(dir=common.HOST_STORAGE_PATH, prefix="nfs_helper_test_")
     os.chmod(tmp_dir, 0o777)
 
     result = nfs.up('onedata/nfs:v1', common.generate_uid(), 'storage', tmp_dir)
@@ -77,7 +77,7 @@ def create_server(request, version, volume):
     time.sleep(3)
 
     [container] = result['docker_ids']
-    host = result['ip'].encode('ascii')
+    host = result['host'].encode('ascii')
 
     def fin():
         docker.remove([container], force=True, volumes=True)
