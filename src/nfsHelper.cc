@@ -14,9 +14,12 @@
 #include <folly/futures/Retrying.h>
 #include <nfsc/libnfs-raw.h>
 
+#include <random>
+
 namespace one {
 namespace helpers {
 
+namespace {
 const std::set<int> &NFSRetryErrors()
 {
     static const std::set<int> NFS_RETRY_ERRORS = {EINTR, EIO, EAGAIN, EACCES,
@@ -26,7 +29,6 @@ const std::set<int> &NFSRetryErrors()
     return NFS_RETRY_ERRORS;
 }
 
-namespace {
 class nfs_system_error : public std::system_error {
 public:
     nfs_system_error(std::error_code ec, std::string op)
@@ -51,31 +53,38 @@ inline folly::Future<T> makeFutureNFSException(
 {
     return folly::makeFuture<T>(makeNFSException(posixCode, operation));
 }
-} // namespace
 
-inline std::function<bool(size_t, const folly::exception_wrapper &)>
-NFSRetryPolicy(size_t maxTries)
+inline auto NFSRetryPolicy(size_t maxTries)
 {
-    return [maxTries](size_t n, const folly::exception_wrapper &ew) {
-        const auto *e = ew.get_exception<nfs_system_error>();
-        if (e == nullptr)
-            return false;
+    constexpr auto k_retryBackoffMinMs = 250;
+    constexpr auto k_retryBackoffMaxMs = 2000;
+    constexpr auto k_retryJitter = 0.5;
 
-        auto shouldRetry = (n < maxTries) &&
-            ((e->code().value() >= 0) &&
-                (NFSRetryErrors().find(e->code().value()) !=
-                    NFSRetryErrors().end()));
+    return folly::futures::retryingPolicyCappedJitteredExponentialBackoff(
+        maxTries, std::chrono::milliseconds{k_retryBackoffMinMs},
+        std::chrono::milliseconds{k_retryBackoffMaxMs}, k_retryJitter,
+        std::mt19937_64(std::random_device{}()),
+        [maxTries](size_t n, const folly::exception_wrapper &ew) {
+            const auto *e = ew.get_exception<nfs_system_error>();
+            if (e == nullptr)
+                return false;
 
-        if (shouldRetry) {
-            LOG(WARNING) << "Retrying NFS helper operation '" << e->operation
-                         << "' due to error: " << e->code();
-            ONE_METRIC_COUNTER_INC(
-                "comp.helpers.mod.nfs." + e->operation + ".retries");
-        }
+            auto shouldRetry = (n < maxTries) &&
+                ((e->code().value() >= 0) &&
+                    (NFSRetryErrors().find(e->code().value()) !=
+                        NFSRetryErrors().end()));
 
-        return shouldRetry;
-    };
+            if (shouldRetry) {
+                LOG_DBG(1) << "Retrying NFS helper operation '" << e->operation
+                           << "' due to error: " << e->code();
+                ONE_METRIC_COUNTER_INC(
+                    "comp.helpers.mod.nfs." + e->operation + ".retries");
+            }
+
+            return shouldRetry;
+        });
 }
+} // namespace
 
 NFSFileHandle::NFSFileHandle(const folly::fbstring &fileId,
     std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh,
@@ -96,16 +105,16 @@ folly::Future<folly::IOBufQueue> NFSFileHandle::read(
 
     auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    auto readOp = [this, helperPtr, fileId = fileId(), offset, size,
+    auto readOp = [this, fileId = fileId(), offset, size,
                       timer = std::move(timer),
                       s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                      size_t retryCount) {
+                      NFSConnection *conn, size_t retryCount) {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException<folly::IOBufQueue>(ECANCELED);
 
-        auto *nfs = helperPtr->nfs();
-        const size_t maxBlock = helperPtr->maxReadSize();
+        auto *nfs = conn->nfs;
+        const size_t maxBlock = conn->maxReadSize;
 
         folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
         char *raw = static_cast<char *>(buffer.preallocate(size, size).first);
@@ -147,10 +156,16 @@ folly::Future<folly::IOBufQueue> NFSFileHandle::read(
     };
 
     return helperPtr->connect().thenValue(
-        [this, readOp = std::move(readOp)](auto && /*unit*/) {
+        [this, helperPtr, readOp = std::move(readOp)](auto &&conn) {
             return folly::futures::retrying(
-                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(readOp))
-                .via(executor().get());
+                NFSRetryPolicy(constants::IO_RETRY_COUNT),
+                [conn, readOp = std::move(readOp)](
+                    int retryCount) { return readOp(conn, retryCount); })
+                .via(executor().get())
+                .thenTry([helperPtr, conn](auto &&v) {
+                    helperPtr->putBackConnection(conn);
+                    return std::forward<decltype(v)>(v);
+                });
         });
 }
 
@@ -168,17 +183,16 @@ folly::Future<std::size_t> NFSFileHandle::write(
 
     auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    auto writeOp = [this, helperPtr, fileId = fileId(), offset,
-                       buf = std::move(buf), timer = std::move(timer),
-                       writeCb = std::move(writeCb),
+    auto writeOp = [this, fileId = fileId(), offset, buf = std::move(buf),
+                       timer = std::move(timer), writeCb = std::move(writeCb),
                        s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                       size_t retryCount) mutable {
+                       NFSConnection *conn, size_t retryCount) mutable {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException<std::size_t>(ECANCELED);
 
-        auto *nfs = helperPtr->nfs();
-        const size_t maxBlock = helperPtr->maxWriteSize();
+        auto *nfs = conn->nfs;
+        const size_t maxBlock = conn->maxWriteSize;
 
         const auto size = buf.chainLength();
 
@@ -219,10 +233,17 @@ folly::Future<std::size_t> NFSFileHandle::write(
     };
 
     return helperPtr->connect().thenValue(
-        [this, writeOp = std::move(writeOp)](auto && /*unit*/) mutable {
+        [this, helperPtr, writeOp = std::move(writeOp)](auto &&conn) mutable {
             return folly::futures::retrying(
-                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(writeOp))
-                .via(executor().get());
+                NFSRetryPolicy(constants::IO_RETRY_COUNT),
+                [conn, writeOp = std::move(writeOp)](int retryCount) mutable {
+                    return writeOp(conn, retryCount);
+                })
+                .via(executor().get())
+                .thenTry([helperPtr, conn](auto &&v) {
+                    helperPtr->putBackConnection(conn);
+                    return std::forward<decltype(v)>(v);
+                });
         });
 }
 
@@ -232,19 +253,19 @@ folly::Future<folly::Unit> NFSFileHandle::release()
 
     auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    auto releaseOp = [this, helperPtr, fileId = fileId(),
+    auto releaseOp = [this, fileId = fileId(),
                          s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                         size_t retryCount) {
+                         NFSConnection *conn, size_t retryCount) {
         auto self = s.lock();
         if (!self)
             return folly::makeFuture();
 
-        auto *nfs = helperPtr->nfs();
+        auto *nfs = conn->nfs;
         auto ret = nfs_close(nfs, m_nfsFh);
 
         if (ret != 0) {
-            LOG(WARNING) << "Failed to release file " << fileId << " due to "
-                         << nfs_get_error(nfs) << " - retry " << retryCount;
+            LOG_DBG(1) << "Failed to release file " << fileId << " due to "
+                       << nfs_get_error(nfs) << " - retry " << retryCount;
 
             return one::helpers::makeFutureNFSException<folly::Unit>(
                 ret, "release");
@@ -254,10 +275,16 @@ folly::Future<folly::Unit> NFSFileHandle::release()
     };
 
     return helperPtr->connect().thenValue(
-        [this, releaseOp = std::move(releaseOp)](auto && /*unit*/) {
+        [this, helperPtr, releaseOp = std::move(releaseOp)](auto &&conn) {
             return folly::futures::retrying(
-                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(releaseOp))
-                .via(executor().get());
+                NFSRetryPolicy(constants::IO_RETRY_COUNT),
+                [conn, releaseOp = std::move(releaseOp)](
+                    int retryCount) { return releaseOp(conn, retryCount); })
+                .via(executor().get())
+                .thenTry([helperPtr, conn](auto &&v) {
+                    helperPtr->putBackConnection(conn);
+                    return std::forward<decltype(v)>(v);
+                });
         });
 }
 
@@ -269,14 +296,14 @@ folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
 
     auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
 
-    auto fsyncOp = [this, helperPtr, fileId = fileId(),
+    auto fsyncOp = [this, fileId = fileId(),
                        s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                       size_t retryCount) {
+                       NFSConnection *conn, size_t retryCount) {
         auto self = s.lock();
         if (!self)
             return makeFuturePosixException(ECANCELED);
 
-        auto *nfs = helperPtr->nfs();
+        auto *nfs = conn->nfs;
 
         auto ret = nfs_fsync(nfs, m_nfsFh);
 
@@ -292,10 +319,16 @@ folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
     };
 
     return helperPtr->connect().thenValue(
-        [this, fsyncOp = std::move(fsyncOp)](auto && /*unit*/) {
+        [this, helperPtr, fsyncOp = std::move(fsyncOp)](auto &&conn) {
             return folly::futures::retrying(
-                NFSRetryPolicy(constants::IO_RETRY_COUNT), std::move(fsyncOp))
-                .via(executor().get());
+                NFSRetryPolicy(constants::IO_RETRY_COUNT),
+                [conn, fsyncOp = std::move(fsyncOp)](
+                    int retryCount) { return fsyncOp(conn, retryCount); })
+                .via(executor().get())
+                .thenTry([helperPtr, conn](auto &&v) {
+                    helperPtr->putBackConnection(conn);
+                    return std::forward<decltype(v)>(v);
+                });
         });
 }
 
@@ -311,31 +344,31 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
     invalidateParams()->setValue(std::move(params));
 }
 
-thread_local struct nfs_context *NFSHelper::m_nfs = nullptr;
-thread_local bool NFSHelper::m_isConnected = false;
-thread_local size_t NFSHelper::m_maxWriteSize = 0;
-thread_local size_t NFSHelper::m_maxReadSize = 0;
+void NFSHelper::putBackConnection(NFSConnection *conn)
+{
+    m_idleConnections.emplace(conn);
+}
 
 folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
     auto openFunc = [fileId, helper = shared_from_this(), executor = executor(),
-                        timeout = timeout()](auto &&mode) {
+                        timeout = timeout()](NFSConnection *conn, auto &&mode) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [fileId, mode, helper, executor, timeout](size_t retryCount) {
+            [conn, fileId, mode, helper, executor, timeout](size_t retryCount) {
                 struct nfsfh *nfsFh{nullptr};
 
-                LOG_DBG(2) << "Attempting to open file " << fileId
+                LOG_DBG(1) << "Attempting to open file " << fileId
                            << " - retry " << retryCount;
 
-                auto ret = nfs_open(m_nfs, fileId.c_str(), mode, &nfsFh);
+                auto ret = nfs_open(conn->nfs, fileId.c_str(), mode, &nfsFh);
 
                 if (ret != 0) {
-                    LOG_DBG(1)
-                        << "NFS open failed on " << fileId << " with "
-                        << nfs_get_error(m_nfs) << " - retry " << retryCount;
+                    LOG_DBG(1) << "NFS open failed on " << fileId << " with "
+                               << nfs_get_error(conn->nfs) << " - retry "
+                               << retryCount;
 
                     return one::helpers::makeFutureNFSException<
                         std::shared_ptr<NFSFileHandle>>(ret, "open");
@@ -344,26 +377,37 @@ folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
                 return folly::makeFuture<std::shared_ptr<NFSFileHandle>>(
                     std::make_shared<NFSFileHandle>(
                         fileId, helper, nfsFh, executor, timeout));
-            })
-            .via(executor.get());
+            });
     };
 
     if (version() == 3 || (flags & O_CREAT) == 0) {
-        return connect()
-            .thenValue([flags](auto && /*unit*/) { return flags; })
-            .thenValue(std::move(openFunc));
+        return connect().thenValue(
+            [this, flags, openFunc = std::move(openFunc)](auto &&conn) {
+                return openFunc(conn, flags)
+                    .via(executor().get())
+                    .thenTry([this, conn](auto &&v) {
+                        putBackConnection(conn);
+                        return std::forward<decltype(v)>(v);
+                    });
+            });
     }
 
-    return connect()
-        // On NFSv4 we cannot pass O_CREAT if the file already exists,
-        // so we have to check first with access()
-        .thenValue([this, fileId, flags](
-                       auto && /*unit*/) { return access(fileId, flags); })
+    return access(fileId, flags)
         // If the file exists, remove the O_CREAT flag
         .thenValue([flags](auto && /*unit*/) { return flags & ~O_CREAT; })
         .thenError(folly::tag_t<std::system_error>{},
             [flags](auto && /*unit*/) { return flags; })
-        .thenValue(std::move(openFunc));
+        .thenValue([this, openFunc = std::move(openFunc)](auto &&mode) {
+            return connect().thenValue(
+                [this, mode, openFunc = std::move(openFunc)](auto &&conn) {
+                    return openFunc(conn, mode)
+                        .via(executor().get())
+                        .thenTry([this, conn](auto &&v) {
+                            putBackConnection(conn);
+                            return std::forward<decltype(v)>(v);
+                        });
+                });
+        });
 }
 
 folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
@@ -372,10 +416,10 @@ folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
 
     return connect().thenValue([this, fileId,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [fileId, s](size_t retryCount) {
+            [fileId, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<struct stat>(ECANCELED);
@@ -383,7 +427,7 @@ folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
                 struct nfs_stat_64 st {
                 };
                 struct stat stbuf = {};
-                auto error = nfs_stat64(m_nfs, fileId.c_str(), &st);
+                auto error = nfs_stat64(conn->nfs, fileId.c_str(), &st);
 
                 if (error != 0) {
                     LOG_DBG(1) << "NFS getattr failed for " << fileId
@@ -412,7 +456,11 @@ folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
 
                 return folly::makeFuture(stbuf);
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -423,15 +471,15 @@ folly::Future<folly::Unit> NFSHelper::access(
 
     return connect().thenValue([this, fileId, mask,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [fileId, mask, s](size_t retryCount) {
+            [conn, fileId, mask, s](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_access(m_nfs, fileId.c_str(), mask);
+                auto ret = nfs_access(conn->nfs, fileId.c_str(), mask);
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS access failed on " << fileId
@@ -443,7 +491,11 @@ folly::Future<folly::Unit> NFSHelper::access(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -454,10 +506,10 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
 
     return connect().thenValue([this, fileId, offset, count,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, offset, count, s](size_t retryCount) {
+            [fileId, offset, count, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<
@@ -467,11 +519,11 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
                 struct nfsdirent *nfsdirent{};
                 folly::fbvector<folly::fbstring> result;
 
-                int ret = nfs_opendir(m_nfs, fileId.c_str(), &nfsdir);
+                int ret = nfs_opendir(conn->nfs, fileId.c_str(), &nfsdir);
                 if (ret != 0) {
-                    LOG_DBG(1)
-                        << "NFS failed to opendir(): " << nfs_get_error(nfs())
-                        << " - retry " << retryCount;
+                    LOG_DBG(1) << "NFS failed to opendir(): "
+                               << nfs_get_error(conn->nfs) << " - retry "
+                               << retryCount;
 
                     return one::helpers::makeFutureNFSException<
                         folly::fbvector<folly::fbstring>>(ret, "readdir");
@@ -479,7 +531,8 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
 
                 int offset_ = offset;
                 int count_ = count;
-                while ((nfsdirent = nfs_readdir(m_nfs, nfsdir)) != nullptr) {
+                while (
+                    (nfsdirent = nfs_readdir(conn->nfs, nfsdir)) != nullptr) {
                     if ((strcmp(nfsdirent->name, ".") != 0) &&
                         (strcmp(nfsdirent->name, "..") != 0)) {
                         if (offset_ > 0) {
@@ -492,7 +545,7 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
                     }
                 }
 
-                nfs_closedir(m_nfs, nfsdir);
+                nfs_closedir(conn->nfs, nfsdir);
 
                 LOG_DBG(2) << "Read directory " << fileId << " with entries "
                            << LOG_VEC(result);
@@ -500,7 +553,11 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
                 return folly::makeFuture<folly::fbvector<folly::fbstring>>(
                     std::move(result));
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -511,16 +568,16 @@ folly::Future<folly::fbstring> NFSHelper::readlink(
 
     return connect().thenValue([this, fileId,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [fileId, s](size_t retryCount) {
+            [fileId, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<folly::fbstring>(ECANCELED);
 
                 char *buf{nullptr};
-                auto ret = nfs_readlink2(m_nfs, fileId.c_str(), &buf);
+                auto ret = nfs_readlink2(conn->nfs, fileId.c_str(), &buf);
 
                 if ((ret != 0) || (buf == nullptr)) {
                     LOG_DBG(1) << "NFS readlink failed for " << fileId
@@ -541,7 +598,11 @@ folly::Future<folly::fbstring> NFSHelper::readlink(
 
                 return folly::makeFuture(std::move(target));
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -586,15 +647,15 @@ folly::Future<folly::Unit> NFSHelper::mkdir(
 
     return connect().thenValue([this, fileId, mode,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, mode, s](size_t retryCount) {
+            [fileId, mode, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_mkdir2(nfs(), fileId.c_str(), mode);
+                auto ret = nfs_mkdir2(conn->nfs, fileId.c_str(), mode);
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS mkdir failed for " << fileId
@@ -606,7 +667,11 @@ folly::Future<folly::Unit> NFSHelper::mkdir(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -617,20 +682,20 @@ folly::Future<folly::Unit> NFSHelper::unlink(
 
     return connect().thenValue([this, fileId,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, s](size_t retryCount) {
+            [fileId, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_unlink(nfs(), fileId.c_str());
+                auto ret = nfs_unlink(conn->nfs, fileId.c_str());
 
                 if ((ret != 0) && (ret != -ESTALE)) {
-                    LOG_DBG(1)
-                        << "NFS unlink failed for " << fileId << " due to "
-                        << nfs_get_error(nfs()) << " - retry " << retryCount;
+                    LOG_DBG(1) << "NFS unlink failed for " << fileId
+                               << " due to " << nfs_get_error(conn->nfs)
+                               << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "unlink");
@@ -638,7 +703,11 @@ folly::Future<folly::Unit> NFSHelper::unlink(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -648,20 +717,20 @@ folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
 
     return connect().thenValue([this, fileId,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, s](size_t retryCount) {
+            [fileId, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_rmdir(nfs(), fileId.c_str());
+                auto ret = nfs_rmdir(conn->nfs, fileId.c_str());
 
                 if ((ret != 0) && (ret != -ESTALE)) {
-                    LOG(WARNING)
-                        << "NFS rmdir failed for " << fileId << " due to "
-                        << nfs_get_error(nfs()) << " - retry " << retryCount;
+                    LOG_DBG(1) << "NFS rmdir failed for " << fileId
+                               << " due to " << nfs_get_error(conn->nfs)
+                               << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "rmdir");
@@ -669,7 +738,11 @@ folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -680,15 +753,15 @@ folly::Future<folly::Unit> NFSHelper::symlink(
 
     return connect().thenValue([this, from, to,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, from, to, s](size_t retryCount) {
+            [from, to, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_symlink(nfs(), from.c_str(), to.c_str());
+                auto ret = nfs_symlink(conn->nfs, from.c_str(), to.c_str());
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS symlink failed for " << from << " to "
@@ -700,7 +773,11 @@ folly::Future<folly::Unit> NFSHelper::symlink(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -711,15 +788,15 @@ folly::Future<folly::Unit> NFSHelper::rename(
 
     return connect().thenValue([this, from, to,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, from, to, s](size_t retryCount) {
+            [from, to, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_rename(nfs(), from.c_str(), to.c_str());
+                auto ret = nfs_rename(conn->nfs, from.c_str(), to.c_str());
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS rename failed " << from << " to " << to
@@ -731,7 +808,11 @@ folly::Future<folly::Unit> NFSHelper::rename(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -742,15 +823,15 @@ folly::Future<folly::Unit> NFSHelper::link(
 
     return connect().thenValue([this, from, to,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, from, to, s](size_t retryCount) {
+            [from, to, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_link(nfs(), from.c_str(), to.c_str());
+                auto ret = nfs_link(conn->nfs, from.c_str(), to.c_str());
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS link failed " << from << " to " << to
@@ -762,7 +843,11 @@ folly::Future<folly::Unit> NFSHelper::link(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -773,15 +858,15 @@ folly::Future<folly::Unit> NFSHelper::chmod(
 
     return connect().thenValue([this, fileId, mode,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, mode, s](size_t retryCount) {
+            [fileId, mode, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_chmod(nfs(), fileId.c_str(), mode);
+                auto ret = nfs_chmod(conn->nfs, fileId.c_str(), mode);
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS chmod failed for " << fileId
@@ -793,7 +878,11 @@ folly::Future<folly::Unit> NFSHelper::chmod(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -804,15 +893,15 @@ folly::Future<folly::Unit> NFSHelper::chown(
 
     return connect().thenValue([this, fileId, uid, gid,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [this, fileId, uid, gid, s](size_t retryCount) {
+            [fileId, uid, gid, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
-                auto ret = nfs_chown(nfs(), fileId.c_str(), uid, gid);
+                auto ret = nfs_chown(conn->nfs, fileId.c_str(), uid, gid);
 
                 if (ret != 0) {
                     LOG_DBG(1) << "NFS chown failed for " << fileId
@@ -824,7 +913,11 @@ folly::Future<folly::Unit> NFSHelper::chown(
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
@@ -835,20 +928,20 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
 
     return connect().thenValue([this, fileId, size,
                                    s = std::weak_ptr<NFSHelper>{
-                                       shared_from_this()}](auto && /*unit*/) {
+                                       shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [nfs = m_nfs, fileId, size, s](size_t retryCount) {
+            [fileId, size, s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-                auto ret = nfs_truncate(nfs, fileId.c_str(), size);
+                auto ret = nfs_truncate(conn->nfs, fileId.c_str(), size);
 
                 if (ret != 0) {
-                    LOG_DBG(1)
-                        << "NFS truncate failed on " << fileId << " due to "
-                        << nfs_get_error(nfs) << " - retry " << retryCount;
+                    LOG_DBG(1) << "NFS truncate failed on " << fileId
+                               << " due to " << nfs_get_error(conn->nfs)
+                               << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "truncate");
@@ -856,11 +949,15 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
 
                 return folly::makeFuture();
             })
-            .via(executor().get());
+            .via(executor().get())
+            .thenTry([this, conn](auto &&v) {
+                putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
     });
 }
 
-folly::Future<folly::Unit> NFSHelper::connect()
+folly::Future<NFSConnection *> NFSHelper::connect()
 {
     LOG_FCALL();
 
@@ -868,65 +965,95 @@ folly::Future<folly::Unit> NFSHelper::connect()
         [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
             auto self = s.lock();
             if (!self)
-                return makeFutureNFSException(ECANCELED, "connect");
+                return makeFutureNFSException<NFSConnection *>(
+                    ECANCELED, "connect");
 
-            if (m_isConnected)
-                return folly::makeFuture();
+            std::call_once(m_connectionFlag, [&]() {
+                LOG_DBG(2) << "Attempting (" << n
+                           << ") to connect to NFS server at: " << host()
+                           << " path: " << volume();
 
-            LOG_DBG(2) << "Attempting (" << n
-                       << ") to connect to NFS server at: " << host()
-                       << " path: " << volume();
+                constexpr auto k_connectionPoolDefaultSize{10UL};
+                size_t connectionPoolSize{k_connectionPoolDefaultSize};
+                auto threadPool =
+                    std::dynamic_pointer_cast<folly::ThreadPoolExecutor>(
+                        executor());
+                if (threadPool)
+                    connectionPoolSize = threadPool->numThreads();
 
-            m_nfs = nfs_init_context();
-            if (m_nfs == nullptr) {
-                LOG(ERROR) << "Failed to init NFS context for host: " << host();
-                return makeFutureNFSException(EIO, "init");
+                for (unsigned int i = 0; i < connectionPoolSize; i++) {
+                    auto conn = std::make_unique<NFSConnection>();
+
+                    conn->nfs = nfs_init_context();
+                    if (conn->nfs == nullptr) {
+                        LOG(ERROR) << "Failed to init NFS context for host: "
+                                   << host();
+                        throw makeNFSException(EIO, "init");
+                    }
+
+                    nfs_set_version(conn->nfs, version());
+                    nfs_set_uid(conn->nfs, uid());
+                    nfs_set_gid(conn->nfs, gid());
+                    nfs_set_timeout(conn->nfs, timeout().count());
+                    nfs_set_dircache(conn->nfs, dircache() ? 1 : 0);
+                    nfs_set_readahead(conn->nfs, readahead());
+                    nfs_set_tcp_syncnt(conn->nfs, tcpSyncnt());
+                    nfs_set_autoreconnect(conn->nfs, autoreconnect() ? 1 : 0);
+
+                    LOG_DBG(2) << "Calling NFS mount";
+
+                    auto ret =
+                        nfs_mount(conn->nfs, host().c_str(), volume().c_str());
+
+                    if (ret != 0) {
+                        LOG(ERROR)
+                            << "NFS mount failed: " << nfs_get_error(conn->nfs);
+                        throw makeNFSException(ret, "mount");
+                    }
+
+                    conn->isConnected = true;
+
+                    LOG_DBG(2) << "NFS mount succeeded";
+
+                    const size_t kFallbackTransferSize = 2 * 1024;
+                    const size_t kTransferSizeWarningThreshold = 1024 * 1024;
+
+                    conn->maxReadSize = nfs_get_readmax(conn->nfs) != 0U
+                        ? nfs_get_readmax(conn->nfs)
+                        : kFallbackTransferSize;
+
+                    conn->maxWriteSize = nfs_get_writemax(conn->nfs) != 0U
+                        ? nfs_get_writemax(conn->nfs)
+                        : kFallbackTransferSize;
+
+                    if (conn->maxReadSize < kTransferSizeWarningThreshold)
+                        LOG(WARNING) << "NFS server at " << host()
+                                     << " has very low read transfer size: "
+                                     << conn->maxReadSize;
+
+                    if (conn->maxWriteSize < kTransferSizeWarningThreshold)
+                        LOG(WARNING) << "NFS server at " << host()
+                                     << " has very low write transfer size: "
+                                     << conn->maxWriteSize;
+
+                    m_idleConnections.emplace(conn.get());
+                    m_connections.emplace_back(std::move(conn));
+                }
+
+                m_isConnected = true;
+            });
+
+            NFSConnection *c{nullptr};
+
+            constexpr auto k_connectionPopDelayMs = 1000;
+            if (!m_idleConnections.try_pop(c)) {
+                LOG_DBG(2) << "Waiting for idle NFS connection...";
+                return folly::via(executor().get())
+                    .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
+                    .thenValue([this](auto && /*unit*/) { return connect(); });
             }
 
-            nfs_set_version(m_nfs, version());
-            nfs_set_uid(m_nfs, uid());
-            nfs_set_gid(m_nfs, gid());
-            nfs_set_timeout(m_nfs, timeout().count());
-            nfs_set_dircache(m_nfs, dircache() ? 1 : 0);
-            nfs_set_readahead(m_nfs, readahead());
-            nfs_set_tcp_syncnt(m_nfs, tcpSyncnt());
-            nfs_set_autoreconnect(m_nfs, autoreconnect() ? 1 : 0);
-
-            LOG_DBG(2) << "Calling NFS mount";
-
-            auto ret = nfs_mount(m_nfs, host().c_str(), volume().c_str());
-
-            if (ret != 0) {
-                LOG(ERROR) << "NFS mount failed: " << nfs_get_error(m_nfs);
-                return makeFutureNFSException(ret, "mount");
-            }
-
-            m_isConnected = true;
-
-            LOG_DBG(2) << "NFS mount succeeded";
-
-            const size_t kFallbackTransferSize = 2 * 1024;
-            const size_t kTransferSizeWarningThreshold = 1024 * 1024;
-
-            m_maxReadSize = nfs_get_readmax(m_nfs) != 0U
-                ? nfs_get_readmax(m_nfs)
-                : kFallbackTransferSize;
-
-            m_maxWriteSize = nfs_get_writemax(m_nfs) != 0U
-                ? nfs_get_writemax(m_nfs)
-                : kFallbackTransferSize;
-
-            if (m_maxReadSize < kTransferSizeWarningThreshold)
-                LOG(WARNING)
-                    << "NFS server at " << host()
-                    << " has very low read transfer size: " << m_maxReadSize;
-
-            if (m_maxWriteSize < kTransferSizeWarningThreshold)
-                LOG(WARNING)
-                    << "NFS server at " << host()
-                    << " has very low write transfer size: " << m_maxWriteSize;
-
-            return folly::makeFuture();
+            return folly::makeFuture(c);
         })
         .via(executor().get());
 }

@@ -14,6 +14,7 @@
 
 #include <folly/executors/IOExecutor.h>
 #include <nfsc/libnfs.h>
+#include <tbb/concurrent_queue.h>
 
 #include <tuple>
 
@@ -21,6 +22,13 @@ namespace one {
 namespace helpers {
 
 class NFSHelper;
+
+struct NFSConnection {
+    struct nfs_context *nfs{nullptr};
+    size_t maxReadSize{0};
+    size_t maxWriteSize{0};
+    bool isConnected{false};
+};
 
 /**
  * The @c FileHandle implementation for GlusterFS storage helper.
@@ -133,9 +141,7 @@ public:
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    folly::Future<folly::Unit> connect();
-
-    struct nfs_context *nfs() { return m_nfs; }
+    folly::Future<NFSConnection *> connect();
 
     folly::fbstring name() const override { return NFS_HELPER_NAME; };
 
@@ -147,10 +153,6 @@ public:
 
     gid_t gid() const { return P()->gid(); }
 
-    size_t maxReadSize() const { return m_maxReadSize; }
-
-    size_t maxWriteSize() const { return m_maxWriteSize; }
-
     const folly::fbstring &host() const { return P()->host(); }
 
     bool dircache() const { return P()->dircache(); }
@@ -160,6 +162,8 @@ public:
     bool autoreconnect() const { return P()->autoreconnect(); }
 
     size_t readahead() const { return P()->readahead(); }
+
+    void putBackConnection(NFSConnection *conn);
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
@@ -172,10 +176,11 @@ private:
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
-    static thread_local struct nfs_context *m_nfs;
-    static thread_local size_t m_maxReadSize;
-    static thread_local size_t m_maxWriteSize;
-    static thread_local bool m_isConnected;
+    std::vector<std::unique_ptr<NFSConnection>> m_connections{};
+    tbb::concurrent_bounded_queue<NFSConnection *> m_idleConnections{};
+
+    std::atomic_bool m_isConnected{false};
+    std::once_flag m_connectionFlag;
 };
 
 /**

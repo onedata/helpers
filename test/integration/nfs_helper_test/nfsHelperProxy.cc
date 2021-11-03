@@ -30,7 +30,7 @@ using namespace one::helpers;
 /*
  * Minimum 2 threads are required to run helper.
  */
-constexpr int NFS_HELPER_WORKER_THREADS = 4;
+constexpr int NFS_HELPER_WORKER_THREADS = 10;
 
 constexpr std::chrono::milliseconds NFS_HELPER_PROXY_TIMEOUT_MS{10 * 1000};
 
