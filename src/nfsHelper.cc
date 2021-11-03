@@ -627,8 +627,8 @@ folly::Future<folly::Unit> NFSHelper::unlink(
 
                 auto ret = nfs_unlink(nfs(), fileId.c_str());
 
-                if (ret != 0) {
-                    LOG(WARNING)
+                if ((ret != 0) && (ret != -ESTALE)) {
+                    LOG_DBG(1)
                         << "NFS unlink failed for " << fileId << " due to "
                         << nfs_get_error(nfs()) << " - retry " << retryCount;
 
@@ -658,7 +658,7 @@ folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
 
                 auto ret = nfs_rmdir(nfs(), fileId.c_str());
 
-                if (ret != 0) {
+                if ((ret != 0) && (ret != -ESTALE)) {
                     LOG(WARNING)
                         << "NFS rmdir failed for " << fileId << " due to "
                         << nfs_get_error(nfs()) << " - retry " << retryCount;
@@ -846,7 +846,7 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
                 auto ret = nfs_truncate(nfs, fileId.c_str(), size);
 
                 if (ret != 0) {
-                    LOG(WARNING)
+                    LOG_DBG(1)
                         << "NFS truncate failed on " << fileId << " due to "
                         << nfs_get_error(nfs) << " - retry " << retryCount;
 
