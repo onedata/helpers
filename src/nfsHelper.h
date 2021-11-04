@@ -102,7 +102,7 @@ public:
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
-    virtual ~NFSHelper() = default;
+    virtual ~NFSHelper() { stop(); }
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -172,6 +172,8 @@ public:
 
     void putBackConnection(NFSConnection *conn);
 
+    void stop() { m_isStopped = true; }
+
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
 private:
@@ -187,6 +189,7 @@ private:
     tbb::concurrent_bounded_queue<NFSConnection *> m_idleConnections{};
 
     std::atomic_bool m_isConnected{false};
+    std::atomic_bool m_isStopped{false};
     std::once_flag m_connectionFlag;
 };
 

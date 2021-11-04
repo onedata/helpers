@@ -268,17 +268,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
             return folly::makeFuture();
 
         auto *nfs = conn->nfs;
-        /*auto ret = */nfs_close(nfs, m_nfsFh);
-
-        /*
-        if ((ret != 0) && (ret != -ESTALE) && (ret != ESTALE)) {
-            LOG(WARNING) << "Failed to release file " << fileId << " due to "
-                         << nfs_get_error(nfs) << " - retry " << retryCount;
-
-            return one::helpers::makeFutureNFSException<folly::Unit>(
-                ret, "release");
-        }
-        */
+        nfs_close(nfs, m_nfsFh);
 
         return folly::makeFuture();
     };
@@ -362,6 +352,7 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
 void NFSHelper::putBackConnection(NFSConnection *conn)
 {
+    LOG(ERROR) << "RETURNING CONNECTION TO IDLE POOL";
     m_idleConnections.emplace(conn);
 }
 
@@ -1009,7 +1000,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
         [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
             auto self = s.lock();
-            if (!self)
+            if (!self || m_isStopped)
                 return makeFutureNFSException<NFSConnection *>(
                     ECANCELED, "connect");
 
@@ -1058,7 +1049,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
 
                     conn->isConnected = true;
 
-                    LOG(WARNING)
+                    LOG_DBG(2)
                         << "NFS mount succeeded - connection index: " << i;
 
                     const size_t kFallbackTransferSize = 2 * 1024;
