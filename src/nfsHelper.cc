@@ -714,6 +714,8 @@ folly::Future<folly::Unit> NFSHelper::unlink(
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
 
+                LOG(WARNING) << "REMOVING FILE " << fileId;
+
                 auto ret = nfs_unlink(conn->nfs, fileId.c_str());
 
                 if (ret != 0) {
@@ -753,8 +755,8 @@ folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
 
                 auto ret = nfs_rmdir(conn->nfs, fileId.c_str());
 
-                if ((ret != 0) && (ret != -ESTALE)) {
-                    LOG_DBG(1) << "NFS rmdir failed for " << fileId
+                if (ret != 0) {
+                    LOG(WARNING) << "NFS rmdir failed for " << fileId
                                << " due to " << nfs_get_error(conn->nfs)
                                << " - retry " << retryCount;
 
@@ -1020,7 +1022,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     std::dynamic_pointer_cast<folly::ThreadPoolExecutor>(
                         executor());
                 if (threadPool)
-                    connectionPoolSize = threadPool->numThreads();
+                    connectionPoolSize = threadPool->numThreads()*2;
 
                 for (unsigned int i = 0; i < connectionPoolSize; i++) {
                     auto conn = std::make_unique<NFSConnection>();
@@ -1089,7 +1091,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
 
             constexpr auto k_connectionPopDelayMs = 1000;
             if (!m_idleConnections.try_pop(c)) {
-                LOG_DBG(2) << "Waiting for idle NFS connection...";
+                LOG(WARNING) << "Waiting for idle NFS connection...";
                 return folly::via(executor().get())
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
                     .thenValue([this](auto && /*unit*/) { return connect(); });
