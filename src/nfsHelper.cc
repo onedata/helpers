@@ -270,7 +270,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
         auto *nfs = conn->nfs;
         auto ret = nfs_close(nfs, m_nfsFh);
 
-        if (ret != 0) {
+        if ((ret != 0) && (ret != -ESTALE) && (ret != ESTALE)) {
             LOG(WARNING) << "Failed to release file " << fileId << " due to "
                          << nfs_get_error(nfs) << " - retry " << retryCount;
 
