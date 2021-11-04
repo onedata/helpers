@@ -135,7 +135,7 @@ folly::Future<folly::IOBufQueue> NFSFileHandle::read(
                 break;
 
             if (ret < 0) {
-                LOG_DBG(1) << "NFS read failed from " << fileId
+                LOG(WARNING) << "NFS read failed from " << fileId
                            << " with error: " << nfs_get_error(nfs)
                            << " - retry " << retryCount;
 
@@ -212,7 +212,7 @@ folly::Future<std::size_t> NFSFileHandle::write(
                 iobuf->writableData() + bufOffset);            // NOLINT
 
             if (ret < 0) {
-                LOG_DBG(1) << "NFS write failed for " << fileId << " : "
+                LOG(WARNING) << "NFS write failed for " << fileId << " : "
                            << nfs_get_error(nfs) << " - retry " << retryCount;
 
                 return one::helpers::makeFutureNFSException<std::size_t>(
@@ -692,8 +692,8 @@ folly::Future<folly::Unit> NFSHelper::unlink(
 
                 auto ret = nfs_unlink(conn->nfs, fileId.c_str());
 
-                if ((ret != 0) && (ret != -ESTALE)) {
-                    LOG_DBG(1) << "NFS unlink failed for " << fileId
+                if (ret != 0) {
+                    LOG(WARNING) << "NFS unlink failed for " << fileId
                                << " due to " << nfs_get_error(conn->nfs)
                                << " - retry " << retryCount;
 
@@ -939,7 +939,7 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
                 auto ret = nfs_truncate(conn->nfs, fileId.c_str(), size);
 
                 if (ret != 0) {
-                    LOG_DBG(1) << "NFS truncate failed on " << fileId
+                    LOG(WARNING) << "NFS truncate failed on " << fileId
                                << " due to " << nfs_get_error(conn->nfs)
                                << " - retry " << retryCount;
 
@@ -1013,7 +1013,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
 
                     conn->isConnected = true;
 
-                    LOG_DBG(2) << "NFS mount succeeded";
+                    LOG(WARNING) << "NFS mount succeeded - connection index: " << i;
 
                     const size_t kFallbackTransferSize = 2 * 1024;
                     const size_t kTransferSizeWarningThreshold = 1024 * 1024;
