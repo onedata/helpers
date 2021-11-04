@@ -75,7 +75,7 @@ inline auto NFSRetryPolicy(size_t maxTries)
                         NFSRetryErrors().end()));
 
             if (shouldRetry) {
-                LOG_DBG(1) << "Retrying NFS helper operation '" << e->operation
+                LOG(WARNING) << "Retrying NFS helper operation '" << e->operation
                            << "' due to error: " << e->code();
                 ONE_METRIC_COUNTER_INC(
                     "comp.helpers.mod.nfs." + e->operation + ".retries");
@@ -264,7 +264,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
         auto ret = nfs_close(nfs, m_nfsFh);
 
         if (ret != 0) {
-            LOG_DBG(1) << "Failed to release file " << fileId << " due to "
+            LOG(WARNING) << "Failed to release file " << fileId << " due to "
                        << nfs_get_error(nfs) << " - retry " << retryCount;
 
             return one::helpers::makeFutureNFSException<folly::Unit>(
@@ -308,7 +308,7 @@ folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
         auto ret = nfs_fsync(nfs, m_nfsFh);
 
         if (ret != 0) {
-            LOG_DBG(1) << "Failed to fsync file " << fileId << " - retry "
+            LOG(WARNING) << "Failed to fsync file " << fileId << " - retry "
                        << retryCount;
 
             return one::helpers::makeFutureNFSException<folly::Unit>(

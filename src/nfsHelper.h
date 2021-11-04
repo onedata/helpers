@@ -23,7 +23,14 @@ namespace helpers {
 
 class NFSHelper;
 
-struct NFSConnection {
+class NFSConnection {
+public:
+    ~NFSConnection()
+    {
+        if (nfs != nullptr)
+            nfs_destroy_context(nfs);
+    }
+
     struct nfs_context *nfs{nullptr};
     size_t maxReadSize{0};
     size_t maxWriteSize{0};
