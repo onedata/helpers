@@ -15,6 +15,7 @@
 #include "posixHelper.h"
 #include "proxyHelper.h"
 #include "scheduler.h"
+#include "storageFanInHelper.h"
 #include "storageRouterHelper.h"
 
 #if WITH_CEPH
@@ -193,9 +194,33 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
     }
 
     if (name == POSIX_HELPER_NAME) {
-        helper =
-            PosixHelperFactory{m_dioExecutor}.createStorageHelperWithOverride(
-                args, overrideParams, m_executionContext);
+        auto mountPoint = getParam<folly::fbstring>(args, "mountPoint");
+        if (mountPoint.find(':') == std::string::npos) {
+            // This is a regular posix helper
+            helper = PosixHelperFactory{m_dioExecutor}
+                         .createStorageHelperWithOverride(
+                             args, overrideParams, m_executionContext);
+        }
+        else {
+            // This is a multi-posix helper which handles multiple mountpoints
+            // in parallel
+            if (overrideParams.find("mountPoint") != overrideParams.cend())
+                mountPoint =
+                    getParam<folly::fbstring>(overrideParams, "mountPoint");
+
+            std::vector<std::string> mountPoints;
+            folly::split(":", mountPoint, mountPoints, true);
+            std::vector<StorageHelperPtr> storages;
+            auto factory = PosixHelperFactory{m_dioExecutor};
+            for (const auto &mp : mountPoints) {
+                Params argsCopy;
+                argsCopy["mountPoint"] = mp;
+                storages.emplace_back(factory.createStorageHelperWithOverride(
+                    argsCopy, overrideParams, m_executionContext));
+            }
+            helper = std::make_shared<StorageFanInHelper>(
+                std::move(storages), m_dioExecutor, m_executionContext);
+        }
     }
 
 #if WITH_CEPH
