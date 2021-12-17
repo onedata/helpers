@@ -56,3 +56,5 @@ compile_commands.json
 valgrind-*.txt
 /priv
 performance-tests-results.xml
+
+cmake-build-debug/
