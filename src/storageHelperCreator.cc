@@ -204,6 +204,10 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
         else {
             // This is a multi-posix helper which handles multiple mountpoints
             // in parallel
+            if (overrideParams.find("mountPoint") != overrideParams.cend())
+                mountPoint =
+                    getParam<folly::fbstring>(overrideParams, "mountPoint");
+
             std::vector<std::string> mountPoints;
             folly::split(":", mountPoint, mountPoints, true);
             std::vector<StorageHelperPtr> storages;
