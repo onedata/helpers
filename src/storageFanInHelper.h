@@ -58,7 +58,7 @@ public:
         const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &fileId) override;
+        const folly::fbstring &uuid) override;
 
     bool isObjectStorage() const override;
 

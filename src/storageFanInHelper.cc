@@ -58,7 +58,7 @@ folly::Future<struct stat> StorageFanInHelper::getattr(
                     statIt.st_ctim = s.st_ctim;
             }
 
-            return folly::makeFuture<struct stat>(std::move(statIt));
+            return folly::makeFuture<struct stat>(std::move(statIt)); // NOLINT
         });
 }
 
@@ -110,26 +110,39 @@ folly::Future<folly::fbstring> StorageFanInHelper::readlink(
 folly::Future<folly::fbvector<folly::fbstring>> StorageFanInHelper::readdir(
     const folly::fbstring &fileId, const off_t offset, const std::size_t count)
 {
-    constexpr auto kReaddirStep = 64'000U;
+    constexpr auto kReaddirStep = 64 * 1024U;
 
     folly::fbvector<folly::fbstring> results;
     folly::fbvector<folly::fbstring> result;
     // The set is to make sure the result vector is unique
     std::set<folly::fbstring> resultSet;
 
-    for (auto storage : m_storages) {
-        auto entries = storage->readdir(fileId, 0, kReaddirStep).getTry();
+    for (const auto &storage : m_storages) {
+        folly::Try<folly::fbvector<folly::fbstring>> entries;
+        size_t offsetIt = 0;
+
+        while (true) {
+            entries = storage->readdir(fileId, offsetIt, kReaddirStep).getTry();
+
+            if (entries.hasException() || entries.value().empty())
+                break;
+
+            for (const auto &entry : entries.value()) {
+                if (resultSet.find(entry) == resultSet.end()) {
+                    resultSet.insert(entry);
+                    results.push_back(entry);
+                }
+                if (results.size() >= static_cast<size_t>(offset) + count) {
+                    break;
+                }
+            }
+
+            offsetIt += kReaddirStep;
+        }
 
         if (entries.hasException())
             // This storage does not have this directory
             continue;
-
-        for (const auto &entry : entries.value()) {
-            if (resultSet.find(entry) == resultSet.end()) {
-                resultSet.insert(entry);
-                results.push_back(entry);
-            }
-        }
 
         if (results.size() >= static_cast<size_t>(offset) + count) {
             break;
@@ -139,9 +152,9 @@ folly::Future<folly::fbvector<folly::fbstring>> StorageFanInHelper::readdir(
     if (static_cast<size_t>(offset) > results.size())
         return result;
 
-    auto beginIt = results.begin();
+    auto *beginIt = results.begin();
     std::advance(beginIt, offset);
-    auto endIt = beginIt;
+    auto *endIt = beginIt;
     std::advance(endIt, std::min(count, results.size() - offset));
     std::copy(beginIt, endIt, std::back_inserter(result));
 
@@ -163,7 +176,7 @@ folly::Future<FileHandlePtr> StorageFanInHelper::open(
             for (const auto &tryOpen : res) {
                 if (tryOpen.hasValue()) {
                     if (!result)
-                        result = std::move(tryOpen.value());
+                        result = tryOpen.value();
                     else
                         tryOpen.value()->release();
                 }
