@@ -352,7 +352,6 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
 void NFSHelper::putBackConnection(NFSConnection *conn)
 {
-    LOG(ERROR) << "RETURNING CONNECTION TO IDLE POOL";
     m_idleConnections.emplace(conn);
 }
 
