@@ -52,6 +52,7 @@ using ListObjectsResult =
 
 constexpr auto STORAGE_ROUTER_HELPER_NAME = "storagerouter";
 constexpr auto BUFFERED_STORAGE_HELPER_NAME = "bufferedstorage";
+constexpr auto STORAGE_FANIN_HELPER_NAME = "storagefanin";
 
 #if WITH_CEPH
 constexpr auto CEPH_HELPER_NAME = "ceph";
