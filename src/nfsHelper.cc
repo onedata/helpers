@@ -258,7 +258,12 @@ folly::Future<folly::Unit> NFSFileHandle::release()
 {
     LOG_FCALL();
 
-    auto *helperPtr = std::dynamic_pointer_cast<NFSHelper>(helper()).get();
+    auto helperPtrWeak = std::weak_ptr<NFSHelper>(
+        std::dynamic_pointer_cast<NFSHelper>(helper()));
+
+    auto helperPtr = helperPtrWeak.lock();
+    if (!helperPtr)
+        return makeFuturePosixException<folly::Unit>(ECANCELED);
 
     auto releaseOp = [this, fileId = fileId(),
                          s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
@@ -274,15 +279,17 @@ folly::Future<folly::Unit> NFSFileHandle::release()
     };
 
     return helperPtr->connect().thenValue(
-        [this, helperPtr, releaseOp = std::move(releaseOp),
+        [this, helperPtrWeak, releaseOp = std::move(releaseOp),
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [conn, releaseOp = std::move(releaseOp)](
                     int retryCount) { return releaseOp(conn, retryCount); })
                 .via(executor().get())
-                .thenTry([helperPtr, conn](auto &&v) {
-                    helperPtr->putBackConnection(conn);
+                .thenTry([helperPtrWeak, conn](auto &&v) {
+                    auto ptr = helperPtrWeak.lock();
+                    if (ptr)
+                        ptr->putBackConnection(conn);
                     return std::forward<decltype(v)>(v);
                 });
         });
