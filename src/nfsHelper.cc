@@ -258,13 +258,6 @@ folly::Future<folly::Unit> NFSFileHandle::release()
 {
     LOG_FCALL();
 
-    auto helperPtrWeak = std::weak_ptr<NFSHelper>(
-        std::dynamic_pointer_cast<NFSHelper>(helper()));
-
-    auto helperPtr = helperPtrWeak.lock();
-    if (!helperPtr)
-        return makeFuturePosixException<folly::Unit>(ECANCELED);
-
     auto releaseOp = [this, fileId = fileId(),
                          s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
                          NFSConnection *conn, size_t /*retryCount*/) {
@@ -278,8 +271,11 @@ folly::Future<folly::Unit> NFSFileHandle::release()
         return folly::makeFuture();
     };
 
-    return helperPtr->connect().thenValue(
-        [this, helperPtrWeak, releaseOp = std::move(releaseOp),
+    return std::dynamic_pointer_cast<NFSHelper>(helper())->connect().thenValue(
+        [this,
+            helperPtrWeak = std::weak_ptr<NFSHelper>(
+                std::dynamic_pointer_cast<NFSHelper>(helper())),
+            releaseOp = std::move(releaseOp),
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
@@ -356,6 +352,7 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
 void NFSHelper::putBackConnection(NFSConnection *conn)
 {
+    LOG(ERROR) << "Putting back connection: " << conn->id;
     m_idleConnections.emplace(conn);
 }
 
@@ -1094,6 +1091,9 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
                     .thenValue([this](auto && /*unit*/) { return connect(); });
             }
+
+
+            LOG(ERROR) << "Taking idle connection: " << c->id;
 
             return folly::makeFuture(c);
         })
