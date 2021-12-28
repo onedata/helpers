@@ -1009,7 +1009,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     std::dynamic_pointer_cast<folly::ThreadPoolExecutor>(
                         executor());
                 if (threadPool)
-                    connectionPoolSize = threadPool->numThreads() * 2;
+                    connectionPoolSize = threadPool->numThreads() + 2;
 
                 for (unsigned int i = 0; i < connectionPoolSize; i++) {
                     auto conn = std::make_unique<NFSConnection>();
