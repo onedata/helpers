@@ -158,6 +158,7 @@ folly::Future<folly::IOBufQueue> NFSFileHandle::read(
     return helperPtr->connect().thenValue(
         [this, helperPtr, readOp = std::move(readOp),
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
+            LOG(ERROR) << "read " << fileId() << " using connection " << conn->id;
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [conn, readOp = std::move(readOp)](
@@ -239,6 +240,7 @@ folly::Future<std::size_t> NFSFileHandle::write(
         [this, helperPtr, writeOp = std::move(writeOp),
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
             auto &&conn) mutable {
+            LOG(ERROR) << "write " << fileId() << " using connection " << conn->id;
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [conn, writeOp = std::move(writeOp)](int retryCount) mutable {
@@ -352,6 +354,7 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
 void NFSHelper::putBackConnection(NFSConnection *conn)
 {
+    LOG(ERROR) << "Putting back connection " << conn->id;
     m_idleConnections.emplace(conn);
 }
 
@@ -699,6 +702,7 @@ folly::Future<folly::Unit> NFSHelper::unlink(
     return connect().thenValue([this, fileId,
                                    s = std::weak_ptr<NFSHelper>{
                                        shared_from_this()}](auto &&conn) {
+        LOG(ERROR) << "unlink " << fileId << " using connection " << conn->id;
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
             [fileId, s, conn](size_t retryCount) {
@@ -961,6 +965,7 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
     return connect().thenValue([this, fileId, size,
                                    s = std::weak_ptr<NFSHelper>{
                                        shared_from_this()}](auto &&conn) {
+        LOG(ERROR) << "truncate " << fileId << " using connection " << conn->id;
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
             [fileId, size, s, conn](size_t retryCount) {
@@ -1020,6 +1025,9 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     auto conn = std::make_unique<NFSConnection>();
 
                     conn->nfs = nfs_init_context();
+
+                    conn->id = i;
+
                     if (conn->nfs == nullptr) {
                         LOG(ERROR) << "Failed to init NFS context for host: "
                                    << host();
