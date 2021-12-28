@@ -158,7 +158,8 @@ folly::Future<folly::IOBufQueue> NFSFileHandle::read(
     return helperPtr->connect().thenValue(
         [this, helperPtr, readOp = std::move(readOp),
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
-            LOG(ERROR) << "read " << fileId() << " using connection " << conn->id;
+            LOG(ERROR) << "read " << fileId() << " using connection "
+                       << conn->id;
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [conn, readOp = std::move(readOp)](
@@ -240,7 +241,8 @@ folly::Future<std::size_t> NFSFileHandle::write(
         [this, helperPtr, writeOp = std::move(writeOp),
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
             auto &&conn) mutable {
-            LOG(ERROR) << "write " << fileId() << " using connection " << conn->id;
+            LOG(ERROR) << "write " << fileId() << " using connection "
+                       << conn->id;
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [conn, writeOp = std::move(writeOp)](int retryCount) mutable {
@@ -280,8 +282,10 @@ folly::Future<folly::Unit> NFSFileHandle::release()
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
-                [conn, releaseOp = std::move(releaseOp)](
-                    int retryCount) { return releaseOp(conn, retryCount); })
+                [conn, releaseOp = std::move(releaseOp)](int retryCount) {
+                    LOG(ERROR) << "release using connection " << conn->id;
+                    return releaseOp(conn, retryCount);
+                })
                 .via(executor().get())
                 .thenTry([helperPtr, conn, s](auto &&v) {
                     auto self = s.lock();
@@ -328,8 +332,10 @@ folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
-                [conn, fsyncOp = std::move(fsyncOp)](
-                    int retryCount) { return fsyncOp(conn, retryCount); })
+                [conn, fsyncOp = std::move(fsyncOp)](int retryCount) {
+                    LOG(ERROR) << "fsync using connection " << conn->id;
+                    return fsyncOp(conn, retryCount);
+                })
                 .via(executor().get())
                 .thenTry([helperPtr, conn, s](auto &&v) {
                     auto self = s.lock();
@@ -391,7 +397,9 @@ folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
 
     if (version() == 3 || (flags & O_CREAT) == 0) {
         return connect().thenValue(
-            [this, flags, openFunc = std::move(openFunc)](auto &&conn) {
+            [this, fileId, flags, openFunc = std::move(openFunc)](auto &&conn) {
+                LOG(ERROR) << "open " << fileId << " using connection "
+                           << conn->id;
                 return openFunc(conn, flags)
                     .via(executor().get())
                     .thenTry([this, conn](auto &&v) {
@@ -409,6 +417,7 @@ folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
         .thenValue([this, openFunc = std::move(openFunc)](auto &&mode) {
             return connect().thenValue(
                 [this, mode, openFunc = std::move(openFunc)](auto &&conn) {
+                    LOG(ERROR) << "open2 using connection " << conn->id;
                     return openFunc(conn, mode)
                         .via(executor().get())
                         .thenTry([this, conn](auto &&v) {
@@ -429,6 +438,7 @@ folly::Future<struct stat> NFSHelper::getattr(const folly::fbstring &fileId)
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
             [fileId, s, conn](size_t retryCount) {
+                LOG(ERROR) << "getattr using connection " << conn->id;
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<struct stat>(ECANCELED);
@@ -486,6 +496,7 @@ folly::Future<folly::Unit> NFSHelper::access(
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
             [conn, fileId, mask, s](size_t retryCount) {
+                LOG(ERROR) << "access using connection " << conn->id;
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException(ECANCELED);
@@ -753,8 +764,8 @@ folly::Future<folly::Unit> NFSHelper::rmdir(const folly::fbstring &fileId)
 
                 if (ret != 0) {
                     LOG(WARNING) << "NFS rmdir failed for " << fileId
-                               << " due to " << nfs_get_error(conn->nfs)
-                               << " - retry " << retryCount;
+                                 << " due to " << nfs_get_error(conn->nfs)
+                                 << " - retry " << retryCount;
 
                     return one::helpers::makeFutureNFSException<folly::Unit>(
                         ret, "rmdir");
@@ -1020,7 +1031,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     std::dynamic_pointer_cast<folly::ThreadPoolExecutor>(
                         executor());
                 if (threadPool)
-                    connectionPoolSize = threadPool->numThreads()*2;
+                    connectionPoolSize = threadPool->numThreads() * 2;
 
                 for (unsigned int i = 0; i < connectionPoolSize; i++) {
                     auto conn = std::make_unique<NFSConnection>();
@@ -1092,7 +1103,8 @@ folly::Future<NFSConnection *> NFSHelper::connect()
 
             constexpr auto k_connectionPopDelayMs = 1000;
             if (!m_idleConnections.try_pop(c)) {
-                LOG(WARNING) << "Waiting for idle NFS connection - retry: " << n << "...";
+                LOG(WARNING) << "Waiting for idle NFS connection - retry: " << n
+                             << "...";
                 return folly::via(executor().get())
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
                     .thenValue([this](auto && /*unit*/) { return connect(); });
