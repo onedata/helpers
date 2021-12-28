@@ -35,7 +35,7 @@ public:
     size_t maxReadSize{0};
     size_t maxWriteSize{0};
     bool isConnected{false};
-    int id{0};
+    unsigned int id{0};
 };
 
 /**

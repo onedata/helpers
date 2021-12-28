@@ -262,7 +262,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
 
     auto releaseOp = [this, fileId = fileId(),
                          s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                         NFSConnection *conn, size_t retryCount) {
+                         NFSConnection *conn, size_t /*retryCount*/) {
         auto self = s.lock();
         if (!self)
             return folly::makeFuture();
