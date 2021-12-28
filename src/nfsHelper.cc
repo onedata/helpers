@@ -1003,6 +1003,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
         [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
+            LOG(ERROR) << "Retry attempt " << n;
             auto self = s.lock();
             if (!self || m_isStopped)
                 return makeFutureNFSException<NFSConnection *>(
@@ -1024,9 +1025,9 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                 for (unsigned int i = 0; i < connectionPoolSize; i++) {
                     auto conn = std::make_unique<NFSConnection>();
 
-                    conn->nfs = nfs_init_context();
-
                     conn->id = i;
+
+                    conn->nfs = nfs_init_context();
 
                     if (conn->nfs == nullptr) {
                         LOG(ERROR) << "Failed to init NFS context for host: "
@@ -1091,7 +1092,7 @@ folly::Future<NFSConnection *> NFSHelper::connect()
 
             constexpr auto k_connectionPopDelayMs = 1000;
             if (!m_idleConnections.try_pop(c)) {
-                LOG(WARNING) << "Waiting for idle NFS connection...";
+                LOG(WARNING) << "Waiting for idle NFS connection - retry: " << n << "...";
                 return folly::via(executor().get())
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
                     .thenValue([this](auto && /*unit*/) { return connect(); });

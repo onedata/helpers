@@ -27,6 +27,7 @@ class NFSConnection {
 public:
     ~NFSConnection()
     {
+        LOG(ERROR) << "Destroying connection: " << id;
         if (nfs != nullptr)
             nfs_destroy_context(nfs);
     }
@@ -173,7 +174,11 @@ public:
 
     void putBackConnection(NFSConnection *conn);
 
-    void stop() { m_isStopped = true; }
+    void stop()
+    {
+        LOG(ERROR) << "Stopping NFS helper...";
+        m_isStopped = true;
+    }
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
@@ -186,8 +191,8 @@ private:
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
-    std::vector<std::unique_ptr<NFSConnection>> m_connections{};
     tbb::concurrent_bounded_queue<NFSConnection *> m_idleConnections{};
+    std::vector<std::unique_ptr<NFSConnection>> m_connections{};
 
     std::atomic_bool m_isConnected{false};
     std::atomic_bool m_isStopped{false};
