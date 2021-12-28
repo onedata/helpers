@@ -287,11 +287,8 @@ folly::Future<folly::Unit> NFSFileHandle::release()
                     return releaseOp(conn, retryCount);
                 })
                 .via(executor().get())
-                .thenTry([helperPtr, conn, s](auto &&v) {
-                    auto self = s.lock();
-                    if (self)
-                        helperPtr->putBackConnection(conn);
-
+                .thenTry([helperPtr, conn](auto &&v) {
+                    helperPtr->putBackConnection(conn);
                     return std::forward<decltype(v)>(v);
                 });
         });
