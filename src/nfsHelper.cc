@@ -279,11 +279,15 @@ folly::Future<folly::Unit> NFSFileHandle::release()
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
-                [conn, releaseOp = std::move(releaseOp)](
-                    int retryCount) { return releaseOp(conn, retryCount); })
+                [conn, releaseOp = std::move(releaseOp)](int retryCount) {
+                    LOG(ERROR) << "Releasing file via connection: " << conn->id;
+                    return releaseOp(conn, retryCount);
+                })
                 .via(executor().get())
                 .thenTry([helperPtrWeak, conn](auto &&v) {
                     auto ptr = helperPtrWeak.lock();
+                    LOG(ERROR) << "Released file putting back connection: "
+                               << conn->id << "(" << !!ptr<< ")";
                     if (ptr)
                         ptr->putBackConnection(conn);
                     return std::forward<decltype(v)>(v);
@@ -1091,7 +1095,6 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
                     .thenValue([this](auto && /*unit*/) { return connect(); });
             }
-
 
             LOG(ERROR) << "Taking idle connection: " << c->id;
 
