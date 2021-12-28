@@ -27,7 +27,6 @@ class NFSConnection {
 public:
     ~NFSConnection()
     {
-        LOG(ERROR) << "Destroying connection: " << id;
         if (nfs != nullptr)
             nfs_destroy_context(nfs);
     }
@@ -174,11 +173,7 @@ public:
 
     void putBackConnection(NFSConnection *conn);
 
-    void stop()
-    {
-        LOG(ERROR) << "Stopping NFS helper...";
-        m_isStopped = true;
-    }
+    void stop() { m_isStopped = true; }
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
