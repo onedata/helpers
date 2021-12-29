@@ -259,13 +259,16 @@ folly::Future<folly::Unit> NFSFileHandle::release()
 {
     LOG_FCALL();
 
-    auto releaseOp = [this, fileId = fileId(),
-                         s = shared_from_this()](
+    auto releaseOp = [this, fileId = fileId(), s = shared_from_this()](
                          struct nfs_context *nfs, unsigned int id,
                          size_t /*retryCount*/) {
         LOG(ERROR) << "Closing nfs handle: " << m_nfsFh << " opened with "
                    << m_connId << " closing with " << id;
-        nfs_close(nfs, m_nfsFh);
+
+        if (m_nfsFh != nullptr)
+            nfs_close(nfs, m_nfsFh);
+
+        m_nfsFh = nullptr;
 
         return folly::makeFuture();
     };
@@ -280,7 +283,8 @@ folly::Future<folly::Unit> NFSFileHandle::release()
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [nfs = conn->nfs, id = conn->id,
                     releaseOp = std::move(releaseOp)](int retryCount) {
-                    LOG(ERROR) << "Releasing file via connection: " << id;
+                    LOG(ERROR) << "Releasing file via connection: " << id << "("
+                               << retryCount << ")";
                     return releaseOp(nfs, id, retryCount);
                 })
                 .via(executor().get())
