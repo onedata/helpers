@@ -260,12 +260,12 @@ folly::Future<folly::Unit> NFSFileHandle::release()
 
     auto releaseOp = [this, fileId = fileId(),
                          s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                         NFSConnection *conn, size_t /*retryCount*/) {
+                         struct nfs_context *nfs, size_t /*retryCount*/) {
         auto self = s.lock();
         if (!self)
             return folly::makeFuture();
 
-        auto *nfs = conn->nfs;
+        LOG(ERROR) << "Closing nfs handle: " << m_nfsFh;
         nfs_close(nfs, m_nfsFh);
 
         return folly::makeFuture();
@@ -279,15 +279,17 @@ folly::Future<folly::Unit> NFSFileHandle::release()
             s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](auto &&conn) {
             return folly::futures::retrying(
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
-                [conn, releaseOp = std::move(releaseOp)](int retryCount) {
-                    LOG(ERROR) << "Releasing file via connection: " << conn->id;
-                    return releaseOp(conn, retryCount);
+                [nfs = conn->nfs, id = conn->id,
+                    releaseOp = std::move(releaseOp)](int retryCount) {
+                    LOG(ERROR) << "Releasing file via connection: " << id;
+                    return releaseOp(nfs, retryCount);
                 })
                 .via(executor().get())
                 .thenTry([helperPtrWeak, conn](auto &&v) {
                     auto ptr = helperPtrWeak.lock();
-                    LOG(ERROR) << "Released file putting back connection: "
-                               << conn->id << "(" << !!ptr<< ")";
+                    LOG(ERROR)
+                        << "Released file putting back connection: " << conn->id
+                        << "(" << !!ptr << ")";
                     if (ptr)
                         ptr->putBackConnection(conn);
                     return std::forward<decltype(v)>(v);
