@@ -262,7 +262,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
     auto releaseOp = [this, fileId = fileId(), s = shared_from_this()](
                          struct nfs_context *nfs, unsigned int id,
                          size_t /*retryCount*/) {
-        LOG(ERROR) << "Closing nfs handle: " << m_nfsFh << " opened with "
+        LOG_DBG(2) << "Closing nfs handle: " << m_nfsFh << " opened with "
                    << m_connId << " closing with " << id;
 
         if (m_nfsFh != nullptr)
@@ -283,16 +283,13 @@ folly::Future<folly::Unit> NFSFileHandle::release()
                 NFSRetryPolicy(constants::IO_RETRY_COUNT),
                 [nfs = conn->nfs, id = conn->id,
                     releaseOp = std::move(releaseOp)](int retryCount) {
-                    LOG(ERROR) << "Releasing file via connection: " << id << "("
+                    LOG_DBG(2) << "Releasing file via connection: " << id << "("
                                << retryCount << ")";
                     return releaseOp(nfs, id, retryCount);
                 })
                 .via(executor().get())
                 .thenTry([helperPtrWeak, conn](auto &&v) {
                     auto ptr = helperPtrWeak.lock();
-                    LOG(ERROR)
-                        << "Released file putting back connection: " << conn->id
-                        << "(" << !!ptr << ")";
                     if (ptr)
                         ptr->putBackConnection(conn);
                     return std::forward<decltype(v)>(v);
@@ -361,7 +358,7 @@ NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
 
 void NFSHelper::putBackConnection(NFSConnection *conn)
 {
-    LOG(ERROR) << "Putting back connection: " << conn->id;
+    LOG_DBG(2) << "Putting back connection: " << conn->id;
     m_idleConnections.emplace(conn);
 }
 
@@ -1000,12 +997,12 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
     });
 }
 
-folly::Future<NFSConnection *> NFSHelper::connect(unsigned int id)
+folly::Future<NFSConnection *> NFSHelper::connect()
 {
     LOG_FCALL();
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [this, id, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
+        [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
             auto self = s.lock();
             if (!self || m_isStopped)
                 return makeFutureNFSException<NFSConnection *>(
@@ -1098,11 +1095,10 @@ folly::Future<NFSConnection *> NFSHelper::connect(unsigned int id)
                            << "...";
                 return folly::via(executor().get())
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
-                    .thenValue(
-                        [this, id](auto && /*unit*/) { return connect(id); });
+                    .thenValue([this](auto && /*unit*/) { return connect(); });
             }
 
-            LOG(ERROR) << "Taking idle connection: " << c->id;
+            LOG_DBG(2) << "Taking idle connection: " << c->id;
 
             return folly::makeFuture(c);
         })

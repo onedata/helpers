@@ -27,7 +27,6 @@ class NFSConnection {
 public:
     ~NFSConnection()
     {
-        LOG(ERROR) << "Destroying connection: " << id;
         if (nfs != nullptr)
             nfs_destroy_context(nfs);
     }
@@ -53,8 +52,9 @@ public:
      * access to a file descriptor.
      */
     NFSFileHandle(const folly::fbstring &fileId,
-        std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh, unsigned int connId,
-        std::shared_ptr<folly::Executor> executor, Timeout timeout);
+        std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh,
+        unsigned int connId, std::shared_ptr<folly::Executor> executor,
+        Timeout timeout);
 
     ~NFSFileHandle() override = default;
 
@@ -153,7 +153,7 @@ public:
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    folly::Future<NFSConnection *> connect(unsigned int id = UINT_MAX);
+    folly::Future<NFSConnection *> connect();
 
     folly::fbstring name() const override { return NFS_HELPER_NAME; };
 
