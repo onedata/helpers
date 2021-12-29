@@ -53,7 +53,7 @@ public:
      * access to a file descriptor.
      */
     NFSFileHandle(const folly::fbstring &fileId,
-        std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh,
+        std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh, unsigned int connId,
         std::shared_ptr<folly::Executor> executor, Timeout timeout);
 
     ~NFSFileHandle() override = default;
@@ -79,11 +79,14 @@ public:
 
     std::shared_ptr<folly::Executor> executor() { return m_executor; };
 
+    unsigned int connId() const { return m_connId; }
+
 private:
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
 
     struct nfsfh *m_nfsFh;
+    unsigned int m_connId;
 };
 
 /**
@@ -150,7 +153,7 @@ public:
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    folly::Future<NFSConnection *> connect();
+    folly::Future<NFSConnection *> connect(unsigned int id = UINT_MAX);
 
     folly::fbstring name() const override { return NFS_HELPER_NAME; };
 

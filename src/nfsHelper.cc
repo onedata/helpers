@@ -87,12 +87,13 @@ inline auto NFSRetryPolicy(size_t maxTries)
 } // namespace
 
 NFSFileHandle::NFSFileHandle(const folly::fbstring &fileId,
-    std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh,
+    std::shared_ptr<NFSHelper> helper, struct nfsfh *nfsFh, unsigned int connId,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
     : FileHandle{fileId, std::move(helper)}
     , m_executor{std::move(executor)}
     , m_timeout{timeout}
     , m_nfsFh{nfsFh}
+    , m_connId{connId}
 {
 }
 
@@ -259,13 +260,11 @@ folly::Future<folly::Unit> NFSFileHandle::release()
     LOG_FCALL();
 
     auto releaseOp = [this, fileId = fileId(),
-                         s = std::weak_ptr<NFSFileHandle>{shared_from_this()}](
-                         struct nfs_context *nfs, size_t /*retryCount*/) {
-        auto self = s.lock();
-        if (!self)
-            return folly::makeFuture();
-
-        LOG(ERROR) << "Closing nfs handle: " << m_nfsFh;
+                         s = shared_from_this()](
+                         struct nfs_context *nfs, unsigned int id,
+                         size_t /*retryCount*/) {
+        LOG(ERROR) << "Closing nfs handle: " << m_nfsFh << " opened with "
+                   << m_connId << " closing with " << id;
         nfs_close(nfs, m_nfsFh);
 
         return folly::makeFuture();
@@ -282,7 +281,7 @@ folly::Future<folly::Unit> NFSFileHandle::release()
                 [nfs = conn->nfs, id = conn->id,
                     releaseOp = std::move(releaseOp)](int retryCount) {
                     LOG(ERROR) << "Releasing file via connection: " << id;
-                    return releaseOp(nfs, retryCount);
+                    return releaseOp(nfs, id, retryCount);
                 })
                 .via(executor().get())
                 .thenTry([helperPtrWeak, conn](auto &&v) {
@@ -389,7 +388,7 @@ folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
 
                 return folly::makeFuture<std::shared_ptr<NFSFileHandle>>(
                     std::make_shared<NFSFileHandle>(
-                        fileId, helper, nfsFh, executor, timeout));
+                        fileId, helper, nfsFh, conn->id, executor, timeout));
             });
     };
 
@@ -997,12 +996,12 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
     });
 }
 
-folly::Future<NFSConnection *> NFSHelper::connect()
+folly::Future<NFSConnection *> NFSHelper::connect(unsigned int id)
 {
     LOG_FCALL();
 
     return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
-        [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
+        [this, id, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
             auto self = s.lock();
             if (!self || m_isStopped)
                 return makeFutureNFSException<NFSConnection *>(
@@ -1095,7 +1094,8 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                            << "...";
                 return folly::via(executor().get())
                     .delayed(std::chrono::milliseconds{k_connectionPopDelayMs})
-                    .thenValue([this](auto && /*unit*/) { return connect(); });
+                    .thenValue(
+                        [this, id](auto && /*unit*/) { return connect(id); });
             }
 
             LOG(ERROR) << "Taking idle connection: " << c->id;
