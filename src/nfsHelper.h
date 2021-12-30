@@ -167,13 +167,15 @@ public:
 
     const folly::fbstring &host() const { return P()->host(); }
 
-    bool dircache() const { return P()->dircache(); }
+    bool dirCache() const { return P()->dirCache(); }
 
     int tcpSyncnt() const { return P()->tcpSyncnt(); }
 
-    bool autoreconnect() const { return P()->autoreconnect(); }
+    int autoReconnect() const { return P()->autoReconnect(); }
 
-    size_t readahead() const { return P()->readahead(); }
+    int connectionPoolSize() const { return P()->connectionPoolSize(); }
+
+    size_t readAhead() const { return P()->readAhead(); }
 
     void putBackConnection(NFSConnection *conn);
 

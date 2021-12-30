@@ -35,15 +35,17 @@ public:
 
     gid_t gid() const;
 
-    size_t readahead() const;
+    size_t readAhead() const;
 
     int tcpSyncnt() const;
 
-    bool dircache() const;
+    bool dirCache() const;
 
-    int autoreconnect() const;
+    int autoReconnect() const;
 
     int version() const;
+
+    int connectionPoolSize() const;
 
 private:
     // NFS server host
@@ -62,7 +64,7 @@ private:
 
     // Enable readahead for files and set the maximum amount
     // of readahead to <int> bytes.
-    size_t m_readahead;
+    size_t m_readAhead;
 
     // Number of SYNs to send during the session establish
     // before failing setting up the tcp connection to the
@@ -70,7 +72,7 @@ private:
     int m_tcpSyncnt;
 
     // Disable/enable directory caching. Enabled by default.
-    bool m_dircache{true};
+    bool m_dirCache{true};
 
     // Control the auto-reconnect behaviour to the NFS session.
     //   -1 : Try to reconnect forever on session failures.
@@ -80,10 +82,13 @@ private:
     //  >=1 : Retry to connect back to the server this many
     //        times before failing and returing an error back
     //        to the application.
-    int m_autoreconnect;
+    int m_autoReconnect;
 
     // NFS Version. Default is 3.
     int m_version{3};
+
+    // Size of NFS connection pool.
+    int m_connectionPoolSize;
 };
 } // namespace helpers
 } // namespace one

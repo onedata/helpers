@@ -24,16 +24,19 @@ void NFSHelperParams::initializeFromParams(const Params &parameters)
     StorageHelperParams::initializeFromParams(parameters);
 
     const auto kNFSDefaultVersion = 3;
+    const auto kNFSDefaultConnectionPoolSize = 10;
 
     m_host = getParam(parameters, "host").toStdString();
     m_volume = getParam(parameters, "volume").toStdString();
     m_uid = getParam<uid_t>(parameters, "uid", 0);
     m_gid = getParam<gid_t>(parameters, "gid", 0);
-    m_readahead = getParam<size_t>(parameters, "readahead", 0);
+    m_readAhead = getParam<size_t>(parameters, "readAhead", 0);
     m_tcpSyncnt = getParam<int>(parameters, "tcpSyncnt", 0);
-    m_dircache = getParam<bool>(parameters, "dircache", true);
-    m_autoreconnect = getParam<int>(parameters, "autoreconnect", 1);
+    m_dirCache = getParam<bool>(parameters, "dirCache", true);
+    m_autoReconnect = getParam<int>(parameters, "autoReconnect", 1);
     m_version = getParam<int>(parameters, "version", kNFSDefaultVersion);
+    m_connectionPoolSize = getParam<int>(
+        parameters, "connectionPoolSize", kNFSDefaultConnectionPoolSize);
 }
 
 const folly::fbstring &NFSHelperParams::host() const { return m_host; }
@@ -47,15 +50,17 @@ uid_t NFSHelperParams::uid() const { return m_uid; }
 
 gid_t NFSHelperParams::gid() const { return m_gid; }
 
-size_t NFSHelperParams::readahead() const { return m_readahead; }
+size_t NFSHelperParams::readAhead() const { return m_readAhead; }
 
 int NFSHelperParams::tcpSyncnt() const { return m_tcpSyncnt; }
 
-bool NFSHelperParams::dircache() const { return m_dircache; }
+bool NFSHelperParams::dirCache() const { return m_dirCache; }
 
-int NFSHelperParams::autoreconnect() const { return m_autoreconnect; }
+int NFSHelperParams::autoReconnect() const { return m_autoReconnect; }
 
 int NFSHelperParams::version() const { return m_version; }
+
+int NFSHelperParams::connectionPoolSize() const { return m_connectionPoolSize; }
 
 } // namespace helpers
 } // namespace one

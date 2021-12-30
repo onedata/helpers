@@ -1013,15 +1013,11 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                            << ") to connect to NFS server at: " << host()
                            << " path: " << volume();
 
-                constexpr auto k_connectionPoolDefaultSize{10UL};
-                size_t connectionPoolSize{k_connectionPoolDefaultSize};
                 auto threadPool =
                     std::dynamic_pointer_cast<folly::ThreadPoolExecutor>(
                         executor());
-                if (threadPool)
-                    connectionPoolSize = threadPool->numThreads() + 2;
 
-                for (unsigned int i = 0; i < connectionPoolSize; i++) {
+                for (int i = 0; i < connectionPoolSize(); i++) {
                     auto conn = std::make_unique<NFSConnection>();
 
                     conn->id = i;
@@ -1038,10 +1034,10 @@ folly::Future<NFSConnection *> NFSHelper::connect()
                     nfs_set_uid(conn->nfs, uid());
                     nfs_set_gid(conn->nfs, gid());
                     nfs_set_timeout(conn->nfs, timeout().count());
-                    nfs_set_dircache(conn->nfs, dircache() ? 1 : 0);
-                    nfs_set_readahead(conn->nfs, readahead());
+                    nfs_set_dircache(conn->nfs, dirCache() ? 1 : 0);
+                    nfs_set_readahead(conn->nfs, readAhead());
                     nfs_set_tcp_syncnt(conn->nfs, tcpSyncnt());
-                    nfs_set_autoreconnect(conn->nfs, autoreconnect() ? 1 : 0);
+                    nfs_set_autoreconnect(conn->nfs, autoReconnect());
 
                     LOG_DBG(2) << "Calling NFS mount";
 
