@@ -91,6 +91,25 @@ def test_readdir_should_list_files_in_directory(helper, file_id):
 
 
 @pytest.mark.directory_operations_tests
+def test_readdir_should_list_files_in_root_directory(helper, file_id):
+    file1_id = random_str()
+    file2_id = random_str()
+    data = random_str()
+    offset = random_int()
+
+    try:
+        # helper.mkdir(dir_id, 0777)
+        helper.write("/"+file1_id, data, offset)
+        helper.write("/"+file2_id, data, offset)
+    except:
+        pytest.fail("Couldn't create directory: %s"%(dir_id))
+
+    assert len(helper.readdir('/', 0, 1024)) >= 2
+    assert file1_id in helper.readdir('/', 0, 1024)
+    assert file2_id in helper.readdir('/', 0, 1024)
+
+
+@pytest.mark.directory_operations_tests
 def test_rmdir_should_remove_directory(helper, file_id):
     dir_id = file_id
     file1_id = random_str()
