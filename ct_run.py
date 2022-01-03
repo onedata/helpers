@@ -12,6 +12,7 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 docker_dir = os.path.join(script_dir, 'bamboos', 'docker')
 sys.path.insert(0, docker_dir)
 from environment import docker
+from environment.common import HOST_STORAGE_PATH
 
 def parse_valgrind_log_error_count(log_file):
     """
@@ -53,7 +54,7 @@ parser.add_argument(
 parser.add_argument(
     '--image', '-i',
     action='store',
-    default='onedata/builder:2102-5',
+    default='onedata/builder:2102-6',
     help='docker image to use as a test master',
     dest='image')
 
@@ -144,7 +145,8 @@ docker.run(tty=True,
            interactive=True,
            workdir=script_dir,
            reflect=[(script_dir, 'rw'),
-                    ('/var/run/docker.sock', 'rw')],
+                    ('/var/run/docker.sock', 'rw'),
+                    (HOST_STORAGE_PATH, 'rw')],
            image=args.image,
            envs={'BASE_TEST_DIR': base_test_dir},
            run_params=['--privileged'] if (args.gdb or args.valgrind) else [],

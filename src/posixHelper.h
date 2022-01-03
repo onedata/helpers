@@ -301,9 +301,8 @@ public:
         return {"mountPoint", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         return std::make_shared<PosixHelper>(
             PosixHelperParams::create(parameters), m_executor,

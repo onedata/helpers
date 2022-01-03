@@ -48,9 +48,8 @@ public:
         return {"authUrl", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         const auto &authUrl = getParam(parameters, "authUrl");
         const auto &containerName = getParam(parameters, "containerName");

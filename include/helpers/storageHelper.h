@@ -61,6 +61,8 @@ constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
 
 constexpr auto POSIX_HELPER_NAME = "posix";
 
+constexpr auto NFS_HELPER_NAME = "nfs";
+
 constexpr auto PROXY_HELPER_NAME = "proxy";
 
 constexpr auto NULL_DEVICE_HELPER_NAME = "nulldevice";
@@ -347,8 +349,7 @@ public:
      *        the common values, if allowed by helper
      */
     StorageHelperPtr createStorageHelperWithOverride(Params parameters,
-        const Params &overrideParameters,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
+        const Params &overrideParameters, ExecutionContext executionContext);
 };
 
 /**

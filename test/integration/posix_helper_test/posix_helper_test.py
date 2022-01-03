@@ -22,6 +22,7 @@ from posix_test_base import *
 from xattr_test_base import *
 from io_perf_test_base import *
 
+
 @pytest.fixture(scope='module')
 def server(request):
     class Server(object):

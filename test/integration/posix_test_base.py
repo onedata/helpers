@@ -12,7 +12,6 @@ import md5
 
 import pytest
 
-
 @pytest.fixture
 def mountpoint(server):
     return server.mountpoint
@@ -89,6 +88,25 @@ def test_readdir_should_list_files_in_directory(helper, file_id):
     assert len(helper.readdir(dir_id, 0, 1024)) == 2
     assert file1_id in helper.readdir(dir_id, 0, 1024)
     assert file2_id in helper.readdir(dir_id, 0, 1024)
+
+
+@pytest.mark.directory_operations_tests
+def test_readdir_should_list_files_in_root_directory(helper, file_id):
+    file1_id = random_str()
+    file2_id = random_str()
+    data = random_str()
+    offset = random_int()
+
+    try:
+        # helper.mkdir(dir_id, 0777)
+        helper.write("/"+file1_id, data, offset)
+        helper.write("/"+file2_id, data, offset)
+    except:
+        pytest.fail("Couldn't create directory: %s"%(dir_id))
+
+    assert len(helper.readdir('/', 0, 1024)) >= 2
+    assert file1_id in helper.readdir('/', 0, 1024)
+    assert file2_id in helper.readdir('/', 0, 1024)
 
 
 @pytest.mark.directory_operations_tests
@@ -192,9 +210,9 @@ def test_mknod_should_set_premissions(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0644, flags)
 
-    assert 0777&(helper.getattr(file_id).st_mode) == 0654
+    assert 0777&(helper.getattr(file_id).st_mode) == 0644
 
 
 @pytest.mark.mknod_operations_tests
@@ -204,7 +222,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0644, flags)
 
     assert Flag.IFREG in maskToFlags(helper.getattr(file_id).st_mode)
     assert not (Flag.IFCHR in maskToFlags(helper.getattr(file_id).st_mode))
@@ -220,7 +238,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0644, flags)
 
     assert Flag.IFREG in maskToFlags(helper.getattr(file_id).st_mode)
     assert not (Flag.IFCHR in maskToFlags(helper.getattr(file_id).st_mode))

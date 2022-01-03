@@ -70,6 +70,10 @@ if(NOT WITH_XROOTD)
     list(REMOVE_ITEM TEST_DIRS  xrootd_helper_test)
 endif(NOT WITH_XROOTD)
 
+if(NOT WITH_NFS)
+    list(REMOVE_ITEM TEST_DIRS  nfs_helper_test)
+endif(NOT WITH_NFS)
+
 
 add_library(posix_test_types SHARED posixTestTypes.cc)
 set_target_properties(posix_test_types PROPERTIES

@@ -595,9 +595,8 @@ public:
             "timeout", "credentialsType", "credentials"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         return std::make_shared<HTTPHelper>(
             HTTPHelperParams::create(parameters), m_executor, executionContext);

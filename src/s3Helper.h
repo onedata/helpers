@@ -52,9 +52,8 @@ public:
         return {"scheme", "hostname", "timeout"};
     };
 
-    std::shared_ptr<StorageHelper> createStorageHelper(const Params &parameters,
-        ExecutionContext executionContext =
-            ExecutionContext::ONEPROVIDER) override
+    std::shared_ptr<StorageHelper> createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) override
     {
         // Default value for maximum object size on S3 storages
         // with canonical paths which will support modification of

@@ -14,6 +14,9 @@
 #if WITH_XROOTD
 #include "xrootdHelperParams.h"
 #endif
+#if WITH_NFS
+#include "nfsHelperParams.h"
+#endif
 
 #include <folly/futures/Future.h>
 
@@ -140,6 +143,11 @@ std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
 #if WITH_XROOTD
     if (name == XROOTD_HELPER_NAME) {
         return XRootDHelperParams::create(params);
+    }
+#endif
+#if WITH_NFS
+    if (name == NFS_HELPER_NAME) {
+        return NFSHelperParams::create(params);
     }
 #endif
 
