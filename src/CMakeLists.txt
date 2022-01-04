@@ -80,6 +80,11 @@ if(NOT WITH_XROOTD)
     list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/xrootdHelperParams.cc)
 endif(NOT WITH_XROOTD)
 
+if(NOT WITH_NFS)
+    list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/nfsHelper.cc)
+    list(REMOVE_ITEM HELPER_SOURCES  ${CMAKE_CURRENT_SOURCE_DIR}/nfsHelperParams.cc)
+endif(NOT WITH_NFS)
+
 add_library(helpers OBJECT ${HELPER_SOURCES})
 add_dependencies(helpers clproto)
 set(HELPERS_INCLUDE_DIRS
