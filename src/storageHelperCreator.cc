@@ -334,10 +334,64 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 #endif
 
 #if WITH_NFS
-    if (name == NFS_HELPER_NAME)
-        helper =
-            NFSHelperFactory{m_nfsExecutor}.createStorageHelperWithOverride(
-                args, overrideParams, m_executionContext);
+    if (name == NFS_HELPER_NAME) {
+        auto host = getParam<folly::fbstring>(args, "host");
+        auto volume = getParam<folly::fbstring>(args, "volume");
+        if (volume.find(';') == std::string::npos) {
+            helper =
+                NFSHelperFactory{m_nfsExecutor}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+        }
+        else {
+            // This is a multisupport NFS helper which handles multiple NFS
+            // volumes in parallel
+            if (overrideParams.find("host") != overrideParams.cend())
+                host = getParam<folly::fbstring>(overrideParams, "host");
+
+            if (overrideParams.find("volume") != overrideParams.cend())
+                volume = getParam<folly::fbstring>(overrideParams, "volume");
+
+            std::vector<std::string> hosts;
+            std::vector<std::string> volumes;
+            folly::split(";", host, hosts, true);
+            folly::split(";", volume, volumes, true);
+
+            if (hosts.empty())
+                throw std::system_error{
+                    std::make_error_code(std::errc::invalid_argument),
+                    "Invalid NFS host specification"};
+
+            if (volumes.empty())
+                throw std::system_error{
+                    std::make_error_code(std::errc::invalid_argument),
+                    "Invalid NFS volume specification"};
+
+            if ((hosts.size() > 1) && (hosts.size() != volumes.size())) {
+                throw std::system_error{
+                    std::make_error_code(std::errc::invalid_argument),
+                    "NFS host count must match NFS volume count in "
+                    "multisupport NFS helper"};
+            }
+
+            std::vector<StorageHelperPtr> storages;
+            auto factory = NFSHelperFactory{m_nfsExecutor};
+            for (auto i = 0U; i < volumes.size(); i++) {
+                Params argsCopy;
+                if (hosts.size() == 1)
+                    argsCopy["host"] = hosts[0];
+                else
+                    argsCopy["host"] = hosts[i];
+
+                argsCopy["volume"] = volumes[i];
+
+                storages.emplace_back(factory.createStorageHelperWithOverride(
+                    argsCopy, overrideParams, m_executionContext));
+            }
+
+            helper = std::make_shared<StorageFanInHelper>(
+                std::move(storages), m_nfsExecutor, m_executionContext);
+        }
+    }
 #endif
 
     if (name == NULL_DEVICE_HELPER_NAME)
