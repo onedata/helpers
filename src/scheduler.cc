@@ -8,30 +8,63 @@
 
 #include "scheduler.h"
 #include "helpers/logging.h"
-#include "helpers/storageHelper.h"
 
 #include <folly/system/ThreadName.h>
+
+#include <algorithm>
 
 namespace one {
 
 Scheduler::Scheduler(const int threadNumber)
     : m_threadNumber{threadNumber}
-    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(threadNumber,
-          std::make_shared<one::helpers::StorageWorkerFactory>("sched_t"))}
 {
+    start();
 }
+
+Scheduler::~Scheduler() { stop(); }
 
 void Scheduler::prepareForDaemonize()
 {
     LOG_FCALL();
-    m_executor->join();
-    m_executor->stop();
+
+    stop();
+    m_ioService.notify_fork(asio::io_service::fork_prepare);
 }
 
 void Scheduler::restartAfterDaemonize()
 {
     LOG_FCALL();
-    m_executor = std::make_shared<folly::IOThreadPoolExecutor>(m_threadNumber,
-        std::make_shared<one::helpers::StorageWorkerFactory>("sched_t"));
+
+    m_ioService.notify_fork(asio::io_service::fork_child);
+    start();
 }
+
+void Scheduler::start()
+{
+    LOG_FCALL();
+
+    if (m_ioService.stopped())
+        m_ioService.reset();
+
+    std::generate_n(std::back_inserter(m_workers), m_threadNumber, [=] {
+        std::thread t{[=] {
+            folly::setThreadName("Scheduler");
+            m_ioService.run();
+        }};
+
+        return t;
+    });
+}
+
+void Scheduler::stop()
+{
+    LOG_FCALL();
+
+    m_ioService.stop();
+    for (auto &t : m_workers)
+        t.join();
+
+    m_workers.clear();
+}
+
 } // namespace one
