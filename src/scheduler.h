@@ -9,8 +9,10 @@
 #ifndef HELPERS_SCHEDULER_H
 #define HELPERS_SCHEDULER_H
 
-#include <folly/executors/IOThreadPoolExecutor.h>
-#include <folly/futures/Future.h>
+#include <asio/io_service.hpp>
+#include <asio/post.hpp>
+#include <asio/steady_timer.hpp>
+#include <asio/ts/executor.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -37,15 +39,15 @@ public:
      * Destructor.
      * Stops the scheduler and joins worker threads.
      */
-    virtual ~Scheduler() = default;
+    virtual ~Scheduler();
+
+    Scheduler(const Scheduler &) = delete;
+    Scheduler(Scheduler &&) = delete;
+    Scheduler &operator=(const Scheduler &) = delete;
+    Scheduler &operator=(Scheduler &&) = delete;
 
     void prepareForDaemonize();
     void restartAfterDaemonize();
-
-    std::shared_ptr<folly::IOThreadPoolExecutor> executor()
-    {
-        return m_executor;
-    }
 
     /**
      * Runs a task asynchronously in @c Scheduler's thread pool.
@@ -53,7 +55,7 @@ public:
      */
     template <typename F> void post(F &&task)
     {
-        m_executor->add(std::forward<F>(task));
+        asio::post(m_ioService, std::forward<F>(task));
     }
 
     /**
@@ -94,23 +96,18 @@ public:
     std::function<void()> schedule(
         const std::chrono::duration<Rep, Period> after, F &&task)
     {
-        auto f = std::make_shared<folly::Future<folly::Unit>>(
-            folly::via(m_executor.get())
-                .delayed(after)
-                .thenValue(
-                    [e = std::weak_ptr<folly::IOThreadPoolExecutor>(m_executor),
-                        t = std::forward<F>(task)](auto && /*unit*/) {
-                        if (auto executor = e.lock()) {
-                            t();
-                        }
-                    }));
+        using namespace std::placeholders;
+        const auto timer =
+            std::make_shared<asio::steady_timer>(m_ioService, after);
 
-        return [f = std::move(f)]() mutable {
-            try {
-                f->cancel();
-            }
-            catch (folly::FutureCancellation &) {
-            }
+        timer->async_wait([task, timer](auto ec) {
+            if (!ec)
+                task();
+        });
+
+        return [timer = std::weak_ptr<asio::steady_timer>{timer}] {
+            if (auto t = timer.lock())
+                t->cancel();
         };
     }
 
@@ -151,8 +148,14 @@ public:
     }
 
 private:
+    void start();
+    void stop();
+
     const int m_threadNumber;
-    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
+    std::vector<std::thread> m_workers;
+    asio::io_service m_ioService{m_threadNumber};
+    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork =
+        asio::make_work_guard(m_ioService);
 };
 
 } // namespace one
