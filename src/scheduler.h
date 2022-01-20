@@ -33,13 +33,18 @@ public:
      * Creates worker threads.
      * @param threadNumber The number of threads to be spawned.
      */
-    Scheduler(const int threadNumber);
+    explicit Scheduler(int threadNumber);
 
     /**
      * Destructor.
      * Stops the scheduler and joins worker threads.
      */
     virtual ~Scheduler();
+
+    Scheduler(const Scheduler &) = delete;
+    Scheduler(Scheduler &&) = delete;
+    Scheduler &operator=(const Scheduler &) = delete;
+    Scheduler &operator=(Scheduler &&) = delete;
 
     void prepareForDaemonize();
     void restartAfterDaemonize();
