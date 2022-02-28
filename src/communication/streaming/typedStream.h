@@ -194,15 +194,19 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
 {
     LOG_FCALL();
 
-    auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
+    if (m_communicator->isConnected()) {
+        auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
 
-    {
-        std::shared_lock<BufferMutexType> lock{m_bufferMutex};
-        m_buffer.emplace(std::move(msgCopy));
+        {
+            std::shared_lock<BufferMutexType> lock{m_bufferMutex};
+            m_buffer.emplace(std::move(msgCopy));
+        }
+
+        m_communicator->send(
+            std::move(msg), [](auto /*unused*/) {}, 0);
     }
-
-    m_communicator->send(
-        std::move(msg), [](auto /*unused*/) {}, 0);
+    else
+        LOG_DBG(1) << "Connection is down - skipped sending typed message";
 }
 
 template <class Communicator>
