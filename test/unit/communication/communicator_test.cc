@@ -39,9 +39,9 @@ public:
     void send(std::string, Callback /*callback*/, const int = int{}) { }
 };
 
-using CustomCommunicator =
-    layers::Translator<layers::Replier<layers::Inbox<layers::Sequencer<
-        layers::BinaryTranslator<layers::Retrier<LazyConnectionPool>>,
+using CustomCommunicator = layers::Translator<layers::Replier<
+    layers::Inbox<layers::Sequencer<layers::BinaryTranslator<layers::Logger<
+                                        layers::Retrier<LazyConnectionPool>>>,
         MockScheduler>>>>;
 
 struct CommunicatorTest : public ::testing::Test {
