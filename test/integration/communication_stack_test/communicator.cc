@@ -66,9 +66,9 @@ private:
     std::string m_lastMessageSent;
 };
 
-using CustomCommunicator =
-    layers::Translator<layers::Replier<layers::Inbox<layers::Sequencer<
-        layers::BinaryTranslator<Hijacker<layers::Retrier<ConnectionPool>>>>>>>;
+using CustomCommunicator = layers::Translator<
+    layers::Replier<layers::Inbox<layers::Sequencer<layers::BinaryTranslator<
+        layers::Logger<Hijacker<layers::Retrier<ConnectionPool>>>>>>>>;
 
 class ExampleClientMessage : public messages::ClientMessage {
 public:

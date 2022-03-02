@@ -6,6 +6,7 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
 #include "communication/exception.h"
 #include "communication/layers/retrier.h"
 #include "testUtils.h"
@@ -25,6 +26,9 @@ struct LowerLayer {
     using Callback = std::function<void(const std::error_code &)>;
 
     LowerLayer &mock = static_cast<LowerLayer &>(*this);
+
+    MOCK_METHOD1(logClientMessage, void(const clproto::ClientMessage &));
+    MOCK_METHOD1(logServerMessage, void(const clproto::ServerMessage &));
 
     MOCK_METHOD2(sendProxy, bool(std::string, int));
 
