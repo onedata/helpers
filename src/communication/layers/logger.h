@@ -32,11 +32,12 @@ namespace layers {
  */
 template <class LowerLayer> class Logger : public LowerLayer {
 public:
+    static const auto kMaxMessageLength = 1024U; // NOLINT
+
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    static const auto kMaxMessageLength = 1024U;
 
-    Logger() { }
+    Logger() = default;
 
     virtual ~Logger() = default; // NOLINT
 
@@ -48,7 +49,7 @@ public:
     /**
      * A reference to @c *this typed as a @c Logger.
      */
-    Logger<LowerLayer> &logger = *this;
+    Logger<LowerLayer> &logger = *this; // NOLINT
 
     void enableMessageLog(const std::string &name, const std::string &path);
 
