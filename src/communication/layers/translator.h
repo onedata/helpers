@@ -186,6 +186,39 @@ public:
 
         return future;
     }
+
+    template <class SvrMsg, class CliMsg>
+    folly::Future<SvrMsg> communicateRaw(
+        CliMsg &&msg, const int retries = DEFAULT_RETRY_NUMBER)
+    {
+        LOG_FCALL() << LOG_FARG(retries);
+
+        auto promise = std::make_shared<folly::Promise<SvrMsg>>();
+        auto future =
+            promise->getSemiFuture().via(LowerLayer::executor().get());
+        auto callback = [promise = std::move(promise)](
+                            const std::error_code &ec,
+                            ServerMessagePtr protoMessage) {
+            if (ec) {
+                LOG(ERROR) << "Communicate error: " << ec.message() << "("
+                           << ec.value() << ")";
+
+                promise->setException(std::system_error{ec});
+            }
+            else {
+                promise->setWith(
+                    [protoMessage = std::move(protoMessage)]() mutable {
+                        return SvrMsg{std::move(protoMessage)};
+                    });
+            }
+        };
+
+        // NOLINTNEXTLINE
+        LowerLayer::communicate(
+            std::move(msg), std::move(callback), retries); // NOLINT
+
+        return future;
+    }
 };
 
 template <class LowerLayer>

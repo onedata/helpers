@@ -12,6 +12,7 @@
 #include "communication/declarations.h"
 #include "messages/clientMessage.h"
 #include "messages/endOfStream.h"
+#include "messages/status.h"
 
 #include <tbb/concurrent_priority_queue.h>
 
@@ -82,6 +83,8 @@ public:
      */
     virtual void send(ClientMessagePtr msg);
 
+    virtual void sendSync(ClientMessagePtr msg);
+
     /**
      * Resends messages requested by the remote party.
      * @param msg Details of the request.
@@ -113,6 +116,7 @@ public:
 
 private:
     void saveAndPass(ClientMessagePtr msg);
+    void saveAndPassSync(ClientMessagePtr msg);
 
     std::shared_ptr<Communicator> m_communicator;
     const std::uint64_t m_streamId;
@@ -160,6 +164,17 @@ void TypedStream<Communicator>::send(ClientMessagePtr msg)
     saveAndPass(std::move(msg));
 }
 
+template <class Communicator>
+void TypedStream<Communicator>::sendSync(ClientMessagePtr msg)
+{
+    LOG_FCALL();
+
+    auto *msgStream = msg->mutable_message_stream();
+    msgStream->set_stream_id(m_streamId);
+    msgStream->set_sequence_number(m_sequenceId++);
+    saveAndPassSync(std::move(msg));
+}
+
 template <class Communicator> void TypedStream<Communicator>::close()
 {
     LOG_FCALL();
@@ -204,6 +219,26 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
 
         m_communicator->send(
             std::move(msg), [](auto /*unused*/) {}, 0);
+    }
+    else
+        LOG_DBG(1) << "Connection is down - skipped sending typed message";
+}
+
+template <class Communicator>
+void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
+{
+    LOG_FCALL();
+
+    if (m_communicator->isConnected()) {
+        auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
+
+        {
+            std::shared_lock<BufferMutexType> lock{m_bufferMutex};
+            m_buffer.emplace(std::move(msgCopy));
+        }
+
+        m_communicator->template communicateRaw<messages::Status>(
+            std::move(msg), 0);
     }
     else
         LOG_DBG(1) << "Connection is down - skipped sending typed message";
