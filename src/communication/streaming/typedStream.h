@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -63,7 +64,13 @@ public:
      */
     TypedStream(
         std::shared_ptr<Communicator> communicator, std::uint64_t streamId,
+        const std::chrono::seconds providerTimeout,
         std::function<void()> unregister = [] {});
+
+    TypedStream(TypedStream &&) = delete;
+    TypedStream(const TypedStream &) = delete;
+    TypedStream &operator=(TypedStream &&) = delete;
+    TypedStream &operator=(const TypedStream) = delete;
 
     /**
      * Destructor.
@@ -109,11 +116,6 @@ public:
      */
     void reset();
 
-    TypedStream(TypedStream &&) = delete;
-    TypedStream(const TypedStream &) = delete;
-    TypedStream &operator=(TypedStream &&) = delete;
-    TypedStream &operator=(const TypedStream) = delete;
-
 private:
     void saveAndPass(ClientMessagePtr msg);
     void saveAndPassSync(ClientMessagePtr msg);
@@ -124,15 +126,18 @@ private:
     std::atomic<std::uint64_t> m_sequenceId{0};
     BufferMutexType m_bufferMutex;
     tbb::concurrent_priority_queue<ClientMessagePtr, StreamLess> m_buffer;
+    const std::chrono::seconds m_providerTimeout;
 };
 
 template <class Communicator>
 TypedStream<Communicator>::TypedStream(
     std::shared_ptr<Communicator> communicator, const uint64_t streamId,
+    const std::chrono::seconds providerTimeout,
     std::function<void()> unregister)
     : m_communicator{std::move(communicator)}
     , m_streamId{streamId}
     , m_unregister{std::move(unregister)}
+    , m_providerTimeout{providerTimeout}
 {
     LOG_FCALL() << LOG_FARG(streamId);
 }
@@ -237,8 +242,10 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
             m_buffer.emplace(std::move(msgCopy));
         }
 
-        m_communicator->template communicateRaw<messages::Status>(
-            std::move(msg), 0);
+        communication::wait(
+            m_communicator->template communicateRaw<messages::Status>(
+                std::move(msg)),
+            m_providerTimeout);
     }
     else
         LOG_DBG(1) << "Connection is down - skipped sending typed message";
