@@ -39,7 +39,7 @@ public:
      * @todo Communicator as a reference
      */
     explicit StreamManager(std::shared_ptr<Communicator> communicator,
-        const std::chrono::seconds providerTimeout);
+        std::chrono::seconds providerTimeout);
 
     /**
      * Creates a new @c Stream.

@@ -64,7 +64,7 @@ public:
      */
     TypedStream(
         std::shared_ptr<Communicator> communicator, std::uint64_t streamId,
-        const std::chrono::seconds providerTimeout,
+        std::chrono::seconds providerTimeout,
         std::function<void()> unregister = [] {});
 
     TypedStream(TypedStream &&) = delete;
