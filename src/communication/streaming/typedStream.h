@@ -12,11 +12,13 @@
 #include "communication/declarations.h"
 #include "messages/clientMessage.h"
 #include "messages/endOfStream.h"
+#include "messages/status.h"
 
 #include <tbb/concurrent_priority_queue.h>
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -62,7 +64,13 @@ public:
      */
     TypedStream(
         std::shared_ptr<Communicator> communicator, std::uint64_t streamId,
+        std::chrono::seconds providerTimeout,
         std::function<void()> unregister = [] {});
+
+    TypedStream(TypedStream &&) = delete;
+    TypedStream(const TypedStream &) = delete;
+    TypedStream &operator=(TypedStream &&) = delete;
+    TypedStream &operator=(const TypedStream) = delete;
 
     /**
      * Destructor.
@@ -81,6 +89,8 @@ public:
      * @param msg The message to send through the stream.
      */
     virtual void send(ClientMessagePtr msg);
+
+    virtual void sendSync(ClientMessagePtr msg);
 
     /**
      * Resends messages requested by the remote party.
@@ -106,13 +116,9 @@ public:
      */
     void reset();
 
-    TypedStream(TypedStream &&) = delete;
-    TypedStream(const TypedStream &) = delete;
-    TypedStream &operator=(TypedStream &&) = delete;
-    TypedStream &operator=(const TypedStream) = delete;
-
 private:
     void saveAndPass(ClientMessagePtr msg);
+    void saveAndPassSync(ClientMessagePtr msg);
 
     std::shared_ptr<Communicator> m_communicator;
     const std::uint64_t m_streamId;
@@ -120,15 +126,18 @@ private:
     std::atomic<std::uint64_t> m_sequenceId{0};
     BufferMutexType m_bufferMutex;
     tbb::concurrent_priority_queue<ClientMessagePtr, StreamLess> m_buffer;
+    const std::chrono::seconds m_providerTimeout;
 };
 
 template <class Communicator>
 TypedStream<Communicator>::TypedStream(
     std::shared_ptr<Communicator> communicator, const uint64_t streamId,
+    const std::chrono::seconds providerTimeout,
     std::function<void()> unregister)
     : m_communicator{std::move(communicator)}
     , m_streamId{streamId}
     , m_unregister{std::move(unregister)}
+    , m_providerTimeout{providerTimeout}
 {
     LOG_FCALL() << LOG_FARG(streamId);
 }
@@ -158,6 +167,17 @@ void TypedStream<Communicator>::send(ClientMessagePtr msg)
     msgStream->set_stream_id(m_streamId);
     msgStream->set_sequence_number(m_sequenceId++);
     saveAndPass(std::move(msg));
+}
+
+template <class Communicator>
+void TypedStream<Communicator>::sendSync(ClientMessagePtr msg)
+{
+    LOG_FCALL();
+
+    auto *msgStream = msg->mutable_message_stream();
+    msgStream->set_stream_id(m_streamId);
+    msgStream->set_sequence_number(m_sequenceId++);
+    saveAndPassSync(std::move(msg));
 }
 
 template <class Communicator> void TypedStream<Communicator>::close()
@@ -204,6 +224,28 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
 
         m_communicator->send(
             std::move(msg), [](auto /*unused*/) {}, 0);
+    }
+    else
+        LOG_DBG(1) << "Connection is down - skipped sending typed message";
+}
+
+template <class Communicator>
+void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
+{
+    LOG_FCALL();
+
+    if (m_communicator->isConnected()) {
+        auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
+
+        {
+            std::shared_lock<BufferMutexType> lock{m_bufferMutex};
+            m_buffer.emplace(std::move(msgCopy));
+        }
+
+        communication::wait(
+            m_communicator->template communicateRaw<messages::Status>(
+                std::move(msg)),
+            m_providerTimeout);
     }
     else
         LOG_DBG(1) << "Connection is down - skipped sending typed message";

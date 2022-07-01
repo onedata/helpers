@@ -38,7 +38,8 @@ public:
      * and for subscription to incoming messages.
      * @todo Communicator as a reference
      */
-    explicit StreamManager(std::shared_ptr<Communicator> communicator);
+    explicit StreamManager(std::shared_ptr<Communicator> communicator,
+        std::chrono::seconds providerTimeout);
 
     /**
      * Creates a new @c Stream.
@@ -66,12 +67,15 @@ private:
     tbb::concurrent_vector<std::weak_ptr<Stream>> m_streams;
     tbb::concurrent_queue<typename decltype(m_streams)::iterator>
         m_streamsSlots;
+    const std::chrono::seconds m_providerTimeout;
 };
 
 template <class Communicator>
 StreamManager<Communicator>::StreamManager(
-    std::shared_ptr<Communicator> communicator)
+    std::shared_ptr<Communicator> communicator,
+    const std::chrono::seconds providerTimeout)
     : m_communicator{std::move(communicator)}
+    , m_providerTimeout{providerTimeout}
 {
     auto predicate = [](const clproto::ServerMessage &msg,
                          const bool /*unused*/) {
@@ -102,7 +106,7 @@ auto StreamManager<Communicator>::create() -> std::shared_ptr<Stream>
 
     std::uint64_t streamId = m_nextStreamId++;
     auto stream = std::make_shared<Stream>(
-        m_communicator, streamId, [this, streamId, it] {
+        m_communicator, streamId, m_providerTimeout, [this, streamId, it] {
             m_idMap.erase(streamId);
             m_streamsSlots.emplace(std::move(it));
         });
