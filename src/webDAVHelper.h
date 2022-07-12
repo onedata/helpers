@@ -36,6 +36,7 @@
 #include <proxygen/lib/http/session/HTTPUpstreamSession.h>
 #include <proxygen/lib/utils/Base64.h>
 #include <proxygen/lib/utils/URL.h>
+#include <tbb/concurrent_priority_queue.h>
 
 namespace pxml = Poco::XML;
 
@@ -247,6 +248,18 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
 };
 
 /**
+ * Sort functor which ensures that the idle connection queue keeps
+ * active free connections at the head of the queue, to minimize
+ * number of concurrent active connections.
+ */
+struct WebDAVSessionPriorityCompare {
+    bool operator()(const WebDAVSession *a, const WebDAVSession *b) const
+    {
+        return a->sessionValid < b->sessionValid;
+    }
+};
+
+/**
  * The WebDAVHelper class provides access to WebDAV storage via librados
  * library.
  */
@@ -415,7 +428,7 @@ public:
     {
         decltype(m_idleSessionPool)::accessor ispAcc;
         if (m_idleSessionPool.find(ispAcc, session->key))
-            ispAcc->second.write(std::move(session));
+            ispAcc->second.emplace(std::move(session));
     };
 
     static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
@@ -447,14 +460,12 @@ private:
         spAcc->second = folly::fbvector<WebDAVSessionPtr>();
 
         m_idleSessionPool.insert(ispAcc, key);
-        ispAcc->second =
-            folly::MPMCQueue<WebDAVSession *, std::atomic, true>(100);
 
         for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
             auto webDAVSession = std::make_unique<WebDAVSession>();
             webDAVSession->helper = this;
             webDAVSession->key = key;
-            ispAcc->second.write(webDAVSession.get());
+            ispAcc->second.emplace(webDAVSession.get());
             spAcc->second.emplace_back(std::move(webDAVSession));
         }
     }
@@ -473,7 +484,8 @@ private:
     std::shared_ptr<folly::IOExecutor> m_executor;
 
     tbb::concurrent_hash_map<WebDAVSessionPoolKey,
-        folly::MPMCQueue<WebDAVSession *, std::atomic, true>,
+        tbb::concurrent_priority_queue<WebDAVSession *,
+            WebDAVSessionPriorityCompare>,
         WebDAVSessionPoolKeyCompare>
         m_idleSessionPool;
     tbb::concurrent_hash_map<WebDAVSessionPoolKey,

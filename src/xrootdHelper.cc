@@ -851,9 +851,9 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     auto file = std::make_unique<XrdCl::File>(true);
     auto *filePtr = file.get();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> &&openTask{
+    std::packaged_task<void(XrdCl::XRootDStatus & st)> mknodTask{
         [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() mutable {
+            p.setWith([&st]() {
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st); // NOLINT
             });
@@ -863,7 +863,7 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     auto tf =
         XrdCl::Async(XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
                          XrdCl::OpenFlags::New, modeToAccess(mode)) |
-            XrdCl::Sync(filePtr) | XrdCl::Close(filePtr) >> openTask);
+            XrdCl::Sync(filePtr) | XrdCl::Close(filePtr) >> mknodTask);
 
     return std::move(f)
         .via(executor().get())
