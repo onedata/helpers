@@ -18,6 +18,8 @@ else()
   set(gtest_dir ../gtest)
 endif()
 
+set(CMAKE_CXX_FLAGS "-Wno-pedantic")
+
 # Defines pre_project_set_up_hermetic_build() and set_up_hermetic_build().
 include("${gtest_dir}/cmake/hermetic_build.cmake" OPTIONAL)
 
