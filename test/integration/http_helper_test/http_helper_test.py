@@ -9,7 +9,7 @@ import sys
 import time
 import subprocess
 from os.path import expanduser
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 import pytest
 import hashlib
@@ -36,8 +36,8 @@ def server(request):
                        common.generate_uid())
 
     [container] = result['docker_ids']
-    credentials = result['credentials'].encode('ascii')
-    endpoint = result['endpoint'].encode('ascii')
+    credentials = result['credentials']
+    endpoint = result['endpoint']
 
     def fin():
         docker.remove([container], force=True, volumes=True)
@@ -60,7 +60,7 @@ def public_helper():
 
 def get_file_index(h):
     res = []
-    index_file = h.read('/test_data/index.txt', 0, 10000)
+    index_file = h.read('/test_data/index.txt', 0, 10000).decode('utf-8')
     for line in index_file.splitlines():
         (md5sum, size, timestamp) = line.split(',')
         res.append((md5sum, size, timestamp))
@@ -71,7 +71,7 @@ def test_getattr_should_get_mode_and_timestamp(helper, file_id):
     index = get_file_index(helper)
 
     for file_data in index:
-        stat = helper.getattr('/test_data/'+file_data[0])
+        stat = helper.getattr(f'/test_data/{file_data[0]}')
         assert stat.st_size == int(file_data[1])
 
 
@@ -80,7 +80,7 @@ def test_getattr_should_get_mode_and_timestamp_with_absolute_url(server, file_id
     index = get_file_index(helper)
 
     for file_data in index:
-        stat = helper.getattr(server.endpoint+'/test_data/'+file_data[0])
+        stat = helper.getattr(f'{server.endpoint}/test_data/{file_data[0]}')
         assert stat.st_size == int(file_data[1])
 
 
@@ -88,7 +88,7 @@ def test_read_should_read_valid_data(helper, file_id):
     index = get_file_index(helper)
 
     for file_data in index:
-        data = helper.read('/test_data/'+file_data[0], 0, int(file_data[1]))
+        data = helper.read(f'/test_data/{file_data[0]}', 0, int(file_data[1]))
         assert len(data) == int(file_data[1])
         m = hashlib.md5()
         m.update(data)
@@ -100,7 +100,7 @@ def test_read_should_read_valid_data_with_absolute_url(server, file_id):
     index = get_file_index(helper)
 
     for file_data in index:
-        data = helper.read(server.endpoint+'/test_data/'+file_data[0], 0, int(file_data[1]))
+        data = helper.read(f'{server.endpoint}/test_data/{file_data[0]}', 0, int(file_data[1]))
         assert len(data) == int(file_data[1])
         m = hashlib.md5()
         m.update(data)
@@ -112,7 +112,7 @@ def test_read_should_read_valid_data_with_query_string(server, file_id):
     index = get_file_index(helper)
 
     for file_data in index:
-        data = helper.read(server.endpoint+'/test_data/direct?file='+file_data[0], 0, int(file_data[1]))
+        data = helper.read(f'{server.endpoint}/test_data/direct?file={file_data[0]}', 0, int(file_data[1]))
         assert len(data) == int(file_data[1])
         m = hashlib.md5()
         m.update(data)

@@ -22,7 +22,7 @@ PERFORMANCE_RESULT_FILE = \
 def _appmock_client(request):
     test_dir = os.path.dirname(os.path.realpath(request.module.__file__))
 
-    result = appmock.up(image='onedata/builder:2102-2', bindir=appmock_dir,
+    result = appmock.up(image='onedata/builder:2102-7', bindir=appmock_dir,
                         dns_server='none', uid=common.generate_uid(),
                         config_path=os.path.join(test_dir, 'env.json'))
 
@@ -75,14 +75,14 @@ def pytest_generate_tests(metafunc):
 
         if not metafunc.config.getoption('--performance'):
             if params:
-                metafunc.parametrize(params.keys(), [params.values()])
+                metafunc.parametrize(list(params.keys()), [list(params.values())])
         else:
             metafunc.fixturenames.extend(['config_name', 'rep'])
 
-            params_names = ['config_name', 'rep'] + params.keys()
+            params_names = ['config_name', 'rep'] + list(params.keys())
             params_values = []
 
-            for config_name, config in configs.items():
+            for config_name, config in list(configs.items()):
                 current_params = params.copy()
 
                 for p in config.get('parameters', []):
@@ -90,7 +90,7 @@ def pytest_generate_tests(metafunc):
 
                 for rep in range(1, repeats + 1):
                     params_values.append(
-                        [config_name, rep] + current_params.values())
+                        [config_name, rep] + list(current_params.values()))
 
             metafunc.parametrize(params_names, params_values)
 
@@ -104,7 +104,7 @@ def pytest_collection_modifyitems(config, items):
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
-    perfmarker = item.get_marker('performance')
+    perfmarker = item.get_closest_marker('performance')
 
     if call.when == 'call' and item.config.getoption('-P') and perfmarker:
         suite = sys.modules[item.function.__module__]
@@ -139,7 +139,7 @@ def pytest_runtest_makereport(item, call):
         configs.update({config_name: {
             'name': config_name,
             'completed': int(time.time() * 1000),
-            'parameters': [p.format() for p in params.values()],
+            'parameters': [p.format() for p in list(params.values())],
             'description': test_config.get('description', ''),
             'repeats_number': perfmarker.kwargs.get('repeats', 1),
             'results': results,
@@ -164,22 +164,22 @@ def pytest_runtest_makereport(item, call):
 
 
 def pytest_unconfigure(config):
-    for suite in config.performance_report.get('suites', {}).values():
-        for case in suite.get('cases', {}).values():
-            for cfg in case.get('configs', {}).values():
+    for suite in list(config.performance_report.get('suites', {}).values()):
+        for case in list(suite.get('cases', {}).values()):
+            for cfg in list(case.get('configs', {}).values()):
                 results = cfg.pop('results', [])
                 failures = cfg.pop('failures', [])
 
                 reps_summary = []
                 reps_details = []
                 if results:
-                    rep, params = results.items()[0]
+                    rep, params = list(results.items())[0]
                     reps_summary = copy.deepcopy(params)
                     for param in params:
                         param.value = {rep: param.value}
                         reps_details.append(param)
 
-                for rep, params in results.items()[1:]:
+                for rep, params in list(results.items())[1:]:
                     for i, param in enumerate(params):
                         reps_summary[i].aggregate_value(param.value)
                         reps_details[i].append_value(rep, param.value)
@@ -192,7 +192,7 @@ def pytest_unconfigure(config):
                 fail_details = {
                     rep: ''.join(
                         traceback.format_exception(e.type, e.value, e.tb))
-                    for rep, e in failures.items()}
+                    for rep, e in list(failures.items())}
 
                 cfg.update({
                     'successful_repeats_number': len(results),
@@ -214,8 +214,8 @@ def pytest_unconfigure(config):
         'commit': commit.strip()
     })
 
-    with open(PERFORMANCE_RESULT_FILE, 'w') as f:
-        f.write(json.dumps(performance, indent=2, separators=(',', ': ')))
+    #with open(PERFORMANCE_RESULT_FILE, 'w') as f:
+    #    f.write(json.dumps(performance, indent=2, separators=(',', ': ')))
 
 
 def get_copyright(mod):

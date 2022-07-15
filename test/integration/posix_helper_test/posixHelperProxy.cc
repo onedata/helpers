@@ -260,19 +260,20 @@ private:
     std::shared_ptr<one::helpers::PosixHelper> m_helper;
 };
 
-namespace {
-boost::shared_ptr<PosixHelperProxy> create(
-    std::string mountPoint, uid_t uid, gid_t gid)
-{
-    return boost::make_shared<PosixHelperProxy>(
-        std::move(mountPoint), uid, gid);
-}
-} // namespace
-
+/*namespace {*/
+//boost::shared_ptr<PosixHelperProxy> create(
+//    std::string mountPoint, uid_t uid, gid_t gid)
+//{
+//    return boost::make_shared<PosixHelperProxy>(
+//        std::move(mountPoint), uid, gid);
+//}
+//} // namespace
+/**/
 BOOST_PYTHON_MODULE(posix_helper)
 {
-    class_<PosixHelperProxy, boost::noncopyable>("PosixHelperProxy", no_init)
-        .def("__init__", make_constructor(create))
+    //Py_Initialize();
+    class_<PosixHelperProxy, boost::noncopyable>("PosixHelperProxy", init<std::string, uid_t, gid_t>())
+        //.def("__init__", make_constructor(create))
         .def("open", &PosixHelperProxy::open)
         .def("read", &PosixHelperProxy::read)
         .def("write", &PosixHelperProxy::write)

@@ -107,7 +107,7 @@ if {shed_privileges}:
     os.setreuid({uid}, {uid})
 
 if {gdb}:
-    command = ['gdb', 'python', '-silent', '-ex', """run -c "
+    command = ['gdb', 'python3', '-silent', '-ex', """run -c "
 import pytest
 pytest.main({args} + ['{test_dirs}'])" """]
 elif {valgrind}:
@@ -124,7 +124,7 @@ elif {callgrind}:
             + ['--tool=callgrind'] \\
             + ['py.test'] + {args} + ['{test_dirs}']
 else:
-    command = ['py.test'] + {args} + ['{test_dirs}']
+    command = ['python3'] + ['-m'] + ['pytest'] + {args} + ['{test_dirs}']
 
 ret = subprocess.call(command)
 sys.exit(ret)
@@ -151,7 +151,7 @@ docker.run(tty=True,
            envs={'BASE_TEST_DIR': base_test_dir},
            run_params=['--privileged'] if (args.gdb or args.valgrind) else [],
            cpuset_cpus=args.cpuset_cpus,
-           command=['python', '-c', command])
+           command=['python3', '-c', command])
 
 # If exit code != 0 then bamboo always fails build.
 # If it is 0 then result is based on test report.

@@ -212,7 +212,7 @@ def test_mkdir_should_create_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
@@ -226,7 +226,7 @@ def test_rename_directory_should_rename(helper, file_id):
     data = random_str()
     offset = random_int()
 
-    helper.mkdir(dir1_id, 0777)
+    helper.mkdir(dir1_id, 0o777)
     helper.rename(dir1_id, dir2_id)
 
     assert helper.write(dir2_id+"/"+file_id, data, offset) == len(data)
@@ -275,7 +275,7 @@ def test_mknod_should_set_premissions(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0o654, flags)
 
 
 @pytest.mark.mknod_operations_tests
@@ -285,7 +285,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0o654, flags)
 
 
 @pytest.mark.ownership_operations_tests
@@ -363,8 +363,8 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
         5-20:10-20:5-1:0-100:1000000
     """
 
-    S_IFDIR = 0040000
-    S_IFREG = 0100000
+    S_IFDIR = 0o040000
+    S_IFREG = 0o100000
 
     assert len(simulatedFilesystemStorageHelper.readdir("/", 0, 10)) == 10
     assert len(simulatedFilesystemStorageHelper.readdir("/", 0, 100)) == 5+20

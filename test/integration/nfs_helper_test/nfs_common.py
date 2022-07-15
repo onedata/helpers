@@ -6,7 +6,6 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
 import sys
-import md5
 import tempfile
 
 import pytest
@@ -94,7 +93,7 @@ def do_test_symlink_should_create_link(helper, mountpoint, file_id):
     data = random_str()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file_id, data, 0)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))

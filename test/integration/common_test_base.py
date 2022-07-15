@@ -104,15 +104,15 @@ def test_write_should_overwrite_data_right(helper, file_id):
 def test_write_should_overwrite_data_middle(helper, file_id):
     size = 10
 
-    for block_size in range(size / 2):
+    for block_size in range(int(size / 2)):
         data = random_str(2 * block_size)
         assert helper.write(file_id, data, size - block_size) == len(data)
         assert helper.read(file_id, size - block_size, len(data)) == data
 
-    for block_size in range(size / 2, -1, -1):
+    for block_size in range(int(size / 2), -1, -1):
         data = random_str(2 * block_size)
-        assert helper.write(file_id, data, size / 2 - block_size) == len(data)
-        assert helper.read(file_id, size / 2 - block_size, len(data)) == data
+        assert helper.write(file_id, data, int(size / 2) - block_size) == len(data)
+        assert helper.read(file_id, int(size / 2) - block_size, len(data)) == data
 
 
 def test_read_shoud_not_read_data(helper, file_id):

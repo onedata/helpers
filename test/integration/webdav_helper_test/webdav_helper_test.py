@@ -9,7 +9,7 @@ import sys
 import time
 import subprocess
 from os.path import expanduser
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 import pytest
 
@@ -159,7 +159,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file1_id, data, offset)
         helper.write(dir_id+"/"+file2_id, data, offset)
     except:
@@ -183,11 +183,11 @@ def test_getattr_should_return_default_permissions(helper, file_id):
     dir_id = file_id
     data = random_str()
     offset = random_int()
-    default_dir_mode = 0775
-    default_file_mode = 0664
+    default_dir_mode = 0o775
+    default_file_mode = 0o664
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file_id, data, offset)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
@@ -195,8 +195,8 @@ def test_getattr_should_return_default_permissions(helper, file_id):
     # WebDAV doesn't store permissions, so the dir_id directory will
     # return the permissions defined in the helper not the ones used
     # in mkdir call
-    assert helper.getattr(dir_id).st_mode&0777 == default_dir_mode
-    assert helper.getattr(dir_id+"/"+file_id).st_mode&0777 == default_file_mode
+    assert helper.getattr(dir_id).st_mode&0o777 == default_dir_mode
+    assert helper.getattr(dir_id+"/"+file_id).st_mode&0o777 == default_file_mode
 
 
 def test_readdir_should_handle_offset_properly(helper):
@@ -207,7 +207,7 @@ def test_readdir_should_handle_offset_properly(helper):
 
     test_dir = 'offset_test'
 
-    helper.mkdir(test_dir, 0777)
+    helper.mkdir(test_dir, 0o777)
 
     files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
 

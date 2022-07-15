@@ -8,7 +8,7 @@ import os
 import sys
 import threading
 import random
-from Queue import Queue, Empty
+from queue import Queue, Empty
 
 import pytest
 

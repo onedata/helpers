@@ -26,16 +26,16 @@ def to_python_list(listobjects_result):
 def test_mknod_should_create_empty_file(helper, file_id, server):
     data = ''
 
-    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.mknod(file_id, 0o664, maskToFlags(stat.S_IFREG))
     helper.access(file_id)
     assert helper.getattr(file_id).st_size == 0
 
 def test_mknod_should_throw_eexist_error(helper, file_id, server):
     flags = maskToFlags(stat.S_IFREG)
-    helper.mknod(file_id, 0664, flags)
+    helper.mknod(file_id, 0o664, flags)
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.mknod(file_id, 0664, flags)
+        helper.mknod(file_id, 0o664, flags)
 
     assert 'File exists' in str(excinfo.value)
 
@@ -65,7 +65,7 @@ def test_unlink_should_delete_empty_file(helper, file_id, server):
     offset = random_int()
     file_id2 = random_str()
 
-    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.mknod(file_id, 0o664, maskToFlags(stat.S_IFREG))
     helper.unlink(file_id, 0)
 
     with pytest.raises(RuntimeError) as excinfo:
@@ -77,7 +77,7 @@ def test_truncate_should_truncate_to_size(helper, file_id, server):
     blocks_num = 10
     size = blocks_num * BLOCK_SIZE
 
-    helper.mknod(file_id, 0654, maskToFlags(stat.S_IFREG))
+    helper.mknod(file_id, 0o654, maskToFlags(stat.S_IFREG))
     helper.truncate(file_id, size, 0)
     assert len(helper.read(file_id, 0, size + 1)) == len('\0' * size)
     assert helper.read(file_id, 0, size + 1) == '\0' * size

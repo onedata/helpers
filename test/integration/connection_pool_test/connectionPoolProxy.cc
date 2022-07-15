@@ -38,12 +38,14 @@ public:
     void stop()
     {
         if (!m_stopped.test_and_set()) {
+        LOG(ERROR) << "STOPPING CONNECTION POOL PROXY\n";
             m_pool.stop();
         }
     }
 
     void send(const std::string &msg)
     {
+        LOG(ERROR) << "SENDING MESSAGE\n";
         m_pool.send(
             msg, [](auto) {}, int{});
     }

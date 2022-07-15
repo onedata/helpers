@@ -8,7 +8,7 @@ from test_common import *
 from common_test_base import *
 from posix_test_types import *
 
-import md5
+import hashlib
 
 import pytest
 
@@ -50,7 +50,7 @@ def test_mkdir_should_create_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
@@ -64,7 +64,7 @@ def test_rename_directory_should_rename(helper, file_id):
     data = random_str()
     offset = random_int()
 
-    helper.mkdir(dir1_id, 0777)
+    helper.mkdir(dir1_id, 0o777)
     helper.rename(dir1_id, dir2_id)
 
     assert helper.write(dir2_id+"/"+file_id, data, offset) == len(data)
@@ -79,7 +79,7 @@ def test_readdir_should_list_files_in_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file1_id, data, offset)
         helper.write(dir_id+"/"+file2_id, data, offset)
     except:
@@ -98,7 +98,7 @@ def test_readdir_should_list_files_in_root_directory(helper, file_id):
     offset = random_int()
 
     try:
-        # helper.mkdir(dir_id, 0777)
+        # helper.mkdir(dir_id, 0o777)
         helper.write("/"+file1_id, data, offset)
         helper.write("/"+file2_id, data, offset)
     except:
@@ -118,7 +118,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file1_id, data, offset)
         helper.write(dir_id+"/"+file2_id, data, offset)
     except:
@@ -169,7 +169,7 @@ def test_symlink_should_create_link(helper, mountpoint, file_id):
     data = random_str()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file_id, data, 0)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
@@ -188,7 +188,7 @@ def test_link_should_create_hard_link(helper, mountpoint, file_id):
     data = random_str()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file_id, data, 0)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
@@ -210,9 +210,9 @@ def test_mknod_should_set_premissions(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0644, flags)
+    helper.mknod(file_id, 0o644, flags)
 
-    assert 0777&(helper.getattr(file_id).st_mode) == 0644
+    assert 0o777&(helper.getattr(file_id).st_mode) == 0o644
 
 
 @pytest.mark.mknod_operations_tests
@@ -222,7 +222,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0644, flags)
+    helper.mknod(file_id, 0o644, flags)
 
     assert Flag.IFREG in maskToFlags(helper.getattr(file_id).st_mode)
     assert not (Flag.IFCHR in maskToFlags(helper.getattr(file_id).st_mode))
@@ -238,7 +238,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0644, flags)
+    helper.mknod(file_id, 0o644, flags)
 
     assert Flag.IFREG in maskToFlags(helper.getattr(file_id).st_mode)
     assert not (Flag.IFCHR in maskToFlags(helper.getattr(file_id).st_mode))
@@ -278,14 +278,14 @@ def test_read_write_large_file_should_maintain_consistency(helper, file_id):
     data_length = 24*1024*1024
     data = 'A' * (data_length)
     offset = 0
-    original_digest = md5.new(data)
+    original_digest = hashlib.md5(data.encode('utf-8'))
 
     assert helper.write(file_id, data, offset) == data_length
 
     read_data = helper.read(file_id, offset, data_length)
     assert len(read_data) == data_length
 
-    read_digest = md5.new(read_data)
+    read_digest = hashlib.md5(read_data.encode('utf-8'))
     assert read_digest.digest() == original_digest.digest()
 
 

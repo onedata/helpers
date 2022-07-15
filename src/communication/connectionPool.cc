@@ -190,13 +190,16 @@ void ConnectionPool::connect()
         return;
 
     for (auto &client : m_connections) {
+        LOG(ERROR) << "CREATING CONNECTION TO " << m_host << ":" << m_port << "\n";
         client->connect(m_host, m_port)
             .via(m_executor.get())
             .thenValue([this, clientPtr = client.get()](auto && /*unit*/) {
+                LOG(ERROR) << "CREATED CONNECTION TO " << m_host << ":" << m_port << "\n";
                 m_idleConnections.emplace(clientPtr);
             })
             .thenError(folly::tag_t<folly::exception_wrapper>{},
                 [this](auto &&ew) {
+                LOG(ERROR) << "FAILED TO CRETE CONNECTION TO " << m_host << ":" << m_port << "\n";
                     return folly::makeSemiFuture()
                         .via(m_executor.get())
                         .thenValue([this](auto && /*unit*/) { return close(); })
