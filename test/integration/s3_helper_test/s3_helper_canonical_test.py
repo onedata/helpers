@@ -81,9 +81,9 @@ def truncate_test(helper, op_num, size):
         file_id = random_str()
 
         helper.write(file_id, 'X'*size, 0)
-        assert helper.read(file_id, 0, size) == 'X'*size
+        assert helper.read(file_id, 0, size).decode('utf-8') == 'X'*size
         helper.truncate(file_id, 1, size)
-        assert helper.read(file_id, 0, size) == 'X'
+        assert helper.read(file_id, 0, size).decode('utf-8') == 'X'
 
 
 def test_read_should_throw_for_write_beyond_supported_range(helper, file_id):

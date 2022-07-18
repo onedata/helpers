@@ -41,6 +41,7 @@ private:
 constexpr auto kXRootDHelperThreadCount = 5u;
 constexpr auto kXRootDConnectionPoolSize = 10u;
 constexpr auto kXRootDMaximumUploadSize = 0u;
+constexpr std::chrono::milliseconds kXRootDTimeout{10 * 1000};
 
 class XRootDHelperProxy {
 public:
@@ -54,12 +55,19 @@ public:
         params["url"] = url;
         params["credentialsType"] = "none";
         params["credentials"] = "admin:password";
+        params["timeout"] = std::to_string(kXRootDTimeout.count());
 
-        m_helper = std::make_shared<XRootDHelper>(
-            XRootDHelperParams::create(params), m_executor);
+        m_helper =
+            std::make_shared<XRootDHelper>(XRootDHelperParams::create(params),
+                m_executor, ExecutionContext::ONECLIENT);
     }
 
-    ~XRootDHelperProxy() { }
+    ~XRootDHelperProxy()
+    {
+        LOG(ERROR) << "STOPPING XROOTD HELPER PROXY";
+        m_executor->join();
+        LOG(ERROR) << "STOPPED XROOTD HELPER PROXY";
+    }
 
     struct stat getattr(std::string fileId)
     {
@@ -95,7 +103,7 @@ public:
         m_helper->rename(from, to).get();
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
@@ -106,7 +114,10 @@ public:
                             [handle, buf = std::move(buf)](auto && /*unit*/) {
                                 std::string data;
                                 buf.appendToString(data);
-                                return data;
+                                return boost::python::api::object(
+                                    boost::python::handle<>(
+                                        PyBytes_FromStringAndSize(
+                                            data.c_str(), data.size())));
                             });
                     });
             })
@@ -201,7 +212,7 @@ public:
     }
 
 private:
-    std::shared_ptr<folly::IOExecutor> m_executor;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
     std::shared_ptr<one::helpers::XRootDHelper> m_helper;
 };
 

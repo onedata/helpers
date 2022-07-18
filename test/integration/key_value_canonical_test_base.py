@@ -45,7 +45,7 @@ def test_write_should_write_multiple_blocks(helper, file_id, server):
     data = seed * block_num
 
     assert helper.write(file_id, data, 0) == len(data)
-    assert helper.read(file_id, 0, len(data)) == data
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 
 def test_unlink_should_delete_data(helper, file_id, server):
@@ -80,7 +80,7 @@ def test_truncate_should_truncate_to_size(helper, file_id, server):
     helper.mknod(file_id, 0o654, maskToFlags(stat.S_IFREG))
     helper.truncate(file_id, size, 0)
     assert len(helper.read(file_id, 0, size + 1)) == len('\0' * size)
-    assert helper.read(file_id, 0, size + 1) == '\0' * size
+    assert helper.read(file_id, 0, size + 1).decode('utf-8') == '\0' * size
 
 
 def test_truncate_should_pad_block(helper, file_id, server):
@@ -88,7 +88,7 @@ def test_truncate_should_pad_block(helper, file_id, server):
 
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
     helper.truncate(file_id, BLOCK_SIZE, len(data)+BLOCK_SIZE)
-    assert helper.read(file_id, 0, BLOCK_SIZE + 1) == '\0' * BLOCK_SIZE
+    assert helper.read(file_id, 0, BLOCK_SIZE + 1).decode('utf-8') == '\0' * BLOCK_SIZE
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
 
 
@@ -113,7 +113,7 @@ def test_write_should_overwrite_multiple_blocks_part(helper, file_id):
         block = random_str(BLOCK_SIZE)
         data = data[:offset] + block + data[offset + len(block):]
         helper.write(file_id, block, offset) == len(block)
-        assert helper.read(file_id, 0, len(data)) == data
+        assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 
 def test_read_should_read_multi_block_data_with_holes(helper, file_id):
@@ -125,7 +125,7 @@ def test_read_should_read_multi_block_data_with_holes(helper, file_id):
     assert helper.write(file_id, data, block_num * BLOCK_SIZE) == len(data)
 
     data = data + empty_block[len(data):] + (block_num - 1) * empty_block + data
-    assert helper.read(file_id, 0, len(data)) == data
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 
 def test_read_should_read_large_file_from_offset(helper, file_id):
@@ -133,9 +133,9 @@ def test_read_should_read_large_file_from_offset(helper, file_id):
 
     assert helper.write(file_id, data, 0) == len(data)
 
-    assert helper.read(file_id, 0, 1000) == 'A'*1000
-    assert helper.read(file_id, 1000, 1000) == 'B'*1000
-    assert helper.read(file_id, 2000, 1000) == 'C'*1000
+    assert helper.read(file_id, 0, 1000).decode('utf-8') == 'A'*1000
+    assert helper.read(file_id, 1000, 1000).decode('utf-8') == 'B'*1000
+    assert helper.read(file_id, 2000, 1000).decode('utf-8') == 'C'*1000
 
 
 def test_write_should_modify_inner_object_on_canonical_storage(helper):
@@ -148,7 +148,7 @@ def test_write_should_modify_inner_object_on_canonical_storage(helper):
     helper.write(file_id, 'X'*10, 10)
     new_object = 'A'*10 + 'X'*10 + 'C'*10
 
-    assert helper.read(file_id, 0, 1000) == new_object
+    assert helper.read(file_id, 0, 1000).decode('utf-8') == new_object
 
 
 def test_write_should_modify_non_overlapping_object_on_canonical_storage(helper):
@@ -161,7 +161,7 @@ def test_write_should_modify_non_overlapping_object_on_canonical_storage(helper)
     helper.write(file_id, 'X'*10, 20)
     new_object = 'A'*10 + '\0'*10 + 'X'*10
 
-    assert helper.read(file_id, 0, 1000) == new_object
+    assert helper.read(file_id, 0, 1000).decode('utf-8') == new_object
 
 
 def test_write_should_modify_overlapping_object_on_canonical_storage(helper):
@@ -174,7 +174,7 @@ def test_write_should_modify_overlapping_object_on_canonical_storage(helper):
     helper.write(file_id, 'X'*10, 25)
     new_object = 'A'*10 + 'B'*10 + 'C'*5 + 'X'*10
 
-    assert helper.read(file_id, 0, 1000) == new_object
+    assert helper.read(file_id, 0, 1000).decode('utf-8') == new_object
 
 
 def test_write_should_fill_new_files_with_non_zero_offset(helper):
@@ -186,7 +186,7 @@ def test_write_should_fill_new_files_with_non_zero_offset(helper):
     helper.write(file_id, original_object, 10)
     new_object = '\0'*10 + 'A'*10
 
-    assert helper.read(file_id, 0, 1000) == new_object
+    assert helper.read(file_id, 0, 1000).decode('utf-8') == new_object
 
 
 def test_getattr_should_return_default_permissions(helper):

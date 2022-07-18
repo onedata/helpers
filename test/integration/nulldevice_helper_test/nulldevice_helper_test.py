@@ -202,7 +202,7 @@ def test_read_should_read_buffered_content(helper, file_id):
     size = 4
 
     assert len(helper.read(file_id, offset, size)) == size
-    assert helper.read(file_id, offset, size) == 'xxxx'
+    assert helper.read(file_id, offset, size).decode('utf-8') == 'xxxx'
 
 
 @pytest.mark.directory_operations_tests

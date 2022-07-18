@@ -145,7 +145,7 @@ public:
         m_helper->unlink(fileId, size).get();
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
@@ -153,7 +153,8 @@ public:
                 auto buf = handle->read(offset, size).get();
                 std::string data;
                 buf.appendToString(data);
-                return data;
+                return boost::python::api::object(boost::python::handle<>(
+                    PyBytes_FromStringAndSize(data.c_str(), data.size())));
             })
             .get();
     }

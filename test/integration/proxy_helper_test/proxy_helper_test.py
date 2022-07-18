@@ -112,7 +112,7 @@ def test_read_should_read_data(file_handle, file_id, parameters, storage_id,
     server_message = remote_data_msg(data)
 
     with reply(endpoint, server_message) as queue:
-        assert data == helper.read(file_handle, offset, len(data))
+        assert data == helper.read(file_handle, offset, len(data)).decode('utf-8')
         received = queue.get()
 
     assert received.HasField('proxyio_request')
@@ -135,6 +135,6 @@ def test_read_should_pass_errors(file_handle, file_id, endpoint, helper,
 
     with pytest.raises(RuntimeError) as excinfo:
         with reply(endpoint, server_message):
-            helper.read(file_handle, random_int(), random_int())
+            helper.read(file_handle, random_int(), random_int()).decode('utf-8')
 
     assert 'Operation not permitted' in str(excinfo.value)

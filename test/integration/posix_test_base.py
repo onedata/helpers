@@ -23,7 +23,7 @@ def test_read_should_read_written_data(helper, file_id):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    assert helper.read(file_id, offset, len(data)) == data
+    assert helper.read(file_id, offset, len(data)).decode('utf-8') == data
 
 @pytest.mark.readwrite_operations_tests
 def test_read_should_return_empty_with_offset_beyond_range(helper, file_id):
@@ -31,7 +31,7 @@ def test_read_should_return_empty_with_offset_beyond_range(helper, file_id):
     offset = random_int()
 
     assert helper.write(file_id, data, 0) == len(data)
-    assert helper.read(file_id, len(data)+100, 10) == ''
+    assert helper.read(file_id, len(data)+100, 10).decode('utf-8') == ''
 
 @pytest.mark.readwrite_operations_tests
 def test_read_should_error_file_not_found(helper, file_id):
@@ -39,7 +39,7 @@ def test_read_should_error_file_not_found(helper, file_id):
     size = random_int()
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.read(file_id, offset, size)
+        helper.read(file_id, offset, size).decode('utf-8')
     assert 'No such file or directory' in str(excinfo.value)
 
 
@@ -132,7 +132,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
     helper.unlink(dir_id+"/"+file2_id, 0)
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.read(dir_id+"/"+file1_id, offset, len(data))
+        helper.read(dir_id+"/"+file1_id, offset, len(data)).decode('utf-8')
     assert 'No such file or directory' in str(excinfo.value)
 
     helper.rmdir(dir_id)
@@ -159,7 +159,7 @@ def test_unlink_should_delete_file(helper, file_id):
     helper.unlink(file_id, len(data)+offset)
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.read(file_id, offset, len(data))
+        helper.read(file_id, offset, len(data)).decode('utf-8')
     assert 'No such file or directory' in str(excinfo.value)
 
 
@@ -179,7 +179,7 @@ def test_symlink_should_create_link(helper, mountpoint, file_id):
     assert helper.readlink(file_id+".lnk") == os.path.join(
         mountpoint, dir_id, file_id)
     assert helper.read(os.path.relpath(
-        helper.readlink(file_id+".lnk"), mountpoint), 0, 1024) == data
+        helper.readlink(file_id+".lnk"), mountpoint), 0, 1024).decode('utf-8') == data
 
 
 @pytest.mark.links_operations_tests
@@ -200,7 +200,7 @@ def test_link_should_create_hard_link(helper, mountpoint, file_id):
         helper.readlink(file_id+".lnk")
     assert 'Invalid argument' in str(excinfo.value)
 
-    assert helper.read(file_id+".lnk", 0, 1024) == data
+    assert helper.read(file_id+".lnk", 0, 1024).decode('utf-8') == data
 
 
 @pytest.mark.mknod_operations_tests
@@ -285,7 +285,7 @@ def test_read_write_large_file_should_maintain_consistency(helper, file_id):
     read_data = helper.read(file_id, offset, data_length)
     assert len(read_data) == data_length
 
-    read_digest = hashlib.md5(read_data.encode('utf-8'))
+    read_digest = hashlib.md5(read_data)
     assert read_digest.digest() == original_digest.digest()
 
 
@@ -294,7 +294,7 @@ def test_read_should_not_read_after_end_of_file(helper, file_id):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    assert helper.read(file_id, offset + len(data) + 1, 100) == ''
+    assert helper.read(file_id, offset + len(data) + 1, 100).decode('utf-8') == ''
 
 
 

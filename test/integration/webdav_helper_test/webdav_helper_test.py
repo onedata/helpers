@@ -111,7 +111,7 @@ def helper(server):
 @pytest.fixture
 def helper_redirect(server):
     redirect_port = "8080"
-    endpoint = urlparse(server.endpoint)
+    endpoint = urlparse(server.endpoint).decode('utf-8')
     redirect_url = endpoint._replace(
         netloc=endpoint.netloc.replace(
             str(endpoint.port), redirect_port)).geturl()
@@ -122,7 +122,7 @@ def helper_redirect(server):
 def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id):
     data = random_str()
     helper.write(file_id, data, 0)
-    data2 = helper_redirect.read(file_id, 0, len(data))
+    data2 = helper_redirect.read(file_id, 0, len(data)).decode('utf-8')
 
     assert data == data2
 
@@ -130,7 +130,7 @@ def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id)
 def test_write_should_follow_temporary_redirect(helper_redirect, file_id):
     data = random_str()
     helper_redirect.write(file_id, data, 0)
-    data2 = helper_redirect.read(file_id, 0, len(data))
+    data2 = helper_redirect.read(file_id, 0, len(data)).decode('utf-8')
 
     assert data == data2
 

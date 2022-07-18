@@ -859,7 +859,8 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
             });
         }};
 
-    LOG(ERROR) << "Creating file: " << url().GetURL() + fileId.toStdString();
+    LOG_DBG(3) << "Creating file: " << url().GetURL() + fileId.toStdString();
+
     auto tf =
         XrdCl::Async(XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
                          XrdCl::OpenFlags::New, modeToAccess(mode)) |

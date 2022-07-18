@@ -9,7 +9,7 @@ import sys
 import time
 import subprocess
 from os.path import expanduser
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 import pytest
 
@@ -83,11 +83,13 @@ def server(request):
     url = result['url'].encode('ascii')
 
     def fin():
+        print("############# REMOVING XROOTD DOCKER ###")
         docker.remove([container], force=True, volumes=True)
+        print("############## XROOTD DOCKER REMOVED ###")
 
     request.addfinalizer(fin)
 
-    time.sleep(2)
+    time.sleep(5)
 
     return Server(url)
 
@@ -106,7 +108,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file1_id, data, offset)
         helper.write(dir_id+"/"+file2_id, data, offset)
     except:
@@ -132,7 +134,7 @@ def test_readdir_should_handle_offset_properly(helper):
 
     test_dir = 'offset_test'
 
-    helper.mkdir(test_dir, 0777)
+    helper.mkdir(test_dir, 0o777)
 
     files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
 

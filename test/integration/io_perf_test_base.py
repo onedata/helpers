@@ -109,7 +109,7 @@ def perf_write_read_base(helper, op_num, size):
         data = random_str(size)
 
         assert helper.write(file_id, data, 0) == len(data)
-        assert helper.read(file_id, 0, len(data)) == data
+        assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 def perf_truncate_base(helper, op_num, size):
     for _ in range(op_num):
@@ -117,7 +117,7 @@ def perf_truncate_base(helper, op_num, size):
 
         helper.write(file_id, 'X'*size, 0)
         helper.truncate(file_id, 1, size)
-        assert helper.read(file_id, 0, 1) == 'X'
+        assert helper.read(file_id, 0, 1).decode('utf-8') == 'X'
 
 def perf_write_read_truncate_unlink_base(helper, op_num, size):
     for i in range(op_num):
@@ -125,7 +125,7 @@ def perf_write_read_truncate_unlink_base(helper, op_num, size):
         data = random_str(size)
 
         assert helper.write(file_id, data, 0) == len(data)
-        assert helper.read(file_id, 0, len(data)) == data
+        assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
         helper.truncate(file_id, 0, len(data))
         helper.unlink(file_id, 0)
 
