@@ -38,7 +38,7 @@ public:
     void stop()
     {
         if (!m_stopped.test_and_set()) {
-        LOG(ERROR) << "STOPPING CONNECTION POOL PROXY\n";
+            LOG(ERROR) << "STOPPING CONNECTION POOL PROXY\n";
             m_pool.stop();
         }
     }
