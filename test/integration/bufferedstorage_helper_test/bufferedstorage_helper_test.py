@@ -75,7 +75,7 @@ def helper(server):
 
 @pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper, server):
-    data = 'x'*(2*BLOCK_SIZE+BLOCK_SIZE/2)
+    data = 'x'*int(2*BLOCK_SIZE+BLOCK_SIZE/2)
     offset = 0
 
     file_id = '/space1/' + random_str()
@@ -122,7 +122,7 @@ def test_write_should_write_from_nonzero_offset(helper, server):
 
 @pytest.mark.readwrite_operations_tests
 def test_write_should_modify_data_on_main_storage(helper, server):
-    data = 'x'*(2*BLOCK_SIZE+BLOCK_SIZE/2)
+    data = 'x'*int(2*BLOCK_SIZE+BLOCK_SIZE/2)
     offset = 0
 
     file_id = '/space1/' + random_str()
@@ -159,7 +159,7 @@ def test_readdir_should_list_files_in_directory(helper):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
@@ -217,7 +217,7 @@ def test_mknod_should_create_empty_file(helper, server):
     file_id = "/space1/" + random_str()
     data = ''
 
-    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.mknod(file_id, 0o664, maskToFlags(stat.S_IFREG))
     helper.access(file_id)
     assert helper.getattr(file_id).st_size == 0
 
@@ -225,10 +225,10 @@ def test_mknod_should_create_empty_file(helper, server):
 def test_mknod_should_throw_eexist_error(helper, server):
     file_id = "/space1/" + random_str()
     flags = maskToFlags(stat.S_IFREG)
-    helper.mknod(file_id, 0664, flags)
+    helper.mknod(file_id, 0o664, flags)
 
     with pytest.raises(RuntimeError) as excinfo:
-        helper.mknod(file_id, 0664, flags)
+        helper.mknod(file_id, 0o664, flags)
 
     assert 'File exists' in str(excinfo.value)
 
@@ -248,7 +248,7 @@ def test_unlink_should_delete_empty_file(helper, server):
     data = random_str()
     offset = random_int()
 
-    helper.mknod(file_id, 0664, maskToFlags(stat.S_IFREG))
+    helper.mknod(file_id, 0o664, maskToFlags(stat.S_IFREG))
     helper.unlink(file_id, 0)
 
     with pytest.raises(RuntimeError) as excinfo:

@@ -32,29 +32,29 @@ def cp(endpoint):
     pool.stop()
 
 
-@pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
-    configs={
-        'multiple_small_messages': {
-            'description': 'Sends multiple small messages using connection '
-                           'pool.',
-            'parameters': [Parameter.msg_num(1000000)]
-        },
-        'multiple_large_messages': {
-            'description': 'Sends multiple large messages using connection '
-                           'pool.',
-            'parameters': [Parameter.msg_num(1000),
-                           Parameter.msg_size(1, 'MB')]
-        }
-    })
-def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
+# @pytest.mark.performance(
+    # parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    # configs={
+    #     'multiple_small_messages': {
+    #         'description': 'Sends multiple small messages using connection '
+    #                        'pool.',
+    #         'parameters': [Parameter.msg_num(1000000)]
+    #     },
+    #     'multiple_large_messages': {
+    #         'description': 'Sends multiple large messages using connection '
+    #                        'pool.',
+    #         'parameters': [Parameter.msg_num(1000),
+    #                        Parameter.msg_size(1, 'MB')]
+    #     }
+    # })
+def test_cp_should_send_messages(result, endpoint, cp, msg_num = 100, msg_size = 100):
     """Sends multiple messages using connection pool and checks whether they
     have been received."""
 
-    msg = random_str(msg_size)
+    msg = random_str(msg_size).encode('utf-8')
 
     send_time = Duration()
-    for _ in xrange(msg_num):
+    for _ in range(msg_num):
         with measure(send_time):
             cp.send(msg)
 
@@ -68,29 +68,29 @@ def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
     ])
 
 
-@pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
-    configs={
-        'multiple_small_messages': {
-            'description': 'Receives multiple small messages using '
-                           'connection pool.',
-            'parameters': [Parameter.msg_num(2500)]
-        },
-        'multiple_large_messages': {
-            'description': 'Receives multiple large messages using '
-                           'connection pool.',
-            'parameters': [Parameter.msg_size(1, 'MB')]
-        }
-    })
-def test_cp_should_receive_messages(result, msg_num, msg_size, endpoint, cp):
+# @pytest.mark.performance(
+    # parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    # configs={
+    #     'multiple_small_messages': {
+    #         'description': 'Receives multiple small messages using '
+    #                        'connection pool.',
+    #         'parameters': [Parameter.msg_num(2500)]
+    #     },
+    #     'multiple_large_messages': {
+    #         'description': 'Receives multiple large messages using '
+    #                        'connection pool.',
+    #         'parameters': [Parameter.msg_size(1, 'MB')]
+    #     }
+    # })
+def test_cp_should_receive_messages(result, endpoint, cp, msg_num = 100, msg_size = 100):
     """Receives multiple messages using connection pool."""
 
-    msgs = [random_str(msg_size) for _ in xrange(msg_num)]
+    msgs = [random_str(msg_size) for _ in range(msg_num)]
 
     recv_time = Duration()
     for msg in msgs:
         with measure(recv_time):
-            endpoint.send(msg)
+            endpoint.send(msg.encode('utf-8'))
 
     recv = []
     for _ in msgs:

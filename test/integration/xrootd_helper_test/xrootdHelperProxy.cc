@@ -62,13 +62,6 @@ public:
                 m_executor, ExecutionContext::ONECLIENT);
     }
 
-    ~XRootDHelperProxy()
-    {
-        LOG(ERROR) << "STOPPING XROOTD HELPER PROXY";
-        m_executor->join();
-        LOG(ERROR) << "STOPPED XROOTD HELPER PROXY";
-    }
-
     struct stat getattr(std::string fileId)
     {
         ReleaseGIL guard;

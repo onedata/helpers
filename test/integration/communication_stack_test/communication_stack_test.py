@@ -38,35 +38,21 @@ def com1(endpoint):
     c.stop()
 
 
-@pytest.mark.performance(
-    parameters=[Parameter.msg_num(1), Parameter.msg_size(100, 'B')],
-    configs={
-        'multiple_small_messages': {
-            'description': 'Sends multiple small messages using '
-                           'communicator.',
-            'parameters': [Parameter.msg_num(1000000)]
-        },
-        'multiple_large_messages': {
-            'description': 'Sends multiple large messages using '
-                           'communicator.',
-            'parameters': [Parameter.msg_num(50), Parameter.msg_size(1, 'MB')]
-        }
-    })
-def test_send(result, msg_num, msg_size, endpoint, com3):
+def test_send(result, endpoint, com3, msg_num = 1, msg_size = 100):
     """Sends multiple messages using communicator."""
 
     com3.connect()
-    msg = random_str(msg_size)
+    msg = random_str(msg_size).encode('utf-8')
 
     send_time = Duration()
     sent_bytes = 0
 
-    for _ in xrange(msg_num):
+    for _ in range(msg_num):
         with measure(send_time):
             sent_bytes = com3.send(msg)
 
     with measure(send_time):
-        endpoint.wait_for_specific_messages(sent_bytes, msg_num,
+        endpoint.wait_for_specific_messages(sent_bytes.encode('utf-8'), msg_num,
                                             timeout_sec=60)
 
     result.set([
@@ -76,42 +62,27 @@ def test_send(result, msg_num, msg_size, endpoint, com3):
     ])
 
 
-@pytest.mark.performance(
-    repeats=10,
-    parameters=[Parameter.msg_num(1), Parameter.msg_size(100, 'B')],
-    configs={
-        'multiple_small_messages': {
-            'description': 'Receives multiple small messages using '
-                           'communicator.',
-            'parameters': [Parameter.msg_num(1000)]
-        },
-        'multiple_large_messages': {
-            'description': 'Receives multiple large messages using '
-                           'communicator.',
-            'parameters': [Parameter.msg_num(50), Parameter.msg_size(1, 'MB')]
-        }
-    })
-def test_communicate(result, msg_num, msg_size, endpoint, com3):
+def test_communicate(result, endpoint, com3, msg_num = 10, msg_size = 100):
     """Sends multiple messages and receives replies using communicator."""
 
     com3.connect()
 
     endpoint.wait_for_connections(accept_more=True)
-    msg = random_str(msg_size)
+    msg = random_str(msg_size).encode('utf-8')
 
     communicate_time = Duration()
-    for _ in xrange(msg_num):
+    for _ in range(msg_num):
         with measure(communicate_time):
             request = com3.communicate(msg)
 
-        reply = communication_stack.prepareReply(request, msg)
+        reply = communication_stack.prepareReply(request, msg).encode('utf-8')
 
         with measure(communicate_time):
-            endpoint.wait_for_specific_messages(request)
+            endpoint.wait_for_specific_messages(request.encode('utf-8'))
             endpoint.send(reply)
 
         with measure(communicate_time):
-            assert reply == com3.communicateReceive()
+            assert reply == com3.communicateReceive().encode('utf-8')
 
     result.set([
         Parameter.communicate_time(communicate_time),

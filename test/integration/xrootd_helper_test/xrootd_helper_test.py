@@ -76,7 +76,7 @@ def server(request):
         def __init__(self, url):
             self.url = url
 
-    result = xrootd.up('onedata/xrootd:v1', 'storage',
+    result = xrootd.up('onedata/xrootd:v2', 'storage',
                        common.generate_uid())
 
     [container] = result['docker_ids']

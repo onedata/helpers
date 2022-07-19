@@ -37,7 +37,7 @@ def random_params():
 
 
 def decode_params(params):
-    return {p.key: p.value for p in params}
+    return {p.key.decode('utf-8'): p.value.decode('utf-8') for p in params}
 
 
 def wait_until(condition, step=0.5, timeout=30):
@@ -71,18 +71,17 @@ def _with_reply_process(endpoint, responses, queue, reply_to_async=False):
                 response = responses.pop(0)
                 while response.HasField('processing_status'):
                     if message_has_id:
-                        response.message_id = client_message.message_id.encode(
-                            'utf-8')
+                        response.message_id = client_message.message_id
 
                     print("response", response)
-                    endpoint.send(response.SerializeToString())
+                    endpoint.send(response.SerializeToString().encode('utf-8'))
                     response = responses.pop(0)
 
                 if message_has_id:
-                    response.message_id = client_message.message_id.encode(
-                        'utf-8')
+                    response.message_id = client_message.message_id
                 print("response", response)
-                endpoint.send(response.SerializeToString())
+                response_str = response.SerializeToString()
+                endpoint.send(response_str)
 
                 queue.put(client_message)
 

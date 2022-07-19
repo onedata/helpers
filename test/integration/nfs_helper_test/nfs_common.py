@@ -103,4 +103,4 @@ def do_test_symlink_should_create_link(helper, mountpoint, file_id):
     link = helper.readlink(file_id+".lnk")
 
     assert link == dir_id+"/"+file_id
-    assert helper.read(link, 0, 1024) == data
+    assert helper.read(link, 0, 1024).decode('utf-8') == data

@@ -71,7 +71,7 @@ def remote_write_result_msg(wrote):
 
 def test_write_should_write_data(file_handle, file_id, parameters, storage_id,
                                  endpoint, helper):
-    data = random_str()
+    data = random_str().encode('utf-8')
     offset = random_int()
     server_message = remote_write_result_msg(len(data))
 
@@ -83,8 +83,8 @@ def test_write_should_write_data(file_handle, file_id, parameters, storage_id,
 
     request = received.proxyio_request
     assert decode_params(request.parameters) == parameters
-    assert request.storage_id == storage_id
-    assert request.file_id == file_id
+    assert request.storage_id.decode('utf-8') == storage_id
+    assert request.file_id.decode('utf-8') == file_id
 
     assert request.HasField('remote_write')
     assert request.remote_write.byte_sequence[0].offset == offset
@@ -107,20 +107,20 @@ def test_write_should_pass_write_errors(file_id, endpoint, helper, parameters):
 
 def test_read_should_read_data(file_handle, file_id, parameters, storage_id,
                                endpoint, helper):
-    data = random_str()
+    data = random_str().encode('utf-8')
     offset = random_int()
     server_message = remote_data_msg(data)
 
     with reply(endpoint, server_message) as queue:
-        assert data == helper.read(file_handle, offset, len(data)).decode('utf-8')
+        assert data == helper.read(file_handle, offset, len(data))
         received = queue.get()
 
     assert received.HasField('proxyio_request')
 
     request = received.proxyio_request
     assert decode_params(request.parameters) == parameters
-    assert request.storage_id == storage_id
-    assert request.file_id == file_id
+    assert request.storage_id.decode('utf-8') == storage_id
+    assert request.file_id.decode('utf-8') == file_id
 
     assert request.HasField('remote_read')
     assert request.remote_read.offset == offset

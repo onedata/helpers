@@ -27,8 +27,7 @@ def _appmock_client(request):
                         config_path=os.path.join(test_dir, 'env.json'))
 
     [container] = result['docker_ids']
-    appmock_ip = docker.inspect(container)['NetworkSettings']['IPAddress']. \
-        encode('ascii')
+    appmock_ip = docker.inspect(container)['NetworkSettings']['IPAddress']
 
     def fin():
         docker.remove([container], force=True, volumes=True)
