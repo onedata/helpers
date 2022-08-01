@@ -72,7 +72,7 @@ def read_and_validate_block(h, results, file_id, iteration_count, offset_range):
         moff = offset % len(VALIDATE_PATTERN)
         block = h.read(file_id, offset, len(VALIDATE_PATTERN))
         if block != VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff]:
-            results.put(block + "!=" + VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff])
+            results.put(block.decode('utf-8') + "!=" + VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff])
             return
 
 
@@ -101,6 +101,6 @@ def test_multithread_read_should_work(helper, file_id):
     while True:
         try:
             res = results.get(block=False)
-            assert res == ""
+            assert res == ''
         except Empty:
             break

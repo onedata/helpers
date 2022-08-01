@@ -64,8 +64,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
         std::min(reconnectAttempt, CLIENT_RECONNECT_DELAYS.size()));
 
     if (reconnectAttempt == 0U) {
-        LOG(INFO) << "Creating new connection with id " << connectionId()
-                  << " to " << host << ":" << port;
+        LOG_DBG(2) << "Creating new connection with id " << connectionId()
+                   << " to " << host << ":" << port;
     }
     else {
         LOG(INFO) << "Reconnecting connection with id " << connectionId()

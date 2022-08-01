@@ -34,14 +34,14 @@ def file_id():
     return random_str()
 
 
-@pytest.yield_fixture
+@pytest.fixture
 def endpoint(appmock_client):
     app = appmock_client.tcp_endpoint(443)
     yield app
     appmock_client.reset_tcp_history()
 
 
-@pytest.yield_fixture
+@pytest.fixture
 def helper(storage_id, endpoint):
     php = ProxyHelperProxy(storage_id, endpoint.ip, endpoint.port)
     yield php
