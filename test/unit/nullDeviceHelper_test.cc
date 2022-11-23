@@ -10,6 +10,7 @@
 #include "testUtils.h"
 
 #include <boost/make_shared.hpp>
+#include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/ManualExecutor.h>
 #include <gtest/gtest.h>
 
@@ -281,4 +282,48 @@ TEST_F(NullDeviceHelperTest, simulatedFilesystemFileDistShouldWork)
     EXPECT_EQ(helper.simulatedFilesystemFileDist({"25"}), 25);
     EXPECT_EQ(helper.simulatedFilesystemFileDist({"1", "1"}), 31);
     EXPECT_EQ(helper.simulatedFileSize(), 1'000'000'000);
+}
+
+TEST_F(NullDeviceHelperTest,
+    simulatedFilesystemFileDistShouldWorkFromMultipleThreads)
+{
+    auto simulatedFilesystemParamsStr = "10000-0:10000-10000:0-10000:1024";
+    auto simulatedFilesystemParams =
+        NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
+            simulatedFilesystemParamsStr);
+
+    auto executor0 = std::make_shared<folly::CPUThreadPoolExecutor>(8);
+
+    NullDeviceHelper helper(0, 0, 0.0, "*",
+        std::get<0>(simulatedFilesystemParams), 0.0,
+        std::get<1>(simulatedFilesystemParams).value_or(1024), executor0);
+
+    auto executor = std::make_shared<folly::CPUThreadPoolExecutor>(50);
+
+    std::vector<folly::Future<struct stat>> futs;
+    std::vector<folly::Future<folly::fbvector<folly::fbstring>>> futs2;
+
+    for (int di = 0; di < 2000; di++) {
+        futs.emplace_back(folly::via(executor.get(), [&helper, di]() {
+            return helper.getattr(fmt::format("/{}", di));
+        }));
+    }
+
+    for (int di = 0; di < 1000; di++) {
+        futs2.emplace_back(folly::via(executor.get(), [&helper, di]() {
+            return helper.readdir(fmt::format("/{}", di), 0, 2000);
+        }));
+        for (int fi = 10000; fi < 10000 + 100; fi++) {
+            futs.emplace_back(folly::via(executor.get(), [&helper, di, fi]() {
+                return helper.getattr(
+                    fmt::format("/{}/{}/{}/{}", di, fi, fi, fi));
+            }));
+        }
+    }
+
+    auto dir_results = folly::collectAll(futs2).via(executor.get()).get();
+    auto file_results = folly::collectAll(futs).via(executor.get()).get();
+
+    EXPECT_EQ(dir_results.size(), 1000);
+    EXPECT_EQ(file_results.size(), 102000);
 }
