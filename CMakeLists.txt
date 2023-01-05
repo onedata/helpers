@@ -115,7 +115,7 @@ find_library(DL_LIBRARY dl)
 
 # Rados library
 if(WITH_CEPH)
-    find_library(CEPHCOMMON_LIBRARY "ceph-common" NAMES "ceph-common" "libceph-common.so.2" PATH_SUFFIXES "ceph")
+    find_library(CEPHCOMMON_LIBRARY "ceph-common" NAMES "ceph-common" "libceph-common.so.2" "libceph-common.so.0" PATH_SUFFIXES "ceph")
     find_library(RADOS_LIBRARY rados)
     find_library(RADOSSTRIPER_LIBRARY radosstriper)
     add_definitions(-DWITH_CEPH=1)
