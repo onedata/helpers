@@ -83,6 +83,8 @@ public:
 
     std::size_t writtenBytes() const { return m_writtenBytes.load(); }
 
+    bool enableDataVerification() const { return m_enableDataVerification; }
+
     bool isConcurrencyEnabled() const override { return true; }
 
 private:
@@ -101,6 +103,7 @@ private:
         folly::Promise<folly::IOBufQueue> promise;
         off_t offset;
         std::size_t size;
+        bool enableDataVerification;
         std::shared_ptr<cppmetrics::core::TimerContextBase> timer;
     };
     struct WriteOp {
@@ -143,10 +146,15 @@ private:
     // The total number of bytes written since the file was opened
     std::atomic<std::size_t> m_writtenBytes;
 
+    const bool m_enableDataVerification;
+
     // Use a preallocated, prefilled buffer for reads to avoid the cost of
     // memset on each read call.
     static std::vector<uint8_t> m_nullReadBuffer;
     static boost::once_flag m_nullReadBufferInitialized;
+
+    static std::vector<uint8_t> m_nullReadPatternBuffer;
+    static boost::once_flag m_nullReadPatternBufferInitialized;
 };
 
 /**
@@ -173,13 +181,15 @@ public:
      *                                     files per second
      * @param simulatedFileSize Simulated file system reported file size in
      *                          bytes.
+     * @param enableDataVerification Enable data verification based on
+     * predefined data pattern.
      * @param executor Executor for driving async file operations.
      */
     NullDeviceHelper(int latencyMin, int latencyMax, double timeoutProbability,
         const folly::fbstring &filter,
         std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
         double simulatedFilesystemGrowSpeed, size_t simulatedFileSize,
-        std::shared_ptr<folly::Executor> executor,
+        bool enableDataVerification, std::shared_ptr<folly::Executor> executor,
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
@@ -331,6 +341,8 @@ public:
 
     bool storageIssuesEnabled() const noexcept;
 
+    bool enableDataVerification() const noexcept;
+
     template <typename T, typename F>
     folly::Future<T> simulateStorageIssues(
         const folly::fbstring &operationName, F &&func);
@@ -411,6 +423,8 @@ private:
     bool m_simulatedFilesystemEntryCountReady;
     size_t m_simulatedFilesystemEntryCount{};
 
+    bool m_enableDataVerification;
+
     static std::chrono::time_point<std::chrono::system_clock> m_mountTime;
 
     bool m_applyToAllOperations = false;
@@ -472,13 +486,17 @@ public:
             parseSimulatedFilesystemParameters(
                 simulatedFilesystemParameters.toStdString());
 
+        const auto enableDataVerification =
+            getParam<bool>(parameters, "enableDataVerification", false);
+
         return std::make_shared<NullDeviceHelper>(latencyMin, latencyMax,
             timeoutProbability, filter,
             std::get<0>(simulatedFilesystemParametersParsed),
             simulatedFilesystemGrowSpeed,
             std::get<1>(simulatedFilesystemParametersParsed)
                 .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            m_executor, std::move(timeout), executionContext);
+            enableDataVerification, m_executor, std::move(timeout),
+            executionContext);
     }
 
 private:

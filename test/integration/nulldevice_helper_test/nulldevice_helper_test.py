@@ -116,6 +116,25 @@ def simulatedGrowingFilesystemServer(request):
 
     return Server(0, 0, 0.0, "*", "4-4:0-1", 0.5)
 
+@pytest.fixture(scope='module')
+def dataVerifyingFilesystemServer(request):
+    class Server(object):
+        def __init__(self, latencyMin, latencyMax, timeoutProbability, filter,
+                     simulatedFilesystemParameters, simulatedFilesystemGrowSpeed):
+            self.latencyMin = latencyMin
+            self.latencyMax = latencyMax
+            self.timeoutProbability = timeoutProbability
+            self.filter = filter
+            self.simulatedFilesystemParameters = simulatedFilesystemParameters
+            self.simulatedFilesystemGrowSpeed = simulatedFilesystemGrowSpeed
+            self.enableDataVerification = True
+
+    def fin():
+        pass
+
+    request.addfinalizer(fin)
+
+    return Server(0, 0, 0.0, "*", "", 0)
 
 @pytest.fixture
 def helper(server):
@@ -127,7 +146,7 @@ def helper(server):
         server.latencyMax,
         server.timeoutProbability,
         server.filter,
-        "", 0.0)
+        "", 0.0, False)
 
 @pytest.fixture
 def slowStorageHelper(slowServer):
@@ -139,7 +158,7 @@ def slowStorageHelper(slowServer):
         slowServer.latencyMax,
         slowServer.timeoutProbability,
         slowServer.filter,
-        "", 0.0)
+        "", 0.0, False)
 
 @pytest.fixture
 def busyStorageHelper(busyServer):
@@ -151,7 +170,7 @@ def busyStorageHelper(busyServer):
         busyServer.latencyMax,
         busyServer.timeoutProbability,
         busyServer.filter,
-        "", 0.0)
+        "", 0.0, False)
 
 @pytest.fixture
 def simulatedFilesystemStorageHelper(simulatedFilesystemServer):
@@ -164,7 +183,8 @@ def simulatedFilesystemStorageHelper(simulatedFilesystemServer):
         simulatedFilesystemServer.timeoutProbability,
         simulatedFilesystemServer.filter,
         simulatedFilesystemServer.simulatedFilesystemParameters,
-        simulatedFilesystemServer.simulatedFilesystemGrowSpeed)
+        simulatedFilesystemServer.simulatedFilesystemGrowSpeed,
+        False)
 
 @pytest.fixture
 def simulatedGrowingFilesystemStorageHelper(simulatedGrowingFilesystemServer):
@@ -177,8 +197,23 @@ def simulatedGrowingFilesystemStorageHelper(simulatedGrowingFilesystemServer):
         simulatedGrowingFilesystemServer.timeoutProbability,
         simulatedGrowingFilesystemServer.filter,
         simulatedGrowingFilesystemServer.simulatedFilesystemParameters,
-        simulatedGrowingFilesystemServer.simulatedFilesystemGrowSpeed)
+        simulatedGrowingFilesystemServer.simulatedFilesystemGrowSpeed,
+        False)
 
+
+@pytest.fixture
+def dataVerifyingFilesystemStorageHelper(dataVerifyingFilesystemServer):
+    """
+    Create a helper which simulates a growing filesystem
+    """
+    return NullDeviceHelperProxy(
+        dataVerifyingFilesystemServer.latencyMin,
+        dataVerifyingFilesystemServer.latencyMax,
+        dataVerifyingFilesystemServer.timeoutProbability,
+        dataVerifyingFilesystemServer.filter,
+        dataVerifyingFilesystemServer.simulatedFilesystemParameters,
+        dataVerifyingFilesystemServer.simulatedFilesystemGrowSpeed,
+        dataVerifyingFilesystemServer.enableDataVerification)
 
 @pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper, file_id):
@@ -395,3 +430,33 @@ def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFile
     time.sleep(9)
     assert len(simulatedGrowingFilesystemStorageHelper.readdir("/", 0, 10)) >= 4+4
     assert simulatedGrowingFilesystemStorageHelper.getattr("/0/0").st_size == 1024
+
+
+@pytest.mark.simulated_filesystem_tests
+def test_data_verifying_null_helper(dataVerifyingFilesystemStorageHelper):
+    file_id = random_str()
+
+    pattern_str = b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890+='
+
+    assert len(pattern_str) == 64
+
+    assert dataVerifyingFilesystemStorageHelper.read(file_id, 0, 4) == b'abcd'
+    assert dataVerifyingFilesystemStorageHelper.read(file_id, 64, 4) == b'abcd'
+    assert dataVerifyingFilesystemStorageHelper.read(file_id, 1024*1024 + 4, 4) == b'efgh'
+
+    assert dataVerifyingFilesystemStorageHelper.write(file_id, b'abcd', 0) == 4
+    assert dataVerifyingFilesystemStorageHelper.write(file_id, b'efgh', 1024*1024 + 4) == 4
+
+    assert dataVerifyingFilesystemStorageHelper.write(file_id, pattern_str+pattern_str, 0) \
+           == 2*len(pattern_str)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        dataVerifyingFilesystemStorageHelper.write(file_id, b'abcd', 1)
+
+    assert 'Input/output error' in str(excinfo.value)
+
+    random_offset = random_int()
+    block_size = 10000000
+    assert dataVerifyingFilesystemStorageHelper.write(file_id,
+        dataVerifyingFilesystemStorageHelper.read(file_id, random_offset, block_size),
+                                                      random_offset) == block_size

@@ -64,7 +64,7 @@ TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
 
 TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)
 {
-    NullDeviceHelper helper(0, 0, 0.0, "*", {}, 0.0, 1024,
+    NullDeviceHelper helper(0, 0, 0.0, "*", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     for (int i = 0; i < 1000; i++)
@@ -73,7 +73,7 @@ TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)
 
 TEST_F(NullDeviceHelperTest, timeoutWithOneProbabilityShouldAlwaysBeTrue)
 {
-    NullDeviceHelper helper(0, 0, 1.0, "*", {}, 0.0, 1024,
+    NullDeviceHelper helper(0, 0, 1.0, "*", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     for (int i = 0; i < 1000; i++)
@@ -82,7 +82,7 @@ TEST_F(NullDeviceHelperTest, timeoutWithOneProbabilityShouldAlwaysBeTrue)
 
 TEST_F(NullDeviceHelperTest, latencyShouldBeAlwaysInDefinedRange)
 {
-    NullDeviceHelper helper(250, 750, 1.0, "*", {}, 0.0, 1024,
+    NullDeviceHelper helper(250, 750, 1.0, "*", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     for (int i = 0; i < 1000; i++) {
@@ -94,7 +94,7 @@ TEST_F(NullDeviceHelperTest, latencyShouldBeAlwaysInDefinedRange)
 
 TEST_F(NullDeviceHelperTest, latencyWithZeroRangeShouldBeAlwaysReturnZero)
 {
-    NullDeviceHelper helper(0, 0, 1.0, "*", {}, 0.0, 1024,
+    NullDeviceHelper helper(0, 0, 1.0, "*", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     for (int i = 0; i < 1000; i++)
@@ -103,7 +103,7 @@ TEST_F(NullDeviceHelperTest, latencyWithZeroRangeShouldBeAlwaysReturnZero)
 
 TEST_F(NullDeviceHelperTest, emptyFilterShouldAllowAnyOperation)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "", {}, 0.0, 1024,
+    NullDeviceHelper helper(100, 1000, 1.0, "", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     EXPECT_TRUE(helper.applies("whatever"));
@@ -111,7 +111,7 @@ TEST_F(NullDeviceHelperTest, emptyFilterShouldAllowAnyOperation)
 
 TEST_F(NullDeviceHelperTest, wildcardFilterShouldAllowAnyOperation)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "*", {}, 0.0, 1024,
+    NullDeviceHelper helper(100, 1000, 1.0, "*", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     EXPECT_TRUE(helper.applies("whatever"));
@@ -119,7 +119,7 @@ TEST_F(NullDeviceHelperTest, wildcardFilterShouldAllowAnyOperation)
 
 TEST_F(NullDeviceHelperTest, singleWordFileterShouldAllowOnlyOneOperations)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "truncate", {}, 0.0, 1024,
+    NullDeviceHelper helper(100, 1000, 1.0, "truncate", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     EXPECT_FALSE(helper.applies("whatever"));
@@ -130,7 +130,7 @@ TEST_F(NullDeviceHelperTest, singleWordFileterShouldAllowOnlyOneOperations)
 TEST_F(NullDeviceHelperTest, multipleOpsShouldAllowOnlyTheseOperations)
 {
     NullDeviceHelper helper(100, 1000, 1.0, "truncate,read,write", {}, 0.0,
-        1024, std::make_shared<folly::ManualExecutor>());
+        1024, false, std::make_shared<folly::ManualExecutor>());
 
     EXPECT_FALSE(helper.applies("whatever"));
     EXPECT_FALSE(helper.applies(""));
@@ -143,7 +143,7 @@ TEST_F(
     NullDeviceHelperTest, multipleOpsWithSpacesShouldAllowOnlyTheseOperations)
 {
     NullDeviceHelper helper(100, 1000, 1.0,
-        "\t\t\ntruncate,\nread,\n   write  ", {}, 0.0, 1024,
+        "\t\t\ntruncate,\nread,\n   write  ", {}, 0.0, 1024, false,
         std::make_shared<folly::ManualExecutor>());
 
     EXPECT_FALSE(helper.applies("whatever"));
@@ -156,7 +156,8 @@ TEST_F(
 TEST_F(NullDeviceHelperTest, readReturnsRequestedNumberOfBytes)
 {
     auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, m_executor);
+        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, false,
+        m_executor);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -167,7 +168,8 @@ TEST_F(NullDeviceHelperTest, readReturnsRequestedNumberOfBytes)
 TEST_F(NullDeviceHelperTest, writeReturnsWrittenNumberOfBytes)
 {
     auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, m_executor);
+        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, false,
+        m_executor);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -187,7 +189,8 @@ TEST_F(NullDeviceHelperTest, writeReturnsWrittenNumberOfBytes)
 TEST_F(NullDeviceHelperTest, readTimesAreInLatencyBoundaries)
 {
     auto helper = std::make_shared<NullDeviceHelper>(25, 75, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, m_executor);
+        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, false,
+        m_executor);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -256,7 +259,7 @@ TEST_F(NullDeviceHelperTest, simulatedFilesystemEntryCountShouldWork)
 
     NullDeviceHelper helper(0, 0, 0.0, "*",
         std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024),
+        std::get<1>(simulatedFilesystemParams).value_or(1024), false,
         std::make_shared<folly::ManualExecutor>());
 
     EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(0), 2 + 2);
@@ -275,7 +278,7 @@ TEST_F(NullDeviceHelperTest, simulatedFilesystemFileDistShouldWork)
 
     NullDeviceHelper helper(0, 0, 0.0, "*",
         std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024),
+        std::get<1>(simulatedFilesystemParams).value_or(1024), false,
         std::make_shared<folly::ManualExecutor>());
 
     EXPECT_EQ(helper.simulatedFilesystemFileDist({"1"}), 1);
@@ -296,7 +299,8 @@ TEST_F(NullDeviceHelperTest,
 
     NullDeviceHelper helper(0, 0, 0.0, "*",
         std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024), executor0);
+        std::get<1>(simulatedFilesystemParams).value_or(1024), false,
+        executor0);
 
     auto executor = std::make_shared<folly::CPUThreadPoolExecutor>(50);
 

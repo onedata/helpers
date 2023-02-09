@@ -61,7 +61,7 @@ public:
               std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
                   latencyMax, timeoutProbability, std::move(filter),
                   std::vector<std::pair<long int, long int>>{}, 0.0, 1024,
-                  m_executor),
+                  false, m_executor),
               m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
