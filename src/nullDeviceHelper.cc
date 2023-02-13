@@ -93,7 +93,6 @@ NullDeviceFileHandle::NullDeviceFileHandle(const folly::fbstring &fileId,
              i++) {
             m_nullReadPatternBuffer.insert(it,
                 kNullHelperDataVerificationPattern,
-                // NOLINTNEXTLINE
                 kNullHelperDataVerificationPattern + kDataPatternSize);
             std::advance(it, kDataPatternSize);
         }
@@ -179,7 +178,6 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
     if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
         if (op.enableDataVerification) {
             auto nullBuf = folly::IOBuf::wrapBuffer(
-                // NOLINTNEXTLINE
                 m_nullReadPatternBuffer.data() + (offset % kDataPatternSize),
                 size);
             buf.append(std::move(nullBuf));
@@ -200,7 +198,7 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
             auto j = offset % kDataPatternSize;
             for (size_t i = 0; i < size; i++, j = (j + 1) % kDataPatternSize) {
                 static_cast<char *>(data)[i] =
-                    *(m_nullReadPatternBuffer.data() + j); // NOLINT
+                    *(m_nullReadPatternBuffer.data() + j);
             }
         }
         else {
@@ -265,7 +263,6 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
 
         char firstCharacter = *(iobuf->data());
         if (firstCharacter !=
-            // NOLINTNEXTLINE
             kNullHelperDataVerificationPattern[op.offset % kDataPatternSize]) {
             LOG(ERROR) << "IO error in null helper write at offset "
                        << op.offset << " - expected '"
@@ -276,9 +273,8 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
             return;
         }
 
-        char lastCharacter = *(iobuf->data() + size - 1); // NOLINT
+        char lastCharacter = *(iobuf->data() + size - 1);
         if (lastCharacter !=
-            // NOLINTNEXTLINE
             kNullHelperDataVerificationPattern[(op.offset + size - 1) %
                 kDataPatternSize]) {
             LOG(ERROR) << "IO error in null helper write at offset "
