@@ -457,7 +457,7 @@ public:
     std::vector<folly::fbstring> overridableParams() const override
     {
         return {"latencyMin", "latencyMax", "timeoutProbability", "filter",
-            "timeout"};
+            "timeout", "enableDataVerification"};
     };
 
     static std::pair<std::vector<std::pair<int64_t, int64_t>>,
