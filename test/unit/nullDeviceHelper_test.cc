@@ -165,6 +165,65 @@ TEST_F(NullDeviceHelperTest, readReturnsRequestedNumberOfBytes)
         handle->read(1000, 100).getVia(m_executor.get()).chainLength(), 100);
 }
 
+TEST_F(
+    NullDeviceHelperTest, readWriteDataIsConsistentWhenEnabledDataVerification)
+{
+    auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",
+        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, true,
+        m_executor);
+
+    auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
+
+    {
+        std::string result{};
+        handle->read(0, 4).getVia(m_executor.get()).appendToString(result);
+
+        EXPECT_EQ(result, "abcd");
+
+        folly::IOBufQueue writeBuf{folly::IOBufQueue::cacheChainLength()};
+        writeBuf.append(result);
+        handle->write(0, std::move(writeBuf), {}).getVia(m_executor.get());
+    }
+    {
+        std::string result{};
+        handle->read(64, 4).getVia(m_executor.get()).appendToString(result);
+
+        EXPECT_EQ(result, "abcd");
+
+        folly::IOBufQueue writeBuf{folly::IOBufQueue::cacheChainLength()};
+        writeBuf.append(result);
+        handle->write(64, std::move(writeBuf), {}).getVia(m_executor.get());
+    }
+    {
+        std::string result{};
+        handle->read(64 + 1, 4).getVia(m_executor.get()).appendToString(result);
+
+        EXPECT_EQ(result, "bcde");
+
+        folly::IOBufQueue writeBuf{folly::IOBufQueue::cacheChainLength()};
+        writeBuf.append(result);
+        handle->write(1, std::move(writeBuf), {}).getVia(m_executor.get());
+    }
+    {
+        std::string result{};
+        handle->read(0, 160 * 1024 * 1024)
+            .getVia(m_executor.get())
+            .appendToString(result);
+
+        EXPECT_EQ(result[0], 'a');
+        EXPECT_EQ(result[64], 'a');
+        EXPECT_EQ(result[10000 * 64], 'a');
+        EXPECT_EQ(result.back(), '=');
+        EXPECT_EQ(result.substr(10000 * 64, 64),
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+            "+=");
+
+        folly::IOBufQueue writeBuf{folly::IOBufQueue::cacheChainLength()};
+        writeBuf.append(result);
+        handle->write(0, std::move(writeBuf), {}).getVia(m_executor.get());
+    }
+}
+
 TEST_F(NullDeviceHelperTest, writeReturnsWrittenNumberOfBytes)
 {
     auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",

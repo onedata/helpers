@@ -192,7 +192,21 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
     }
     else {
         void *data = buf.preallocate(size, size).first;
-        memset(data, NULL_DEVICE_HELPER_CHAR, size);
+
+        if (op.enableDataVerification) {
+            LOG_DBG(2)
+                << "Request data chunk larger than preallocated buffer...";
+
+            auto j = offset % kDataPatternSize;
+            for (size_t i = 0; i < size; i++, j = (j + 1) % kDataPatternSize) {
+                static_cast<char *>(data)[i] =
+                    *(m_nullReadPatternBuffer.data() + j); // NOLINT
+            }
+        }
+        else {
+            memset(data, NULL_DEVICE_HELPER_CHAR, size);
+        }
+
         buf.postallocate(size);
     }
 
@@ -253,6 +267,11 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
         if (firstCharacter !=
             // NOLINTNEXTLINE
             kNullHelperDataVerificationPattern[op.offset % kDataPatternSize]) {
+            LOG(ERROR) << "IO error in null helper write at offset "
+                       << op.offset << " - expected '"
+                       << kNullHelperDataVerificationPattern[op.offset %
+                              kDataPatternSize]
+                       << "' - got '" << firstCharacter << "'";
             op.promise.setException(makePosixException(EIO));
             return;
         }
@@ -262,6 +281,11 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
             // NOLINTNEXTLINE
             kNullHelperDataVerificationPattern[(op.offset + size - 1) %
                 kDataPatternSize]) {
+            LOG(ERROR) << "IO error in null helper write at offset "
+                       << op.offset << " - expected '"
+                       << kNullHelperDataVerificationPattern[op.offset %
+                              kDataPatternSize]
+                       << "' - got '" << firstCharacter << "'";
             op.promise.setException(makePosixException(EIO));
             return;
         }
