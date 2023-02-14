@@ -22,6 +22,7 @@ namespace messages {
 
 namespace handshake {
 enum class SessionMode { normal = 1, open_handle };
+enum class ClientType { oneclient, onedatafs, ones3 };
 } // namespace handshake
 
 /**
@@ -56,7 +57,9 @@ public:
     ClientHandshakeRequest(std::string sessionId, std::string macaroon,
         std::string version,
         std::vector<std::string> compatibleOneproviderVersions,
-        handshake::SessionMode sessionMode);
+        handshake::SessionMode sessionMode, handshake::ClientType clientType,
+        std::vector<std::pair<std::string, std::string>> clientOptions,
+        std::vector<std::pair<std::string, std::string>> systemInfo);
 
     std::string toString() const override;
 
@@ -68,6 +71,9 @@ private:
     std::string m_version;
     std::vector<std::string> m_compatibleOneproviderVersions;
     handshake::SessionMode m_sessionMode;
+    handshake::ClientType m_clientType;
+    std::vector<std::pair<std::string, std::string>> m_clientOptions;
+    std::vector<std::pair<std::string, std::string>> m_systemInfo;
 };
 
 } // namespace messages

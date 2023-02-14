@@ -33,10 +33,26 @@ constexpr auto NULL_DEVICE_HELPER_READ_PREALLOC_SIZE = 150 * 1024 * 1024;
 constexpr auto NULL_DEVICE_HELPER_READLINK_SIZE = 10;
 constexpr auto NULL_DEVICE_HELPER_READXATTR_SIZE = 10;
 
+// NOLINTNEXTLINE
+static const char kNullHelperDataVerificationPattern[] =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890+=";
+
+constexpr auto kDataPatternSize =
+    sizeof(kNullHelperDataVerificationPattern) - 1 /* \0 */;
+
+static_assert(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE % kDataPatternSize == 0,
+    "Data pattern size must be a divisor of "
+    "NULL_DEVICE_HELPER_READ_PREALLOC_SIZE");
+
 boost::once_flag NullDeviceFileHandle::m_nullReadBufferInitialized =
     BOOST_ONCE_INIT;
 boost::once_flag NullDeviceHelper::m_nullMountTimeOnceFlag = BOOST_ONCE_INIT;
 std::vector<uint8_t> NullDeviceFileHandle::m_nullReadBuffer = {};
+
+boost::once_flag NullDeviceFileHandle::m_nullReadPatternBufferInitialized =
+    BOOST_ONCE_INIT;
+std::vector<uint8_t> NullDeviceFileHandle::m_nullReadPatternBuffer = {};
+
 std::chrono::time_point<std::chrono::system_clock>
     NullDeviceHelper::m_mountTime = {}; // NOLINT(cert-err58-cpp)
 
@@ -53,22 +69,44 @@ std::shared_ptr<NullDeviceFileHandle> NullDeviceFileHandle::create(
 NullDeviceFileHandle::NullDeviceFileHandle(const folly::fbstring &fileId,
     std::shared_ptr<NullDeviceHelper> helper,
     std::shared_ptr<folly::Executor> executor, Timeout timeout)
-    : FileHandle{fileId, std::move(helper)}
+    : FileHandle{fileId, helper}
     , m_executor{std::move(executor)}
     , m_timeout{timeout}
     , m_readBytes{0}
     , m_writtenBytes{0}
+    , m_enableDataVerification{helper->enableDataVerification()}
 {
     LOG_FCALL() << LOG_FARG(fileId);
 
-    // Initilize the read buffer
-    boost::call_once(
-        [] {
-            m_nullReadBuffer.reserve(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
-            std::fill_n(m_nullReadBuffer.begin(),
-                NULL_DEVICE_HELPER_READ_PREALLOC_SIZE, NULL_DEVICE_HELPER_CHAR);
-        },
-        m_nullReadBufferInitialized);
+    auto defaultInitializer = []() {
+        m_nullReadBuffer.reserve(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
+        std::fill_n(m_nullReadBuffer.begin(),
+            NULL_DEVICE_HELPER_READ_PREALLOC_SIZE, NULL_DEVICE_HELPER_CHAR);
+    };
+
+    auto patternInitializer = []() {
+        m_nullReadPatternBuffer.reserve(NULL_DEVICE_HELPER_READ_PREALLOC_SIZE);
+
+        auto it = m_nullReadPatternBuffer.begin();
+        for (auto i = 0UL;
+             i < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE / kDataPatternSize;
+             i++) {
+            m_nullReadPatternBuffer.insert(it,
+                kNullHelperDataVerificationPattern,
+                kNullHelperDataVerificationPattern + kDataPatternSize);
+            std::advance(it, kDataPatternSize);
+        }
+    };
+
+    // Initialize the read buffer
+    if (m_enableDataVerification) {
+        boost::call_once(
+            std::move(patternInitializer), m_nullReadPatternBufferInitialized);
+    }
+    else {
+        boost::call_once(
+            std::move(defaultInitializer), m_nullReadBufferInitialized);
+    }
 }
 
 NullDeviceFileHandle::~NullDeviceFileHandle() { LOG_FCALL(); }
@@ -114,8 +152,8 @@ folly::Future<folly::IOBufQueue> NullDeviceFileHandle::read(
     return simulateStorageIssues<folly::Unit>("read", []() {})
         .thenValue([this, offset, size, timer = std::move(timer)](
                        auto && /*unit*/) mutable {
-            return opScheduler->schedule(
-                ReadOp{{}, offset, size, std::move(timer)});
+            return opScheduler->schedule(ReadOp{
+                {}, offset, size, m_enableDataVerification, std::move(timer)});
         });
 }
 
@@ -138,16 +176,40 @@ void NullDeviceFileHandle::OpExec::operator()(ReadOp &op) const
                << " from file " << fileId;
 
     if (size < NULL_DEVICE_HELPER_READ_PREALLOC_SIZE) {
-        auto nullBuf = folly::IOBuf::wrapBuffer(m_nullReadBuffer.data(), size);
-        buf.append(std::move(nullBuf));
+        if (op.enableDataVerification) {
+            auto nullBuf = folly::IOBuf::wrapBuffer(
+                m_nullReadPatternBuffer.data() + (offset % kDataPatternSize),
+                size);
+            buf.append(std::move(nullBuf));
+        }
+        else {
+            auto nullBuf =
+                folly::IOBuf::wrapBuffer(m_nullReadBuffer.data(), size);
+            buf.append(std::move(nullBuf));
+        }
     }
     else {
         void *data = buf.preallocate(size, size).first;
-        memset(data, NULL_DEVICE_HELPER_CHAR, size);
+
+        if (op.enableDataVerification) {
+            LOG_DBG(2)
+                << "Request data chunk larger than preallocated buffer...";
+
+            auto j = offset % kDataPatternSize;
+            for (size_t i = 0; i < size; i++, j = (j + 1) % kDataPatternSize) {
+                static_cast<char *>(data)[i] =
+                    *(m_nullReadPatternBuffer.data() + j);
+            }
+        }
+        else {
+            memset(data, NULL_DEVICE_HELPER_CHAR, size);
+        }
+
         buf.postallocate(size);
     }
 
-    LOG_DBG(2) << "Read " << size << " bytes from file " << fileId;
+    LOG_DBG(2) << "Read " << size << " bytes at offset " << offset
+               << " from file " << fileId;
 
     handle->m_readBytes += size;
 
@@ -190,6 +252,40 @@ void NullDeviceFileHandle::OpExec::operator()(WriteOp &op) const
     auto &timer = op.timer;
 
     std::size_t size = buf.chainLength();
+
+    if (handle->enableDataVerification() && size > 0) {
+        auto iobuf = buf.empty() ? folly::IOBuf::create(0) : buf.move();
+
+        if (iobuf->isChained()) {
+            iobuf->unshare();
+            iobuf->coalesce();
+        }
+
+        char firstCharacter = *(iobuf->data());
+        if (firstCharacter !=
+            kNullHelperDataVerificationPattern[op.offset % kDataPatternSize]) {
+            LOG(ERROR) << "IO error in null helper write at offset "
+                       << op.offset << " - expected '"
+                       << kNullHelperDataVerificationPattern[op.offset %
+                              kDataPatternSize]
+                       << "' - got '" << firstCharacter << "'";
+            op.promise.setException(makePosixException(EIO));
+            return;
+        }
+
+        char lastCharacter = *(iobuf->data() + size - 1);
+        if (lastCharacter !=
+            kNullHelperDataVerificationPattern[(op.offset + size - 1) %
+                kDataPatternSize]) {
+            LOG(ERROR) << "IO error in null helper write at offset "
+                       << op.offset << " - expected '"
+                       << kNullHelperDataVerificationPattern[op.offset %
+                              kDataPatternSize]
+                       << "' - got '" << firstCharacter << "'";
+            op.promise.setException(makePosixException(EIO));
+            return;
+        }
+    }
 
     LOG_DBG(2) << "Written " << size << " bytes to file " << fileId;
 
@@ -274,8 +370,8 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     const double timeoutProbability, const folly::fbstring &filter,
     std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
     double simulatedFilesystemGrowSpeed, size_t simulatedFileSize,
-    std::shared_ptr<folly::Executor> executor, Timeout timeout,
-    ExecutionContext executionContext)
+    bool enableDataVerification, std::shared_ptr<folly::Executor> executor,
+    Timeout timeout, ExecutionContext executionContext)
     : StorageHelper{executionContext}
     , m_latencyMin{latencyMin}
     , m_latencyMax{latencyMax}
@@ -290,6 +386,7 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
     , m_simulatedFileSize{simulatedFileSize}
     , m_simulatedFilesystemLevelEntryCountReady{false}
     , m_simulatedFilesystemEntryCountReady{false}
+    , m_enableDataVerification{enableDataVerification}
     , m_executor{std::move(executor)}
     , m_timeout{timeout}
 {
@@ -318,12 +415,20 @@ NullDeviceHelper::NullDeviceHelper(const int latencyMin, const int latencyMax,
 
     // Precalculate the number of entries per level and total in the
     // filesystem
-    simulatedFilesystemEntryCount();
+    if (m_simulatedFilesystemParameters.size() > 0ULL) {
+        simulatedFilesystemLevelEntryCount(0);
+        simulatedFilesystemEntryCount();
+    }
 }
 
 bool NullDeviceHelper::storageIssuesEnabled() const noexcept
 {
     return (m_latencyMax > 0.0) || (m_timeoutProbability > 0.0);
+}
+
+bool NullDeviceHelper::enableDataVerification() const noexcept
+{
+    return m_enableDataVerification;
 }
 
 template <typename T, typename F>
@@ -548,7 +653,7 @@ folly::Future<struct stat> NullDeviceHelper::getattrImpl(
                     stbuf.st_mode = ST_MODE_MASK | S_IFDIR;
                 }
                 else {
-                    auto pathLeaf = std::stol(pathTokens[level - 1]);
+                    auto pathLeaf = std::stoll(pathTokens[level - 1]);
 
                     if (pathLeaf <
                         std::get<0>(
@@ -567,7 +672,10 @@ folly::Future<struct stat> NullDeviceHelper::getattrImpl(
                     std::chrono::system_clock::to_time_t(m_mountTime);
                 stbuf.st_ctim.tv_nsec = 0;
 
-                if (m_simulatedFilesystemGrowSpeed == 0.0) {
+                const double kSimulatedFilesystemGrowSpeedEpsilon = 0.00001;
+
+                if (m_simulatedFilesystemGrowSpeed <=
+                    kSimulatedFilesystemGrowSpeedEpsilon) {
                     stbuf.st_mtim.tv_sec =
                         std::chrono::system_clock::to_time_t(m_mountTime);
                     stbuf.st_mtim.tv_nsec = 0;
@@ -1022,6 +1130,8 @@ size_t NullDeviceHelper::simulatedFilesystemLevelEntryCount(size_t level)
                 (std::get<0>(m_simulatedFilesystemParameters[l]) +
                     std::get<1>(m_simulatedFilesystemParameters[l])));
         }
+
+        m_simulatedFilesystemLevelEntryCountReady = true;
     }
 
     if (level >= m_simulatedFilesystemParameters.size())
@@ -1039,6 +1149,8 @@ size_t NullDeviceHelper::simulatedFilesystemEntryCount()
             m_simulatedFilesystemEntryCount +=
                 simulatedFilesystemLevelEntryCount(i);
         }
+
+        m_simulatedFilesystemEntryCountReady = true;
     }
 
     return m_simulatedFilesystemEntryCount;
@@ -1058,7 +1170,7 @@ size_t NullDeviceHelper::simulatedFilesystemFileDist(
 
     std::vector<size_t> parentPath;
     for (size_t i = 0; i < path.size() - 1; i++) {
-        parentPath.emplace_back(std::stol(path[i]));
+        parentPath.emplace_back(std::stoll(path[i]));
     }
 
     size_t pathDirProduct = std::accumulate(
@@ -1068,7 +1180,7 @@ size_t NullDeviceHelper::simulatedFilesystemFileDist(
     auto levelFiles = std::get<1>(m_simulatedFilesystemParameters[level]);
 
     distance += (levelDirs + levelFiles) * (pathDirProduct - 1) +
-        std::stol(path[path.size() - 1]) + 1;
+        std::stoll(path[path.size() - 1]) + 1;
 
     return distance - 1;
 }
@@ -1106,7 +1218,7 @@ NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
         }
         else
             result.emplace_back(
-                std::stol(levelParams[0]), std::stol(levelParams[1]));
+                std::stoll(levelParams[0]), std::stoll(levelParams[1]));
 
         i++;
     }
