@@ -48,7 +48,7 @@ public:
     NullDeviceHelperProxy(const int latencyMin, const int latencyMax,
         const double timeoutProbability, std::string filter,
         std::string simulatedFilesystemParameters,
-        float simulatedFilesystemGrowSpeed)
+        float simulatedFilesystemGrowSpeed, bool enableDataVerification)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               NULL_DEVICE_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("null_t"))}
@@ -63,7 +63,7 @@ public:
             simulatedFilesystemGrowSpeed,
             std::get<1>(simulatedFilesystemParams)
                 .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            m_executor);
+            enableDataVerification, m_executor);
     }
 
     ~NullDeviceHelperProxy() { }
@@ -254,11 +254,13 @@ namespace {
 boost::shared_ptr<NullDeviceHelperProxy> create(const int latencyMin,
     const int latencyMax, const double timeoutProbability, std::string filter,
     std::string simulatedFilesystemParameters = "",
-    float simulatedFilesystemGrowSpeed = 0.0)
+    float simulatedFilesystemGrowSpeed = 0.0,
+    bool enableDataVerification = false)
 {
     return boost::make_shared<NullDeviceHelperProxy>(latencyMin, latencyMax,
         timeoutProbability, std::move(filter),
-        std::move(simulatedFilesystemParameters), simulatedFilesystemGrowSpeed);
+        std::move(simulatedFilesystemParameters), simulatedFilesystemGrowSpeed,
+        enableDataVerification);
 }
 } // namespace
 
