@@ -62,6 +62,8 @@ public:
                 m_executor, ExecutionContext::ONECLIENT);
     }
 
+    ~XRootDHelperProxy() { m_executor->join(); }
+
     struct stat getattr(std::string fileId)
     {
         ReleaseGIL guard;

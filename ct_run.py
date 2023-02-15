@@ -54,7 +54,7 @@ parser.add_argument(
 parser.add_argument(
     '--image', '-i',
     action='store',
-    default='onedata/builder:2102-7',
+    default='onedata/builder:2102-7-b',
     help='docker image to use as a test master',
     dest='image')
 
@@ -134,6 +134,7 @@ command = command.format(
     uid=os.geteuid(),
     gid=os.getegid(),
     test_dirs="', '".join(test_dirs),
+    base_test_dir=base_test_dir,
     shed_privileges=(platform.system() == 'Linux'),
     gdb=args.gdb,
     valgrind=args.valgrind,
@@ -143,7 +144,7 @@ command = command.format(
 docker.run(tty=True,
            rm=True,
            interactive=True,
-           workdir=script_dir,
+           workdir=base_test_dir,
            reflect=[(script_dir, 'rw'),
                     ('/var/run/docker.sock', 'rw'),
                     (HOST_STORAGE_PATH, 'rw')],

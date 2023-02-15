@@ -230,7 +230,7 @@ folly::Future<folly::IOBufQueue> XRootDFileHandle::read(
 
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.errors.read");
 
-                LOG(ERROR) << "Read from file " << fileId << " failed due to "
+                LOG_DBG(2) << "Read from file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().code;
 
@@ -321,7 +321,7 @@ folly::Future<std::size_t> XRootDFileHandle::write(
 
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.errors.write");
 
-                LOG(ERROR) << "Write to file " << fileId << " failed due to "
+                LOG_DBG(2) << "Write to file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().code;
 
@@ -383,7 +383,6 @@ folly::Future<folly::Unit> XRootDFileHandle::release(const int retryCount)
                 return makeFuturePosixException<folly::Unit>(
                     xrootdStatusToPosixError(ex.GetError()));
             });
-    return {};
 }
 
 folly::Future<folly::Unit> XRootDFileHandle::fsync(bool isDataSync)
@@ -653,7 +652,7 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
                 if (!self)
                     return makeFuturePosixException<FileHandlePtr>(ECANCELED);
 
-                LOG(ERROR) << "Open of file " << fileId << " failed due to "
+                LOG_DBG(2) << "Open of file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().errNo;
 
@@ -699,7 +698,7 @@ folly::Future<folly::Unit> XRootDHelper::unlink(const folly::fbstring &fileId,
                 if (!self)
                     return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-                LOG(ERROR) << "Rm of file " << fileId << " failed due to "
+                LOG_DBG(2) << "Rm of file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().errNo;
 
@@ -769,7 +768,7 @@ folly::Future<folly::Unit> XRootDHelper::rmdir(
                         });
                 }
 
-                LOG(ERROR) << "RmDir failed due to: "
+                LOG_DBG(2) << "RmDir failed due to: "
                            << ex.GetError().GetErrorMessage();
 
                 return makeFuturePosixException<folly::Unit>(
@@ -1000,7 +999,7 @@ folly::Future<folly::Unit> XRootDHelper::rename(const folly::fbstring &from,
                 if (!self)
                     return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-                LOG(ERROR) << "Mv failed due to: "
+                LOG_DBG(2) << "Mv failed due to: "
                            << ex.GetError().GetErrorMessage();
 
                 if (retryCount > 0 && shouldRetryError(ex)) {

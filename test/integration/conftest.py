@@ -22,7 +22,7 @@ PERFORMANCE_RESULT_FILE = \
 def _appmock_client(request):
     test_dir = os.path.dirname(os.path.realpath(request.module.__file__))
 
-    result = appmock.up(image='onedata/builder:2102-7', bindir=appmock_dir,
+    result = appmock.up(image='onedata/builder:2102-7-b', bindir=appmock_dir,
                         dns_server='none', uid=common.generate_uid(),
                         config_path=os.path.join(test_dir, 'env.json'))
 
@@ -54,54 +54,77 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    config.addinivalue_line(
-        'markers',
-        'performance(config): mark test to run in performance tests with config'
-    )
+    custom_markers = [
+        'simulated_filesystem_tests',
+        'readwrite_operations_tests',
+        'truncate_operations_tests',
+        'ownership_operations_tests',
+        'mknod_operations_tests',
+        'links_operations_tests',
+        'remove_operations_tests',
+        'directory_operations_tests',
+        'readwrite_operations_tests',
+        'xattr_tests',
+        'performance']
+    for m in custom_markers:
+        config.addinivalue_line('markers', f'{m}(config): ')
 
     config.performance_report = {}
 
 
 def pytest_generate_tests(metafunc):
-    if hasattr(metafunc.function, 'performance'):
-        kwargs = metafunc.function.performance.kwargs
-        repeats = kwargs.get('repeats', 1)
-        params = kwargs.get('parameters', [])
-        configs = kwargs.get('configs', {})
+    if not hasattr(metafunc.function, "pytestmark"):
+        return
 
-        params = collections.OrderedDict(
-            [(p.name, p.normalized_value()) for p in params])
+    for mark in metafunc.function.pytestmark:
+        if mark.name == 'performance':
+            kwargs = mark.kwargs
+            repeats = kwargs.get('repeats', 1)
+            params = kwargs.get('parameters', [])
+            configs = kwargs.get('configs', {})
 
-        if not metafunc.config.getoption('--performance'):
-            if params:
-                metafunc.parametrize(list(params.keys()), [list(params.values())])
-        else:
-            metafunc.fixturenames.extend(['config_name', 'rep'])
+            params = collections.OrderedDict(
+                [(p.name, p.normalized_value()) for p in params])
 
-            params_names = ['config_name', 'rep'] + list(params.keys())
-            params_values = []
+            if not metafunc.config.getoption('--performance'):
+                if params:
+                    metafunc.parametrize(list(params.keys()), [list(params.values())])
+            else:
+                metafunc.fixturenames.extend(['config_name', 'rep'])
 
-            for config_name, config in list(configs.items()):
-                current_params = params.copy()
+                params_names = ['config_name', 'rep'] + list(params.keys())
+                params_values = []
 
-                for p in config.get('parameters', []):
-                    current_params[p.name] = p.normalized_value()
+                for config_name, config in list(configs.items()):
+                    current_params = params.copy()
 
-                for rep in range(1, repeats + 1):
-                    params_values.append(
-                        [config_name, rep] + list(current_params.values()))
+                    for p in config.get('parameters', []):
+                        current_params[p.name] = p.normalized_value()
 
-            metafunc.parametrize(params_names, params_values)
+                    for rep in range(1, repeats + 1):
+                        params_values.append(
+                            [config_name, rep] + list(current_params.values()))
+
+                metafunc.parametrize(params_names, params_values)
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption('--performance'):
-        items[:] = [i for i in items if 'performance' in i.keywords]
+    perf_items = []
+    for item in items:
+        if item.config.getoption('--performance'):
+            if 'performance' in item.keywords:
+                perf_items.append(item)
+    if len(perf_items) > 0:
+        items[:] = perf_items
 
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
+
+    # TODO: VFS-10522 Fix pytest_runtest_makereport in helpers conftest.py
+    return
+
     report = outcome.get_result()
     perfmarker = item.get_closest_marker('performance')
 
@@ -109,6 +132,7 @@ def pytest_runtest_makereport(item, call):
         suite = sys.modules[item.function.__module__]
         suite_name = suite.__name__
         case_name = item.function.__name__
+
         repeat = item.funcargs['rep']
         config_name = item.funcargs['config_name']
         test_config = perfmarker.kwargs['configs'][config_name]
@@ -208,13 +232,13 @@ def pytest_unconfigure(config):
 
     performance = {'performance': config.performance_report}
     performance['performance'].update({
-        'repository': os.path.basename(toplevel).strip(),
-        'branch': branch.strip(),
-        'commit': commit.strip()
+        'repository': os.path.basename(toplevel).strip().decode('utf-8'),
+        'branch': branch.strip().decode('utf-8'),
+        'commit': commit.strip().decode('utf-8')
     })
 
-    #with open(PERFORMANCE_RESULT_FILE, 'w') as f:
-    #    f.write(json.dumps(performance, indent=2, separators=(',', ': ')))
+    with open(PERFORMANCE_RESULT_FILE, 'w') as f:
+        f.write(json.dumps(performance, indent=2, separators=(',', ': ')))
 
 
 def get_copyright(mod):

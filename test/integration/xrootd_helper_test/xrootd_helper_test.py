@@ -25,6 +25,8 @@ from xrootd_helper import XRootDHelperProxy
 # Import test cases selectively, the commented out tests indicate
 # test cases which will not work on XRootD helper
 #
+# TODO: VFS-10519 Fix xrootd integration test hanging on `docker rm`
+#
 # from common_test_base import \
 #     file_id, \
 #     test_write_should_write_empty_data, \
@@ -44,14 +46,14 @@ from xrootd_helper import XRootDHelperProxy
 #     test_unlink_should_delete_empty_data, \
 #     test_truncate_should_increase_file_size, \
 #     test_truncate_should_decrease_file_size
-# 
-# 
+#
+#
 # from io_perf_test_base import \
 #     test_write, \
 #     test_write_read, \
 #     test_read_write_truncate_unlink, \
 #     test_truncate
-# 
+#
 # from posix_test_base import \
 #     test_read_should_read_written_data, \
 #     test_read_should_error_file_not_found, \
@@ -69,12 +71,12 @@ from xrootd_helper import XRootDHelperProxy
 #     # test_truncate_should_not_create_file
 #     # test_mknod_should_set_premissions
 
-
 @pytest.fixture(scope='module')
 def server(request):
     class Server(object):
         def __init__(self, url):
             self.url = url
+            self.container = None
 
     result = xrootd.up('onedata/xrootd:v2', 'storage',
                        common.generate_uid())
@@ -89,7 +91,9 @@ def server(request):
 
     time.sleep(5)
 
-    return Server(url)
+    server = Server(url)
+    server.container = container
+    return server
 
 
 @pytest.fixture
