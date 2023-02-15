@@ -129,19 +129,95 @@ def perf_write_read_truncate_unlink_base(helper, op_num, size):
         helper.truncate(file_id, 0, len(data))
         helper.unlink(file_id, 0)
 
-def test_write(result, helper):
-    io_test = IOPerformanceTest(perf_write_base, helper, 1, 1, 1)
+
+@pytest.mark.performance(
+    repeats=10,
+    parameters=[IOPerfParam.thr_num(1),
+                IOPerfParam.op_num(1),
+                IOPerfParam.op_size(1)],
+    configs={
+        'small': {
+            'description': 'Small IO config.',
+            'parameters': [IOPerfParam.thr_num(5),
+                           IOPerfParam.op_num(2),
+                           IOPerfParam.op_size(1)]
+        },
+        'large': {
+            'description': 'Large IO config.',
+            'parameters': [IOPerfParam.thr_num(25),
+                           IOPerfParam.op_num(5),
+                           IOPerfParam.op_size(5)]
+        }})
+def test_write(result, helper, thr_num, op_num, op_size):
+    io_test = IOPerformanceTest(perf_write_base, helper, thr_num, op_num, op_size)
     io_test()
 
-def test_write_read(result, helper):
-    io_test = IOPerformanceTest(perf_write_read_base, helper, 1, 1, 1)
+
+@pytest.mark.performance(
+    repeats=10,
+    parameters=[IOPerfParam.thr_num(1),
+                IOPerfParam.op_num(1),
+                IOPerfParam.op_size(1)],
+    configs={
+        'small': {
+            'description': 'Small IO config.',
+            'parameters': [IOPerfParam.thr_num(5),
+                           IOPerfParam.op_num(2),
+                           IOPerfParam.op_size(1)]
+        },
+        'large': {
+            'description': 'Large IO config.',
+            'parameters': [IOPerfParam.thr_num(25),
+                           IOPerfParam.op_num(5),
+                           IOPerfParam.op_size(5)]
+        }})
+def test_write_read(result, helper, thr_num, op_num, op_size):
+    io_test = IOPerformanceTest(perf_write_read_base, helper, thr_num, op_num, op_size)
     io_test()
 
-def test_truncate(result, helper):
-    io_test = IOPerformanceTest(perf_truncate_base, helper, 1, 1, 1)
+
+@pytest.mark.performance(
+    repeats=10,
+    parameters=[IOPerfParam.thr_num(1),
+                IOPerfParam.op_num(1),
+                IOPerfParam.op_size(1)],
+    configs={
+        'small': {
+            'description': 'Small IO config.',
+            'parameters': [IOPerfParam.thr_num(5),
+                           IOPerfParam.op_num(2),
+                           IOPerfParam.op_size(1)]
+        },
+        'large': {
+            'description': 'Large IO config.',
+            'parameters': [IOPerfParam.thr_num(25),
+                           IOPerfParam.op_num(5),
+                           IOPerfParam.op_size(5)]
+        }})
+def test_truncate(result, helper, thr_num, op_num, op_size):
+    io_test = IOPerformanceTest(perf_truncate_base, helper, thr_num, op_num, op_size)
     io_test()
 
-def test_read_write_truncate_unlink(result, helper):
+
+@pytest.mark.performance(
+    repeats=10,
+    parameters=[IOPerfParam.thr_num(1),
+                IOPerfParam.op_num(1),
+                IOPerfParam.op_size(1)],
+    configs={
+        'small': {
+            'description': 'Small IO config.',
+            'parameters': [IOPerfParam.thr_num(5),
+                           IOPerfParam.op_num(2),
+                           IOPerfParam.op_size(1)]
+        },
+        'large': {
+            'description': 'Large IO config.',
+            'parameters': [IOPerfParam.thr_num(25),
+                           IOPerfParam.op_num(5),
+                           IOPerfParam.op_size(5)]
+        }})
+def test_read_write_truncate_unlink(result, helper, thr_num, op_num, op_size):
     io_test = IOPerformanceTest(perf_write_read_truncate_unlink_base, helper,
-            1, 1, 1)
+            thr_num, op_num, op_size)
     io_test()
