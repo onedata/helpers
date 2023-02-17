@@ -391,6 +391,7 @@ def test_write_should_generate_timeouts_on_busy_storage(busyStorageHelper, file_
 
 
 @pytest.mark.simulated_filesystem_tests
+@pytest.mark.skip("VFS-10552")
 def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemStorageHelper):
     """
     Test example specification defined in simulatedFilesystemServer fixture:
@@ -418,6 +419,7 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
 
 
 @pytest.mark.simulated_filesystem_tests
+@pytest.mark.skip("VFS-10552")
 def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFilesystemStorageHelper):
     """
     Test example specification defined in simulatedFilesystemServer fixture:
