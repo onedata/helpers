@@ -79,7 +79,10 @@ def create_server(request, version, volume):
     host = result['host'].encode('ascii')
 
     def fin():
-        docker.remove([container], force=True, volumes=True)
+        try:
+            docker.remove([container], force=True, volumes=True)
+        except subprocess.CalledProcessError as e:
+            print("Failed to remove NFS Docker container")
         check_output(['rm', '-rf', tmp_dir])
         time.sleep(1)
 
