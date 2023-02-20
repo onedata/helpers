@@ -86,8 +86,8 @@ install: release
 
 .PHONY: coverage
 coverage:
-	lcov --directory `pwd`/debug --capture --output-file `pwd`/helpers.info
-	lcov --remove `pwd`/helpers.info 'test/*' '/usr/*' 'asio/*' '**/messages/*' \
+	lcov --base-directory `pwd`/debug --directory `pwd`/debug --capture --output-file `pwd`/helpers.info
+	lcov --base-directory `pwd`/debug --remove `pwd`/helpers.info 'test/*' '/usr/*' 'asio/*' '**/messages/*' \
 	                           'relwithdebinfo/*' 'debug/*' 'release/*' \
 	                           'erlang-tls/*' \
 														 --output-file `pwd`/helpers.info.cleaned
