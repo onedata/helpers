@@ -264,7 +264,6 @@ private:
 
 BOOST_PYTHON_MODULE(posix_helper)
 {
-    // Py_Initialize();
     class_<PosixHelperProxy, boost::noncopyable>(
         "PosixHelperProxy", init<std::string, uid_t, gid_t>())
         .def("open", &PosixHelperProxy::open)

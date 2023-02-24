@@ -11,7 +11,7 @@ import re
 script_dir = os.path.dirname(os.path.realpath(__file__))
 docker_dir = os.path.join(script_dir, 'bamboos', 'docker')
 sys.path.insert(0, docker_dir)
-from environment import docker
+from environment import docker, dockers_config
 from environment.common import HOST_STORAGE_PATH
 
 def parse_valgrind_log_error_count(log_file):
@@ -54,7 +54,7 @@ parser.add_argument(
 parser.add_argument(
     '--image', '-i',
     action='store',
-    default='onedata/builder:2102-8',
+    default=None,
     help='docker image to use as a test master',
     dest='image')
 
@@ -80,6 +80,8 @@ parser.add_argument(
     dest='cpuset_cpus')
 
 [args, pass_args] = parser.parse_known_args()
+dockers_config.ensure_image(args, 'image', 'builder')
+
 script_dir = os.path.dirname(os.path.realpath(__file__))
 base_test_dir = os.path.join(os.path.realpath(args.release), 'test',
                              'integration')
