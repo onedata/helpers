@@ -47,14 +47,14 @@ def cp(endpoint):
                            Parameter.msg_size(1, 'MB')]
         }
     })
-def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
+def test_cp_should_send_messages(result, endpoint, cp, msg_num, msg_size):
     """Sends multiple messages using connection pool and checks whether they
     have been received."""
 
-    msg = random_str(msg_size)
+    msg = random_str(msg_size).encode('utf-8')
 
     send_time = Duration()
-    for _ in xrange(msg_num):
+    for _ in range(msg_num):
         with measure(send_time):
             cp.send(msg)
 
@@ -82,15 +82,15 @@ def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
             'parameters': [Parameter.msg_size(1, 'MB')]
         }
     })
-def test_cp_should_receive_messages(result, msg_num, msg_size, endpoint, cp):
+def test_cp_should_receive_messages(result, endpoint, cp, msg_num, msg_size):
     """Receives multiple messages using connection pool."""
 
-    msgs = [random_str(msg_size) for _ in xrange(msg_num)]
+    msgs = [random_str(msg_size) for _ in range(msg_num)]
 
     recv_time = Duration()
     for msg in msgs:
         with measure(recv_time):
-            endpoint.send(msg)
+            endpoint.send(msg.encode('utf-8'))
 
     recv = []
     for _ in msgs:

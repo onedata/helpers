@@ -9,7 +9,7 @@ import sys
 import time
 import subprocess
 from os.path import expanduser
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 import pytest
 
@@ -111,7 +111,7 @@ def helper(server):
 @pytest.fixture
 def helper_redirect(server):
     redirect_port = "8080"
-    endpoint = urlparse(server.endpoint)
+    endpoint = urlparse(server.endpoint).decode('utf-8')
     redirect_url = endpoint._replace(
         netloc=endpoint.netloc.replace(
             str(endpoint.port), redirect_port)).geturl()
@@ -122,7 +122,7 @@ def helper_redirect(server):
 def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id):
     data = random_str()
     helper.write(file_id, data, 0)
-    data2 = helper_redirect.read(file_id, 0, len(data))
+    data2 = helper_redirect.read(file_id, 0, len(data)).decode('utf-8')
 
     assert data == data2
 
@@ -130,7 +130,7 @@ def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id)
 def test_write_should_follow_temporary_redirect(helper_redirect, file_id):
     data = random_str()
     helper_redirect.write(file_id, data, 0)
-    data2 = helper_redirect.read(file_id, 0, len(data))
+    data2 = helper_redirect.read(file_id, 0, len(data)).decode('utf-8')
 
     assert data == data2
 
@@ -159,7 +159,7 @@ def test_rmdir_should_remove_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file1_id, data, offset)
         helper.write(dir_id+"/"+file2_id, data, offset)
     except:
@@ -183,11 +183,11 @@ def test_getattr_should_return_default_permissions(helper, file_id):
     dir_id = file_id
     data = random_str()
     offset = random_int()
-    default_dir_mode = 0775
-    default_file_mode = 0664
+    default_dir_mode = 0o775
+    default_file_mode = 0o664
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file_id, data, offset)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
@@ -195,8 +195,8 @@ def test_getattr_should_return_default_permissions(helper, file_id):
     # WebDAV doesn't store permissions, so the dir_id directory will
     # return the permissions defined in the helper not the ones used
     # in mkdir call
-    assert helper.getattr(dir_id).st_mode&0777 == default_dir_mode
-    assert helper.getattr(dir_id+"/"+file_id).st_mode&0777 == default_file_mode
+    assert helper.getattr(dir_id).st_mode&0o777 == default_dir_mode
+    assert helper.getattr(dir_id+"/"+file_id).st_mode&0o777 == default_file_mode
 
 
 def test_readdir_should_handle_offset_properly(helper):
@@ -207,7 +207,7 @@ def test_readdir_should_handle_offset_properly(helper):
 
     test_dir = 'offset_test'
 
-    helper.mkdir(test_dir, 0777)
+    helper.mkdir(test_dir, 0o777)
 
     files = ['file{}.txt'.format(i,) for i in (1, 2, 3, 4, 5)]
 

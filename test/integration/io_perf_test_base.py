@@ -53,7 +53,7 @@ class IOPerformanceTestThread(threading.Thread):
     def __init__(self, results, tid, group=None, target=None, name=None, args=(),
             kwargs=None, verbose=None):
         super(IOPerformanceTestThread,self).__init__(group=group, target=target,
-                name=name, verbose=verbose)
+                name=name)
         self.args = args
         self.results = results
         self.tid = tid
@@ -93,7 +93,7 @@ class IOPerformanceTest:
         for i in range(self.thr_num):
             self.threads[i].join()
 
-        assert all(map(lambda x: x is True, self.results))
+        assert all([x is True for x in self.results])
 
 
 def perf_write_base(helper, op_num, size):
@@ -109,7 +109,7 @@ def perf_write_read_base(helper, op_num, size):
         data = random_str(size)
 
         assert helper.write(file_id, data, 0) == len(data)
-        assert helper.read(file_id, 0, len(data)) == data
+        assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 def perf_truncate_base(helper, op_num, size):
     for _ in range(op_num):
@@ -117,7 +117,7 @@ def perf_truncate_base(helper, op_num, size):
 
         helper.write(file_id, 'X'*size, 0)
         helper.truncate(file_id, 1, size)
-        assert helper.read(file_id, 0, 1) == 'X'
+        assert helper.read(file_id, 0, 1).decode('utf-8') == 'X'
 
 def perf_write_read_truncate_unlink_base(helper, op_num, size):
     for i in range(op_num):
@@ -125,7 +125,7 @@ def perf_write_read_truncate_unlink_base(helper, op_num, size):
         data = random_str(size)
 
         assert helper.write(file_id, data, 0) == len(data)
-        assert helper.read(file_id, 0, len(data)) == data
+        assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
         helper.truncate(file_id, 0, len(data))
         helper.unlink(file_id, 0)
 

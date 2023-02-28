@@ -46,7 +46,7 @@ public:
                 try {
                     m_handshakeResponsePromise.set_value(response);
                 }
-                catch (std::future_error) {
+                catch (std::future_error &) {
                 }
                 return onHandshakeResponse(std::move(response));
             },

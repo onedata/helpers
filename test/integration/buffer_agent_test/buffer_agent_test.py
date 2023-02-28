@@ -59,7 +59,7 @@ def file_handle(helper, file_id, parameters, request):
 def remote_data_msg(data):
     server_message = messages_pb2.ServerMessage()
     server_message.proxyio_response.status.code = common_messages_pb2.Status.ok
-    server_message.proxyio_response.remote_data.data = data
+    server_message.proxyio_response.remote_data.data = data.encode('utf-8')
     return server_message
 
 
@@ -84,12 +84,12 @@ def test_write_should_write_data(file_handle, file_id, parameters, storage_id,
 
     request = received.proxyio_request
     assert decode_params(request.parameters) == parameters
-    assert request.storage_id == storage_id
-    assert request.file_id == file_id
+    assert request.storage_id.decode('utf-8') == storage_id
+    assert request.file_id.decode('utf-8') == file_id
 
     assert request.HasField('remote_write')
     assert request.remote_write.byte_sequence[0].offset == offset
-    assert request.remote_write.byte_sequence[0].data == data
+    assert request.remote_write.byte_sequence[0].data.decode('utf-8') == data
 
 
 def test_close_should_pass_write_errors(file_id, endpoint, helper, parameters):
@@ -122,8 +122,8 @@ def test_read_should_read_data(file_handle, file_id, parameters, storage_id,
 
     request = received.proxyio_request
     assert decode_params(request.parameters) == parameters
-    assert request.storage_id == storage_id
-    assert request.file_id == file_id
+    assert request.storage_id.decode('utf-8') == storage_id
+    assert request.file_id.decode('utf-8') == file_id
 
     assert request.HasField('remote_read')
     assert request.remote_read.offset == offset

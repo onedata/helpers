@@ -82,7 +82,7 @@ def test_read_should_read_data(helper):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    assert helper.read(file_id, offset, len(data)) == data
+    assert helper.read(file_id, offset, len(data)).decode('utf-8') == data
 
 
 @pytest.mark.skip(reason=
@@ -157,7 +157,7 @@ def test_truncate_should_truncate_data(helper):
 
     assert helper.write(file_id, data, 0) == len(data)
     helper.truncate(file_id, size, len(data))
-    assert helper.read(file_id, 0, size) == data[0:size]
+    assert helper.read(file_id, 0, size).decode('utf-8') == data[0:size]
 
 
 def test_truncate_should_truncate_file_with_dangling_shared_locks(helper):
@@ -173,7 +173,7 @@ def test_truncate_should_truncate_file_with_dangling_shared_locks(helper):
     assert helper.lock(file_id, cookie2, False) == 0
     assert helper.lock(file_id, cookie3, False) == 0
     helper.truncate(file_id, size, len(data))
-    assert helper.read(file_id, 0, size) == data[0:size]
+    assert helper.read(file_id, 0, size).decode('utf-8') == data[0:size]
 
 
 def test_truncate_should_truncate_file_with_dangling_exclusive_lock(helper):
@@ -185,4 +185,4 @@ def test_truncate_should_truncate_file_with_dangling_exclusive_lock(helper):
     assert helper.write(file_id, data, 0) == len(data)
     assert helper.lock(file_id, cookie, True) == 0
     helper.truncate(file_id, size, len(data))
-    assert helper.read(file_id, 0, size) == data[0:size]
+    assert helper.read(file_id, 0, size).decode('utf-8') == data[0:size]

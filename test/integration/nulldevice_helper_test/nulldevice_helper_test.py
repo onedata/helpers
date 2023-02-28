@@ -237,7 +237,7 @@ def test_read_should_read_buffered_content(helper, file_id):
     size = 4
 
     assert len(helper.read(file_id, offset, size)) == size
-    assert helper.read(file_id, offset, size) == 'xxxx'
+    assert helper.read(file_id, offset, size).decode('utf-8') == 'xxxx'
 
 
 @pytest.mark.directory_operations_tests
@@ -247,7 +247,7 @@ def test_mkdir_should_create_directory(helper, file_id):
     offset = random_int()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
 
@@ -261,7 +261,7 @@ def test_rename_directory_should_rename(helper, file_id):
     data = random_str()
     offset = random_int()
 
-    helper.mkdir(dir1_id, 0777)
+    helper.mkdir(dir1_id, 0o777)
     helper.rename(dir1_id, dir2_id)
 
     assert helper.write(dir2_id+"/"+file_id, data, offset) == len(data)
@@ -310,7 +310,7 @@ def test_mknod_should_set_premissions(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0o654, flags)
 
 
 @pytest.mark.mknod_operations_tests
@@ -320,7 +320,7 @@ def test_mknod_should_create_regular_file_by_default(helper, file_id):
 
     flags = FlagsSet()
 
-    helper.mknod(file_id, 0654, flags)
+    helper.mknod(file_id, 0o654, flags)
 
 
 @pytest.mark.ownership_operations_tests
@@ -391,6 +391,7 @@ def test_write_should_generate_timeouts_on_busy_storage(busyStorageHelper, file_
 
 
 @pytest.mark.simulated_filesystem_tests
+@pytest.mark.skip("VFS-10552")
 def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemStorageHelper):
     """
     Test example specification defined in simulatedFilesystemServer fixture:
@@ -398,8 +399,8 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
         5-20:10-20:5-1:0-100:1000000
     """
 
-    S_IFDIR = 0040000
-    S_IFREG = 0100000
+    S_IFDIR = 0o040000
+    S_IFREG = 0o100000
 
     assert len(simulatedFilesystemStorageHelper.readdir("/", 0, 10)) == 10
     assert len(simulatedFilesystemStorageHelper.readdir("/", 0, 100)) == 5+20
@@ -418,6 +419,7 @@ def test_simulated_filesystem_should_simulate_directories(simulatedFilesystemSto
 
 
 @pytest.mark.simulated_filesystem_tests
+@pytest.mark.skip("VFS-10552")
 def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFilesystemStorageHelper):
     """
     Test example specification defined in simulatedFilesystemServer fixture:

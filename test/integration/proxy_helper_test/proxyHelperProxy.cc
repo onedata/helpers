@@ -69,14 +69,15 @@ public:
         return handle->write(offset, std::move(buf), {}).get();
     }
 
-    std::string read(one::helpers::FileHandlePtr handle, int offset, int size)
+    auto read(one::helpers::FileHandlePtr handle, int offset, int size)
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
             .thenValue([&](folly::IOBufQueue &&buf) {
                 std::string data;
                 buf.appendToString(data);
-                return data;
+                return boost::python::api::object(boost::python::handle<>(
+                    PyBytes_FromStringAndSize(data.c_str(), data.size())));
             })
             .get();
     }

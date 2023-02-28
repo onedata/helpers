@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(script_dir))
 from test_common import *
 # noinspection PyUnresolvedReferences
 from environment import common, docker, nfs
-from posix_helper import PosixHelperProxy
+from posix_helper import *
 from posix_test_base import *
 from xattr_test_base import *
 from io_perf_test_base import *

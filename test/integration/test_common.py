@@ -4,7 +4,7 @@ import random
 import string
 import sys
 import time
-from Queue import Queue
+from queue import Queue
 from contextlib import contextmanager
 from threading import Thread
 
@@ -15,9 +15,10 @@ project_dir = os.path.dirname(os.path.dirname(_script_dir))
 appmock_dir = os.path.join(project_dir, 'appmock')
 docker_dir = os.path.join(project_dir, 'bamboos', 'docker')
 annotations_dir = os.path.join(project_dir, 'test', 'annotations')
+proto_dir = os.path.join(project_dir, 'test', 'integration', 'proto')
 
 # Append useful modules to the path
-sys.path = [appmock_dir, docker_dir, annotations_dir] + sys.path
+sys.path = [appmock_dir, docker_dir, annotations_dir, proto_dir] + sys.path
 
 from proto import messages_pb2
 
@@ -28,7 +29,7 @@ def random_int(lower_bound=1, upper_bound=100):
 
 def random_str(size=random_int(),
                characters=string.ascii_uppercase + string.digits):
-    return ''.join(random.choice(characters) for _ in xrange(size))
+    return ''.join(random.choice(characters) for _ in range(size))
 
 
 def random_params():
@@ -36,7 +37,7 @@ def random_params():
 
 
 def decode_params(params):
-    return {p.key: p.value for p in params}
+    return {p.key.decode('utf-8'): p.value.decode('utf-8') for p in params}
 
 
 def wait_until(condition, step=0.5, timeout=30):
@@ -62,7 +63,7 @@ def _with_reply_process(endpoint, responses, queue, reply_to_async=False):
             client_message.ParseFromString(received_msg)
             message_has_id = client_message.HasField('message_id')
 
-            print "client_message", client_message
+            print("client_message", client_message)
 
             if message_has_id or reply_to_async:
                 # first send out all consecutive processing status messages
@@ -70,18 +71,17 @@ def _with_reply_process(endpoint, responses, queue, reply_to_async=False):
                 response = responses.pop(0)
                 while response.HasField('processing_status'):
                     if message_has_id:
-                        response.message_id = client_message.message_id.encode(
-                            'utf-8')
+                        response.message_id = client_message.message_id
 
-                    print "response", response
-                    endpoint.send(response.SerializeToString())
+                    print("response", response)
+                    endpoint.send(response.SerializeToString().encode('utf-8'))
                     response = responses.pop(0)
 
                 if message_has_id:
-                    response.message_id = client_message.message_id.encode(
-                        'utf-8')
-                print "response", response
-                endpoint.send(response.SerializeToString())
+                    response.message_id = client_message.message_id
+                print("response", response)
+                response_str = response.SerializeToString()
+                endpoint.send(response_str)
 
                 queue.put(client_message)
 
@@ -112,7 +112,7 @@ def _with_receive_process(endpoint, msgs_num, queue):
             client_message = messages_pb2.ClientMessage()
             client_message.ParseFromString(received_msgs.pop(0))
 
-            print "client_message", client_message
+            print("client_message", client_message)
 
             queue.put(client_message)
 
@@ -137,7 +137,7 @@ def _with_send_process(endpoint, msgs, queue):
 
     while msgs:
         msg = msgs.pop(0)
-        print "server_message", msg
+        print("server_message", msg)
         endpoint.send(msg.SerializeToString())
 
         queue.put

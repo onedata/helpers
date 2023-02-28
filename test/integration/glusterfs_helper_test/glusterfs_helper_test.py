@@ -6,7 +6,6 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
 import sys
-import md5
 
 import pytest
 
@@ -38,7 +37,7 @@ def server(request):
     uid = 0
     gid = 0
     volume = 'data'
-    result = glusterfs.up('gluster/gluster-centos:gluster3u7_centos7',
+    result = glusterfs.up('gluster/gluster-centos:gluster4u1_centos7',
                           [volume], 'storage', common.generate_uid(), 'tcp',
                           random_str()+"/"+random_str())
 

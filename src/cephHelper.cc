@@ -67,7 +67,9 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
             folly::IOBufQueue buffer{folly::IOBufQueue::cacheChainLength()};
             char *raw =
                 static_cast<char *>(buffer.preallocate(size, size).first);
-            librados::bufferlist data;
+
+            librados::bufferlist data{static_cast<unsigned int>(size)};
+
             libradosstriper::RadosStriper &rs = helper->getRadosStriper();
 
             LOG_DBG(2) << "Attempting to read " << size << " bytes at offset "
@@ -89,7 +91,7 @@ folly::Future<folly::IOBufQueue> CephFileHandle::read(
             LOG_DBG(2) << "Read " << ret << " bytes at offset " << offset
                        << " from file " << fileId();
 
-            data.copy(0, ret, raw);
+            std::memcpy(raw, data.c_str(), ret);
             buffer.postallocate(ret);
 
             ONE_METRIC_TIMERCTX_STOP(timer, ret);
@@ -314,7 +316,7 @@ folly::Future<folly::fbstring> CephHelper::getxattr(
                 return makeFuturePosixException<folly::fbstring>(ret);
             }
 
-            bl.copy(0, ret, xattrValue);
+            xattrValue = bl.to_str();
 
             LOG_DBG(2) << "Got extended attribute with value: " << xattrValue;
 

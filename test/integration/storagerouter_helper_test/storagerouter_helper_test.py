@@ -58,7 +58,6 @@ def helper(server):
                                     server.uid, server.gid)
 
 
-@pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper):
     data = random_str()
     offset = random_int()
@@ -67,10 +66,10 @@ def test_read_should_read_written_data(helper):
     file_id_b = '/space1/' + random_str()
 
     assert helper.write(file_id_a, data, offset) == len(data)
-    assert helper.read(file_id_a, offset, len(data)) == data
+    assert helper.read(file_id_a, offset, len(data)).decode('utf-8') == data
 
     assert helper.write(file_id_b, data, offset) == len(data)
-    assert helper.read(file_id_b, offset, len(data)) == data
+    assert helper.read(file_id_b, offset, len(data)).decode('utf-8') == data
 
     home = expanduser("~")
     assert helper.mountpoint(file_id_a) == os.path.join(

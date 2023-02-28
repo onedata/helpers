@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Runs integration tests."""
 
@@ -11,7 +11,7 @@ import re
 script_dir = os.path.dirname(os.path.realpath(__file__))
 docker_dir = os.path.join(script_dir, 'bamboos', 'docker')
 sys.path.insert(0, docker_dir)
-from environment import docker
+from environment import docker, dockers_config
 from environment.common import HOST_STORAGE_PATH
 
 def parse_valgrind_log_error_count(log_file):
@@ -54,7 +54,7 @@ parser.add_argument(
 parser.add_argument(
     '--image', '-i',
     action='store',
-    default='onedata/builder:2102-6',
+    default=None,
     help='docker image to use as a test master',
     dest='image')
 
@@ -80,6 +80,8 @@ parser.add_argument(
     dest='cpuset_cpus')
 
 [args, pass_args] = parser.parse_known_args()
+dockers_config.ensure_image(args, 'image', 'builder')
+
 script_dir = os.path.dirname(os.path.realpath(__file__))
 base_test_dir = os.path.join(os.path.realpath(args.release), 'test',
                              'integration')
@@ -107,7 +109,7 @@ if {shed_privileges}:
     os.setreuid({uid}, {uid})
 
 if {gdb}:
-    command = ['gdb', 'python', '-silent', '-ex', """run -c "
+    command = ['gdb', 'python3', '-silent', '-ex', """run -c "
 import pytest
 pytest.main({args} + ['{test_dirs}'])" """]
 elif {valgrind}:
@@ -124,7 +126,7 @@ elif {callgrind}:
             + ['--tool=callgrind'] \\
             + ['py.test'] + {args} + ['{test_dirs}']
 else:
-    command = ['py.test'] + {args} + ['{test_dirs}']
+    command = ['python3'] + ['-m'] + ['pytest'] + {args} + ['{test_dirs}']
 
 ret = subprocess.call(command)
 sys.exit(ret)
@@ -134,6 +136,7 @@ command = command.format(
     uid=os.geteuid(),
     gid=os.getegid(),
     test_dirs="', '".join(test_dirs),
+    base_test_dir=base_test_dir,
     shed_privileges=(platform.system() == 'Linux'),
     gdb=args.gdb,
     valgrind=args.valgrind,
@@ -143,15 +146,15 @@ command = command.format(
 docker.run(tty=True,
            rm=True,
            interactive=True,
-           workdir=script_dir,
+           workdir=base_test_dir,
            reflect=[(script_dir, 'rw'),
                     ('/var/run/docker.sock', 'rw'),
                     (HOST_STORAGE_PATH, 'rw')],
            image=args.image,
-           envs={'BASE_TEST_DIR': base_test_dir},
+           envs={'BASE_TEST_DIR': base_test_dir, 'PYTHONWARNINGS': 'ignore:Unverified HTTPS request'},
            run_params=['--privileged'] if (args.gdb or args.valgrind) else [],
            cpuset_cpus=args.cpuset_cpus,
-           command=['python', '-c', command])
+           command=['python3', '-c', command])
 
 # If exit code != 0 then bamboo always fails build.
 # If it is 0 then result is based on test report.

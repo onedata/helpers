@@ -72,7 +72,7 @@ public:
             });
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
@@ -81,7 +81,9 @@ public:
                     .thenValue([handle](folly::IOBufQueue &&buf) {
                         std::string data;
                         buf.appendToString(data);
-                        return data;
+                        return boost::python::api::object(
+                            boost::python::handle<>(PyBytes_FromStringAndSize(
+                                data.c_str(), data.size())));
                     });
             })
             .get();
@@ -260,19 +262,10 @@ private:
     std::shared_ptr<one::helpers::PosixHelper> m_helper;
 };
 
-namespace {
-boost::shared_ptr<PosixHelperProxy> create(
-    std::string mountPoint, uid_t uid, gid_t gid)
-{
-    return boost::make_shared<PosixHelperProxy>(
-        std::move(mountPoint), uid, gid);
-}
-} // namespace
-
 BOOST_PYTHON_MODULE(posix_helper)
 {
-    class_<PosixHelperProxy, boost::noncopyable>("PosixHelperProxy", no_init)
-        .def("__init__", make_constructor(create))
+    class_<PosixHelperProxy, boost::noncopyable>(
+        "PosixHelperProxy", init<std::string, uid_t, gid_t>())
         .def("open", &PosixHelperProxy::open)
         .def("read", &PosixHelperProxy::read)
         .def("write", &PosixHelperProxy::write)

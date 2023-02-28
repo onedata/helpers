@@ -34,14 +34,14 @@ def file_id():
     return random_str()
 
 
-@pytest.yield_fixture
+@pytest.fixture
 def endpoint(appmock_client):
     app = appmock_client.tcp_endpoint(443)
     yield app
     appmock_client.reset_tcp_history()
 
 
-@pytest.yield_fixture
+@pytest.fixture
 def helper(storage_id, endpoint):
     php = ProxyHelperProxy(storage_id, endpoint.ip, endpoint.port)
     yield php
@@ -71,7 +71,7 @@ def remote_write_result_msg(wrote):
 
 def test_write_should_write_data(file_handle, file_id, parameters, storage_id,
                                  endpoint, helper):
-    data = random_str()
+    data = random_str().encode('utf-8')
     offset = random_int()
     server_message = remote_write_result_msg(len(data))
 
@@ -83,8 +83,8 @@ def test_write_should_write_data(file_handle, file_id, parameters, storage_id,
 
     request = received.proxyio_request
     assert decode_params(request.parameters) == parameters
-    assert request.storage_id == storage_id
-    assert request.file_id == file_id
+    assert request.storage_id.decode('utf-8') == storage_id
+    assert request.file_id.decode('utf-8') == file_id
 
     assert request.HasField('remote_write')
     assert request.remote_write.byte_sequence[0].offset == offset
@@ -107,7 +107,7 @@ def test_write_should_pass_write_errors(file_id, endpoint, helper, parameters):
 
 def test_read_should_read_data(file_handle, file_id, parameters, storage_id,
                                endpoint, helper):
-    data = random_str()
+    data = random_str().encode('utf-8')
     offset = random_int()
     server_message = remote_data_msg(data)
 
@@ -119,8 +119,8 @@ def test_read_should_read_data(file_handle, file_id, parameters, storage_id,
 
     request = received.proxyio_request
     assert decode_params(request.parameters) == parameters
-    assert request.storage_id == storage_id
-    assert request.file_id == file_id
+    assert request.storage_id.decode('utf-8') == storage_id
+    assert request.file_id.decode('utf-8') == file_id
 
     assert request.HasField('remote_read')
     assert request.remote_read.offset == offset
@@ -135,6 +135,6 @@ def test_read_should_pass_errors(file_handle, file_id, endpoint, helper,
 
     with pytest.raises(RuntimeError) as excinfo:
         with reply(endpoint, server_message):
-            helper.read(file_handle, random_int(), random_int())
+            helper.read(file_handle, random_int(), random_int()).decode('utf-8')
 
     assert 'Operation not permitted' in str(excinfo.value)

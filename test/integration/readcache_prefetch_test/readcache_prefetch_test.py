@@ -93,7 +93,7 @@ MAX_READOVERHEAD_FACTOR = 1.35
 def test_single_read_after_period_should_invalidate_cache(helper, file_id):
     data = 'x' * 1024*1024*50
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -126,7 +126,7 @@ def test_single_read_after_period_should_invalidate_cache(helper, file_id):
 def test_single_read_from_ideal_storage_should_not_generate_overhead(helper, file_id):
     data = 'x' * 1024*1024*50
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -141,7 +141,7 @@ def test_single_read_from_ideal_storage_should_not_generate_overhead(helper, fil
 def test_linear_read_from_ideal_storage_should_prefetch_data(helper, file_id):
     data = 'x' * 1024*1024*150
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -159,7 +159,7 @@ def test_linear_read_from_ideal_storage_should_prefetch_data(helper, file_id):
 def test_fast_linear_read_from_ideal_storage_should_not_generate_too_big_overhead(helper, file_id):
     data = 'x' * 1024*1024*150
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -177,7 +177,7 @@ def test_fast_linear_read_from_ideal_storage_should_not_generate_too_big_overhea
 def test_linear_read_from_ideal_storage_should_not_generate_too_big_overhead(helper, file_id):
     data = 'x' * 1024*1024*150
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -196,7 +196,7 @@ def test_linear_read_from_ideal_storage_should_not_generate_too_big_overhead(hel
 def test_random_read_from_ideal_storage_should_not_generate_too_big_overhead(helper, file_id):
     data = 'x' * 1024*1024*150
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -216,7 +216,7 @@ def test_random_read_from_ideal_storage_should_not_generate_too_big_overhead(hel
 def test_mixed_read_from_ideal_storage_should_slow_down_prefetching(helper, file_id):
     data = 'x' * 1024*1024*150
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)
@@ -253,7 +253,7 @@ def test_mixed_read_from_ideal_storage_should_slow_down_prefetching(helper, file
 def test_linear_read_from_slow_storage_should_prefetch_data(slowStorageHelper, file_id):
     data = 'x' * 1024*1024*50
 
-    handle = slowStorageHelper.open(file_id, 0655)
+    handle = slowStorageHelper.open(file_id, 0o655)
     written = slowStorageHelper.write(handle, data, 0)
 
     assert written == len(data)
@@ -271,7 +271,7 @@ def test_linear_read_from_slow_storage_should_prefetch_data(slowStorageHelper, f
 def test_linear_read_from_slow_storage_should_not_generate_too_big_overhead(slowStorageHelper, file_id):
     data = 'x' * 1024*1024*50
 
-    handle = slowStorageHelper.open(file_id, 0655)
+    handle = slowStorageHelper.open(file_id, 0o655)
     written = slowStorageHelper.write(handle, data, 0)
 
     assert written == len(data)
@@ -289,13 +289,13 @@ def test_linear_read_from_slow_storage_should_not_generate_too_big_overhead(slow
 def test_random_read_from_slow_storage_should_not_generate_too_big_overhead(slowStorageHelper, file_id):
     data = 'x' * 1024*1024*50
 
-    handle = slowStorageHelper.open(file_id, 0655)
+    handle = slowStorageHelper.open(file_id, 0o655)
     written = slowStorageHelper.write(handle, data, 0)
 
     assert written == len(data)
 
     read = 0
-    blocks = range(0, 50)
+    blocks = list(range(0, 50))
     random_blocks = random.sample(blocks, len(blocks))
     for i in random_blocks:
         read += len(slowStorageHelper.read(handle, i*(1024*1024), 1024*1024))
@@ -311,7 +311,7 @@ def test_mixed_read_from_slow_storage_should_slow_down_prefetching(slowStorageHe
     helper = slowStorageHelper
     data = 'x' * 1024*1024*50
 
-    handle = helper.open(file_id, 0655)
+    handle = helper.open(file_id, 0o655)
     written = helper.write(handle, data, 0)
 
     assert written == len(data)

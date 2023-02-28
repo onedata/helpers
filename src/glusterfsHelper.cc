@@ -218,7 +218,8 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 
             auto readBytesCount = retry(
                 [&]() {
-                    return glfs_pread(glfsFd.get(), raw, size, offset, 0);
+                    return glfs_pread(
+                        glfsFd.get(), raw, size, offset, 0, nullptr);
                 },
                 std::bind(GlusterFSRetryCondition, std::placeholders::_1,
                     "glfs_pread"));
@@ -374,12 +375,13 @@ folly::Future<folly::Unit> GlusterFSFileHandle::fsync(bool isDataSync)
 
             if (isDataSync) {
                 LOG_DBG(2) << "Performing data sync on file " << fileId;
-                return setHandleResult(
-                    "glfs_fdatasync", glfs_fdatasync, glfsFd.get());
+                return setHandleResult("glfs_fdatasync", glfs_fdatasync,
+                    glfsFd.get(), nullptr, nullptr);
             }
 
             LOG_DBG(2) << "Performing sync on file " << fileId;
-            return setHandleResult("glfs_fsync", glfs_fsync, glfsFd.get());
+            return setHandleResult(
+                "glfs_fsync", glfs_fsync, glfsFd.get(), nullptr, nullptr);
         });
 }
 

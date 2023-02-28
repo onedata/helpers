@@ -230,7 +230,7 @@ folly::Future<folly::IOBufQueue> XRootDFileHandle::read(
 
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.errors.read");
 
-                LOG(ERROR) << "Read from file " << fileId << " failed due to "
+                LOG_DBG(2) << "Read from file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().code;
 
@@ -321,7 +321,7 @@ folly::Future<std::size_t> XRootDFileHandle::write(
 
                 ONE_METRIC_COUNTER_INC("comp.helpers.mod.xrootd.errors.write");
 
-                LOG(ERROR) << "Write to file " << fileId << " failed due to "
+                LOG_DBG(2) << "Write to file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().code;
 
@@ -383,7 +383,6 @@ folly::Future<folly::Unit> XRootDFileHandle::release(const int retryCount)
                 return makeFuturePosixException<folly::Unit>(
                     xrootdStatusToPosixError(ex.GetError()));
             });
-    return {};
 }
 
 folly::Future<folly::Unit> XRootDFileHandle::fsync(bool isDataSync)
@@ -653,7 +652,7 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
                 if (!self)
                     return makeFuturePosixException<FileHandlePtr>(ECANCELED);
 
-                LOG(ERROR) << "Open of file " << fileId << " failed due to "
+                LOG_DBG(2) << "Open of file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().errNo;
 
@@ -699,7 +698,7 @@ folly::Future<folly::Unit> XRootDHelper::unlink(const folly::fbstring &fileId,
                 if (!self)
                     return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-                LOG(ERROR) << "Rm of file " << fileId << " failed due to "
+                LOG_DBG(2) << "Rm of file " << fileId << " failed due to "
                            << ex.GetError().GetErrorMessage() << ":"
                            << ex.GetError().errNo;
 
@@ -769,7 +768,7 @@ folly::Future<folly::Unit> XRootDHelper::rmdir(
                         });
                 }
 
-                LOG(ERROR) << "RmDir failed due to: "
+                LOG_DBG(2) << "RmDir failed due to: "
                            << ex.GetError().GetErrorMessage();
 
                 return makeFuturePosixException<folly::Unit>(
@@ -851,19 +850,20 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     auto file = std::make_unique<XrdCl::File>(true);
     auto *filePtr = file.get();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> &&openTask{
+    std::packaged_task<void(XrdCl::XRootDStatus & st)> mknodTask{
         [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() mutable {
+            p.setWith([&st]() {
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st); // NOLINT
             });
         }};
 
-    LOG(ERROR) << "Creating file: " << url().GetURL() + fileId.toStdString();
+    LOG_DBG(3) << "Creating file: " << url().GetURL() + fileId.toStdString();
+
     auto tf =
         XrdCl::Async(XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
                          XrdCl::OpenFlags::New, modeToAccess(mode)) |
-            XrdCl::Sync(filePtr) | XrdCl::Close(filePtr) >> openTask);
+            XrdCl::Sync(filePtr) | XrdCl::Close(filePtr) >> mknodTask);
 
     return std::move(f)
         .via(executor().get())
@@ -999,7 +999,7 @@ folly::Future<folly::Unit> XRootDHelper::rename(const folly::fbstring &from,
                 if (!self)
                     return makeFuturePosixException<folly::Unit>(ECANCELED);
 
-                LOG(ERROR) << "Mv failed due to: "
+                LOG_DBG(2) << "Mv failed due to: "
                            << ex.GetError().GetErrorMessage();
 
                 if (retryCount > 0 && shouldRetryError(ex)) {

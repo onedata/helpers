@@ -1800,7 +1800,7 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
     WebDAVSession *webDAVSession{nullptr};
     decltype(m_idleSessionPool)::accessor ispAcc;
     m_idleSessionPool.find(ispAcc, key);
-    auto idleSessionAvailable = ispAcc->second.read(webDAVSession);
+    auto idleSessionAvailable = ispAcc->second.try_pop(webDAVSession);
 
     if (!idleSessionAvailable) {
         LOG_DBG(1) << "WebDAV idle session connection pool empty - delaying "

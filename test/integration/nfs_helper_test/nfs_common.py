@@ -6,7 +6,6 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
 import sys
-import md5
 import tempfile
 
 import pytest
@@ -80,7 +79,10 @@ def create_server(request, version, volume):
     host = result['host'].encode('ascii')
 
     def fin():
-        docker.remove([container], force=True, volumes=True)
+        try:
+            docker.remove([container], force=True, volumes=True)
+        except subprocess.CalledProcessError as e:
+            print("Failed to remove NFS Docker container")
         check_output(['rm', '-rf', tmp_dir])
         time.sleep(1)
 
@@ -94,7 +96,7 @@ def do_test_symlink_should_create_link(helper, mountpoint, file_id):
     data = random_str()
 
     try:
-        helper.mkdir(dir_id, 0777)
+        helper.mkdir(dir_id, 0o777)
         helper.write(dir_id+"/"+file_id, data, 0)
     except:
         pytest.fail("Couldn't create directory: %s"%(dir_id))
@@ -104,4 +106,4 @@ def do_test_symlink_should_create_link(helper, mountpoint, file_id):
     link = helper.readlink(file_id+".lnk")
 
     assert link == dir_id+"/"+file_id
-    assert helper.read(link, 0, 1024) == data
+    assert helper.read(link, 0, 1024).decode('utf-8') == data
