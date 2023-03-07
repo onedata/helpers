@@ -10,6 +10,7 @@
 #define HELPERS_MESSAGES_HANDSHAKE_REQUEST_H
 
 #include "clientMessage.h"
+#include "common.h"
 
 #include <boost/optional.hpp>
 
@@ -19,11 +20,6 @@
 
 namespace one {
 namespace messages {
-
-namespace handshake {
-enum class SessionMode { normal = 1, open_handle };
-enum class ClientType { oneclient, onedatafs, ones3 };
-} // namespace handshake
 
 /**
  * The HandshakeRequest class represents a message that is sent by the client to

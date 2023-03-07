@@ -103,8 +103,6 @@
  * method body and log the values of main parameters.
  */
 // clang-format off
-#define LOG_TRACE(...) SPDLOG_TRACE(spdlog::get("default"), __VA_ARGS__)
-
 #define LOG_FCALL()                                                             \
     VLOG(3) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: " // NOLINT
 // clang-format on
