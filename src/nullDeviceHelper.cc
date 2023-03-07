@@ -896,12 +896,15 @@ NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
 {
     auto result = std::vector<std::pair<int64_t, int64_t>>{};
 
+    folly::Optional<size_t> fileSize{};
     if (params.empty())
         return result;
 
     auto levels = std::vector<std::string>{};
 
     folly::split(":", params, levels, true);
+
+    auto i = 0U;
 
     for (const auto &level : levels) {
         auto levelParams = std::vector<std::string>{};
@@ -922,8 +925,7 @@ NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
             result.emplace_back(
                 std::stoll(levelParams[0]), std::stoll(levelParams[1]));
 
-        result.emplace_back(
-            std::stol(levelParams[0]), std::stol(levelParams[1]));
+        i++;
     }
 
     return result;

@@ -11,7 +11,7 @@
 
 #include <boost/make_shared.hpp>
 #include <folly/executors/CPUThreadPoolExecutor.h>
-#include <folly/executors/ManualExecutor.h>
+#include <folly/futures/ManualExecutor.h>
 #include <gtest/gtest.h>
 
 #include <tuple>
@@ -283,9 +283,8 @@ TEST_F(NullDeviceHelperTest,
 
     auto executor0 = std::make_shared<folly::CPUThreadPoolExecutor>(8);
 
-    NullDeviceHelper helper(0, 0, 0.0, "*",
-        std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024), executor0);
+    NullDeviceHelper helper(
+        0, 0, 0.0, "*", simulatedFilesystemParams, 0.0, executor0);
 
     auto executor = std::make_shared<folly::CPUThreadPoolExecutor>(50);
 
