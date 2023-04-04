@@ -157,6 +157,10 @@ S3Helper::S3Helper(const folly::fbstring &hostname,
     }
 
     Aws::Client::ClientConfiguration configuration;
+    configuration.connectTimeoutMs = m_timeout.count();
+    configuration.requestTimeoutMs = m_timeout.count();
+    configuration.enableClockSkewAdjustment = true;
+
     configuration.region = getRegion(hostname).c_str();
     configuration.endpointOverride = hostname.c_str();
     if (!useHttps)
