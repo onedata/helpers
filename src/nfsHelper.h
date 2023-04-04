@@ -104,7 +104,6 @@ public:
      */
     NFSHelper(std::shared_ptr<NFSHelperParams> params,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     virtual ~NFSHelper() { stop(); }
@@ -190,7 +189,6 @@ private:
     }
 
     std::shared_ptr<folly::Executor> m_executor;
-    Timeout m_timeout;
 
     std::vector<std::unique_ptr<NFSConnection>> m_connections{};
     tbb::concurrent_bounded_queue<NFSConnection *> m_idleConnections{};

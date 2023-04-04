@@ -60,10 +60,11 @@ public:
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
         params["version"] = std::to_string(version);
+        params["timeout"] = std::to_string(NFS_HELPER_PROXY_TIMEOUT_MS.count());
 
         m_helper = std::make_shared<one::helpers::NFSHelper>(
             NFSHelperParams::create(params), m_executor,
-            NFS_HELPER_PROXY_TIMEOUT_MS, ExecutionContext::ONECLIENT);
+            ExecutionContext::ONECLIENT);
     }
 
     void open(std::string fileId, int flags)
