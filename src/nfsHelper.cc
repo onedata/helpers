@@ -345,11 +345,10 @@ folly::Future<folly::Unit> NFSFileHandle::fsync(bool /*isDataSync*/)
 }
 
 NFSHelper::NFSHelper(std::shared_ptr<NFSHelperParams> params,
-    std::shared_ptr<folly::Executor> executor, Timeout timeout,
+    std::shared_ptr<folly::Executor> executor,
     ExecutionContext executionContext)
     : StorageHelper{executionContext}
     , m_executor{std::move(executor)}
-    , m_timeout{timeout}
 {
     LOG_FCALL();
 
@@ -1119,8 +1118,8 @@ std::shared_ptr<StorageHelper> NFSHelperFactory::createStorageHelper(
 {
     auto params = NFSHelperParams::create(parameters);
     if ((params->version()) == 3 || (params->version() == 4)) {
-        return std::make_shared<NFSHelper>(std::move(params), m_executor,
-            constants::ASYNC_OPS_TIMEOUT, executionContext);
+        return std::make_shared<NFSHelper>(
+            std::move(params), m_executor, executionContext);
     }
 
     throw std::invalid_argument(

@@ -125,10 +125,11 @@ namespace helpers {
 
 S3Helper::S3Helper(const folly::fbstring &hostname,
     const folly::fbstring &bucketName, const folly::fbstring &accessKey,
-    const folly::fbstring &secretKey,
-    const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
-    const mode_t dirMode, const bool useHttps, Timeout timeout,
-    StoragePathType storagePathType)
+    const folly::fbstring &secretKey, const bool verifySSL,
+    const bool disableExpectHeader, const bool enableClockSkewAdjustment,
+    const int maxConnections, const std::size_t maximumCanonicalObjectSize,
+    const mode_t fileMode, const mode_t dirMode, const bool useHttps,
+    Timeout timeout, StoragePathType storagePathType)
     : KeyValueHelper{false, storagePathType, maximumCanonicalObjectSize}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
@@ -157,6 +158,13 @@ S3Helper::S3Helper(const folly::fbstring &hostname,
     }
 
     Aws::Client::ClientConfiguration configuration;
+    configuration.connectTimeoutMs = m_timeout.count();
+    configuration.requestTimeoutMs = m_timeout.count();
+    configuration.enableClockSkewAdjustment = enableClockSkewAdjustment;
+    configuration.verifySSL = verifySSL;
+    configuration.disableExpectHeader = disableExpectHeader;
+    configuration.maxConnections = maxConnections;
+
     configuration.region = getRegion(hostname).c_str();
     configuration.endpointOverride = hostname.c_str();
     if (!useHttps)

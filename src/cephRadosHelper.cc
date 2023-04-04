@@ -240,6 +240,29 @@ void CephRadosHelper::connect()
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
+    const auto timeoutStr = std::to_string(m_timeout.count() / 1000);
+
+    ret = m_ctx->cluster.conf_set("rados_osd_op_timeout", timeoutStr.c_str());
+    if (ret < 0) {
+        LOG(ERROR)
+            << "Couldn't set rados_osd_op_timeout configuration variable.";
+        throw std::system_error{one::helpers::makePosixError(ret)};
+    }
+
+    ret = m_ctx->cluster.conf_set("rados_mon_op_timeout", timeoutStr.c_str());
+    if (ret < 0) {
+        LOG(ERROR)
+            << "Couldn't set rados_mon_op_timeout configuration variable.";
+        throw std::system_error{one::helpers::makePosixError(ret)};
+    }
+
+    ret = m_ctx->cluster.conf_set("client_mount_timeout", timeoutStr.c_str());
+    if (ret < 0) {
+        LOG(ERROR)
+            << "Couldn't set client_mount_timeout configuration variable.";
+        throw std::system_error{one::helpers::makePosixError(ret)};
+    }
+
     ret = m_ctx->cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";

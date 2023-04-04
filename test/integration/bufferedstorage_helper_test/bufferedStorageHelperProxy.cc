@@ -86,16 +86,18 @@ public:
         auto bufferStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
                 std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
-                    accessKey, secretKey, std::numeric_limits<size_t>::max(),
-                    0664, 0775, scheme == "https", std::chrono::seconds{20},
+                    accessKey, secretKey, false, false, false, 25,
+                    std::numeric_limits<size_t>::max(), 0664, 0775,
+                    scheme == "https", std::chrono::seconds{20},
                     StoragePathType::FLAT),
                 m_executor, blockSize);
 
         auto mainStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
                 std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
-                    accessKey, secretKey, std::numeric_limits<size_t>::max(),
-                    0664, 0775, scheme == "https", std::chrono::seconds{20},
+                    accessKey, secretKey, false, false, false, 25,
+                    std::numeric_limits<size_t>::max(), 0664, 0775,
+                    scheme == "https", std::chrono::seconds{20},
                     StoragePathType::CANONICAL),
                 m_executor, 0);
 
