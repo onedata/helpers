@@ -62,6 +62,8 @@ public:
         const std::size_t kDefaultMaximumCanonicalObjectSize =
             64ul * 1024 * 1024;
 
+        const int kDefaultMaxConnections{25};
+
         const auto kDefaultFileMode = "0664";
         const auto kDefaultDirMode = "0775";
 
@@ -73,6 +75,13 @@ public:
         const auto &secretKey =
             getParam<std::string>(parameters, "secretKey", "");
         const auto version = getParam<int>(parameters, "signatureVersion", 4);
+        const auto verifySSL = getParam<bool>(parameters, "verifySSL", true);
+        const auto disableExpectHeader =
+            getParam<bool>(parameters, "disableExpectHeader", false);
+        const auto enableClockSkewAdjustment =
+            getParam<bool>(parameters, "enableClockSkewAdjustment", false);
+        const auto maxConnections =
+            getParam<int>(parameters, "maxConnections", kDefaultMaxConnections);
         const auto maximumCanonicalObjectSize = getParam<size_t>(parameters,
             "maximumCanonicalObjectSize", kDefaultMaximumCanonicalObjectSize);
         const auto fileMode =
@@ -93,9 +102,11 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<S3Helper>(hostname, bucketName, accessKey,
-                secretKey, maximumCanonicalObjectSize,
-                parsePosixPermissions(fileMode), parsePosixPermissions(dirMode),
-                scheme == "https", std::move(timeout), storagePathType),
+                secretKey, verifySSL, disableExpectHeader,
+                enableClockSkewAdjustment, maxConnections,
+                maximumCanonicalObjectSize, parsePosixPermissions(fileMode),
+                parsePosixPermissions(dirMode), scheme == "https",
+                std::move(timeout), storagePathType),
             m_executor, blockSize, executionContext);
     }
 
@@ -121,6 +132,8 @@ public:
      */
     S3Helper(const folly::fbstring &hostname, const folly::fbstring &bucketName,
         const folly::fbstring &accessKey, const folly::fbstring &secretKey,
+        const bool verifySSL, const bool disableExpectHeader,
+        const bool enableClockSkewAdjustment, const int maxConnections,
         const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
         const mode_t dirMode, const bool useHttps = true,
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
