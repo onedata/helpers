@@ -183,15 +183,21 @@ def test_unlink_should_delete_empty_data(helper, file_id):
     helper.unlink(file_id, offset+len(data))
 
 
-@pytest.mark.skip(reason="Not supported for object storages")
-def test_truncate_should_decrease_file_size(helper, file_id):
-    data = random_str()
+def test_truncate_should_erase_existing_data(helper, file_id):
+    data = random_str(random_int(lower_bound=20, upper_bound=20))
 
-    assert helper.write(file_id, data, 0) == len(data)
-    for size in range(len(data) - 1, -1, -1):
-        helper.truncate(file_id, size, size+1)
-        assert (helper.read(file_id, 0, size + 1).decode('utf-8') == data[:size]) \
-                or (helper.read(file_id, 0, size + 1).decode('utf-8') == data[:size]+'\0'*(len(data)-size-1))
+    size = len(data)
+    truncated_size = 10
+
+    assert helper.write(file_id, data, 0) == size
+    helper.truncate(file_id, truncated_size, size)
+    helper.truncate(file_id, size, truncated_size)
+
+    expected = data[:truncated_size] + '\0' * (size - truncated_size)
+
+    truncated_data = helper.read(file_id, 0, size).decode('utf-8')
+
+    assert truncated_data == expected
 
 
 def test_truncate_should_increase_file_size(helper, file_id):
