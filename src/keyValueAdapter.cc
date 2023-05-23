@@ -468,6 +468,14 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                     auto buf = fillToSize(
                         readBlock(helper, key, 0, remainderBlockSize),
                         remainderBlockSize);
+
+                    // For storages which allow overwriting parts of objects
+                    // (e.g. ceph), we have to remove the old object to ensure
+                    // that truncated data was erased
+                    if (helper->hasRandomAccess()) {
+                        helper->deleteObject(key);
+                    }
+
                     helper->putObject(key, std::move(buf));
                 }
                 catch (...) {
