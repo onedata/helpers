@@ -242,10 +242,19 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
             m_buffer.emplace(std::move(msgCopy));
         }
 
-        communication::wait(
-            m_communicator->template communicateRaw<messages::Status>(
-                std::move(msg)),
-            m_providerTimeout);
+        try {
+            communication::wait(
+                m_communicator->template communicateRaw<messages::Status>(
+                    std::move(msg)),
+                m_providerTimeout);
+        }
+        catch (std::system_error &e) {
+            if (e.code().value() == ETIMEDOUT) {
+                LOG(WARNING) << "Synchronous subscription timed out - ignoring";
+            }
+            else
+                throw e;
+        }
     }
     else
         LOG_DBG(1) << "Connection is down - skipped sending typed message";
