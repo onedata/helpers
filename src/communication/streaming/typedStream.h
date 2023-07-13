@@ -218,7 +218,6 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
 {
     LOG_FCALL();
 
-    //    if (m_communicator->isConnected()) {
     auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
 
     {
@@ -228,10 +227,6 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
 
     m_communicator->send(
         std::move(msg), [](auto /*unused*/) {}, 0);
-    //    }
-    //    else
-    //        LOG_DBG(1) << "Connection is down - skipped sending typed
-    //        message";
 }
 
 template <class Communicator>
@@ -239,7 +234,6 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
 {
     LOG_FCALL();
 
-    //    if (m_communicator->isConnected()) {
     auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
 
     {
@@ -251,29 +245,6 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
         m_communicator->template communicateRaw<messages::Status>(
             std::move(msg)),
         m_providerTimeout);
-
-    /*
-    if (msg->has_message_stream()) {
-        auto msgSequenceNumber = msg->message_stream().sequence_number();
-        communication::wait(
-            m_communicator
-                ->template communicateRaw<messages::Status>(std::move(msg))
-                .thenValue([this, msgSequenceNumber](auto &&) {
-                    dropMessagesWithLowerSequenceNumber(msgSequenceNumber);
-                }),
-            m_providerTimeout);
-    }
-    else {
-        communication::wait(
-            m_communicator->template communicateRaw<messages::Status>(
-                std::move(msg)),
-            m_providerTimeout);
-    }
-    */
-    //    }
-    //    else
-    //        LOG_DBG(1) << "Connection is down - skipped sending typed
-    //        message";
 }
 
 template <class Communicator>
