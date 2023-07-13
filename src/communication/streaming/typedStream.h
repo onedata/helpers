@@ -236,7 +236,6 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
 
     auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
 
-
     {
         std::shared_lock<BufferMutexType> lock{m_bufferMutex};
         m_buffer.emplace(std::move(msgCopy));
