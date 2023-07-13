@@ -32,7 +32,7 @@ public:
         std::unique_ptr<folly::IOBuf> &result, size_t & /*unused*/) override
     {
         // Here we always assume that the head of the buffer is at
-        // the beggining of the frame length field, i.e. the first 4
+        // the beginning of the frame length field, i.e. the first 4
         // bytes of the buffer contain message length
         if (buf.chainLength() < m_lengthFieldLength)
             return false;
