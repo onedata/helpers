@@ -120,7 +120,7 @@ public:
 private:
     void saveAndPass(ClientMessagePtr msg);
     void saveAndPassSync(ClientMessagePtr msg);
-    void dropMessagesWithLowerSequenceNumber(const size_t sequenceNumber);
+    void dropMessagesWithLowerSequenceNumber(size_t sequenceNumber);
 
     std::shared_ptr<Communicator> m_communicator;
     const std::uint64_t m_streamId;
