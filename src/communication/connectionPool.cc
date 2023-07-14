@@ -69,7 +69,7 @@ void log_ssl_info_callback(const SSL *s, int where, int ret)
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const std::size_t workersNumber, std::string host, const uint16_t port,
     const bool verifyServerCertificate, const bool clprotoUpgrade,
-    const bool clprotoHandshake, const bool waitForReconnect,
+    const bool clprotoHandshake, const bool /* waitForReconnect */,
     const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
     , m_minConnectionsNumber{connectionsNumber < 1 ? 0ULL : 1}
@@ -208,6 +208,28 @@ void ConnectionPool::connect()
         return;
 
     m_connectionState = State::CONNECTED;
+
+    const auto connectStart = std::chrono::system_clock::now();
+
+    // Wait for at least one connection to become live
+    while (areAllConnectionsDown()) {
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(10ms);
+
+        if (std::chrono::system_clock::now() - connectStart >
+            m_providerTimeout) {
+            LOG(ERROR) << "Failed to establish connection to Oneprovider in "
+                       << m_providerTimeout.count() << " [s]";
+            throw std::system_error(std::make_error_code(std::errc::timed_out));
+        }
+    }
+
+    auto connectDuration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now() - connectStart);
+
+    LOG(INFO) << "Connection to Oneprovider established in "
+              << connectDuration.count() << " [ms]";
 }
 
 void ConnectionPool::setHandshake(
@@ -246,7 +268,6 @@ void ConnectionPool::connectionMonitorTask()
     using namespace std::chrono_literals;
 
     if (m_connectionsNumber == 0)
-        // The connection pool is empty - there is nothing to monitor
         return;
 
     // Wait for the connection pool to start
