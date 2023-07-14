@@ -81,6 +81,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_clprotoHandshake{clprotoHandshake}
     , m_connectionState{State::CREATED}
     , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(workersNumber)}
+    , m_needMoreConnections{0}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
@@ -109,9 +110,13 @@ void ConnectionPool::addConnection(int connectionId)
 
         if (m_connectionState == State::CONNECTED && areAllConnectionsDown()) {
             m_idleConnections.clear();
+
+            std::lock_guard<std::mutex> guard{m_connectionsMutex};
             m_connections.clear();
         }
     });
+
+    std::lock_guard<std::mutex> guard{m_connectionsMutex};
     m_connections.emplace_back(std::move(client));
 }
 
@@ -122,6 +127,8 @@ bool ConnectionPool::isConnected()
 
 bool ConnectionPool::areAllConnectionsAlive()
 {
+    std::lock_guard<std::mutex> guard{m_connectionsMutex};
+
     return std::all_of(m_connections.begin(), m_connections.end(),
         [performCLProtoHandshake = m_clprotoHandshake](auto &c) {
             return c->connected() &&
@@ -131,6 +138,8 @@ bool ConnectionPool::areAllConnectionsAlive()
 
 bool ConnectionPool::areAllConnectionsDown()
 {
+    std::lock_guard<std::mutex> guard{m_connectionsMutex};
+
     return std::all_of(m_connections.begin(), m_connections.end(),
         [](auto &c) { return !c->connected(); });
 }
@@ -286,29 +295,32 @@ void ConnectionPool::connectionMonitorTask()
         // Add more connections if needed
         addNewConnectionOnDemand();
 
-        for (auto &client : m_connections) {
-            try {
-                // Skip working connections
-                if (client->connected())
+        {
+            std::lock_guard<std::mutex> guard{m_connectionsMutex};
+            for (auto &client : m_connections) {
+                try {
+                    // Skip working connections
+                    if (client->connected())
+                        continue;
+
+                    connectClient(client, 0).get();
+                }
+                catch (...) {
+                    LOG_DBG(1) << "Failed to reconnect connection "
+                               << client->connectionId();
                     continue;
+                }
 
-                connectClient(client, 0).get();
+                LOG_DBG(1) << "Connection " << client->connectionId()
+                           << " is now live";
+
+                if (m_connectionState == State::CONNECTION_LOST) {
+                    if (m_onReconnectCallback)
+                        m_onReconnectCallback();
+                }
+
+                m_connectionState = State::CONNECTED;
             }
-            catch (...) {
-                LOG_DBG(1) << "Failed to reconnect connection "
-                           << client->connectionId();
-                continue;
-            }
-
-            LOG_DBG(1) << "Connection " << client->connectionId()
-                       << " is now live";
-
-            if (m_connectionState == State::CONNECTION_LOST) {
-                if (m_onReconnectCallback)
-                    m_onReconnectCallback();
-            }
-
-            m_connectionState = State::CONNECTED;
         }
 
         if (m_connectionState == State::STOPPED)
@@ -327,9 +339,9 @@ void ConnectionPool::addNewConnectionOnDemand()
 {
     const size_t kNeedMoreConnectionsThreshold = 4;
     if (m_needMoreConnections > kNeedMoreConnectionsThreshold &&
-        m_connections.size() < m_connectionsNumber) {
+        connectionsSize() < m_connectionsNumber) {
         if (!areAllConnectionsDown())
-            addConnection(m_connections.size());
+            addConnection(connectionsSize());
         m_needMoreConnections = 0;
     }
 }
@@ -359,12 +371,15 @@ void ConnectionPool::putClientBack(CLProtoClientBootstrap *client)
         m_idleConnections.emplace(client);
 }
 
+size_t ConnectionPool::connectionsSize()
+{
+    std::lock_guard<std::mutex> guard{m_connectionsMutex};
+    return m_connections.size();
+}
 void ConnectionPool::ensureMinimumNumberOfConnections()
 {
-    if (m_connections.size() < m_minConnectionsNumber) {
-        for (size_t i = m_connections.size(); i < m_minConnectionsNumber; i++) {
-            addConnection(i);
-        }
+    for (size_t i = connectionsSize(); i < m_minConnectionsNumber; i++) {
+        addConnection(i);
     }
 }
 
@@ -403,7 +418,7 @@ void ConnectionPool::send(
             if (!m_idleConnections.try_pop(client)) {
                 LOG_DBG(1) << "Waiting for an idle connection to become "
                               "available - current connection pool size "
-                           << m_connections.size();
+                           << connectionsSize();
 
                 if (!areAllConnectionsDown())
                     m_needMoreConnections.fetch_add(1);
@@ -566,6 +581,7 @@ folly::Future<folly::Unit> ConnectionPool::close()
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
         .via(folly::getCPUExecutor().get())
         .thenValue([this](auto && /*res*/) {
+            std::lock_guard<std::mutex> guard{m_connectionsMutex};
             m_connections.clear();
             return folly::Future<folly::Unit>{};
         });

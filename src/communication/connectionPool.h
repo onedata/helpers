@@ -178,6 +178,8 @@ private:
 
     void putClientBack(CLProtoClientBootstrap *client);
 
+    size_t connectionsSize();
+
     /**
      * Close connections and handler pipelines.
      */
@@ -217,6 +219,7 @@ private:
     std::shared_ptr<CLProtoPipelineFactory> m_pipelineFactory;
 
     // Fixed pool of connection instances
+    std::mutex m_connectionsMutex;
     std::vector<std::shared_ptr<CLProtoClientBootstrap>> m_connections{};
 
     // Queue of pointers to currently idle connections from the fixed pool
