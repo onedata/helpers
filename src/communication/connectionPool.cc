@@ -204,6 +204,9 @@ void ConnectionPool::connect()
 {
     LOG_FCALL();
 
+    if (m_connectionsNumber == 0)
+        return;
+
     if (m_connectionState != State::CREATED)
         return;
 
