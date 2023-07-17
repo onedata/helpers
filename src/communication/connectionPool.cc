@@ -376,6 +376,7 @@ size_t ConnectionPool::connectionsSize()
     std::lock_guard<std::mutex> guard{m_connectionsMutex};
     return m_connections.size();
 }
+
 void ConnectionPool::ensureMinimumNumberOfConnections()
 {
     for (size_t i = connectionsSize(); i < m_minConnectionsNumber; i++) {
@@ -432,8 +433,6 @@ void ConnectionPool::send(
                     // timeout - stop trying
                     throw std::system_error(
                         std::make_error_code(std::errc::timed_out));
-
-                    return;
                 }
                 continue;
             }
