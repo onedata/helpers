@@ -204,7 +204,9 @@ private:
     SchedulerPtr m_scheduler;
     std::function<void()> m_cancelPeriodicMessageRequest = [] {};
     BuffersMutexType m_buffersMutex;
-    tbb::concurrent_hash_map<uint64_t, Buffer> m_buffers;
+    tbb::concurrent_hash_map</* stream id */ uint64_t,
+        /* stream messages */ Buffer>
+        m_buffers;
 };
 
 template <class LowerLayer, class Scheduler>

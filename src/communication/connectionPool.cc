@@ -279,6 +279,8 @@ void ConnectionPool::connectionMonitorTask()
 {
     using namespace std::chrono_literals;
 
+    LOG_DBG(3) << "Starting connection monitor task";
+
     if (m_connectionsNumber == 0)
         return;
 
@@ -298,12 +300,20 @@ void ConnectionPool::connectionMonitorTask()
         {
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
             for (auto &client : m_connections) {
+                LOG_DBG(3) << "Checking connection " << client->connectionId()
+                           << " status";
                 try {
                     // Skip working connections
                     if (client->connected())
                         continue;
 
-                    connectClient(client, 0).get();
+                    int reconnectAttempt =
+                        m_connectionState == State::CONNECTION_LOST ? 1 : 0;
+
+                    LOG_DBG(3) << "Trying to renew connection "
+                               << client->connectionId();
+
+                    connectClient(client, reconnectAttempt).get();
                 }
                 catch (...) {
                     LOG_DBG(1) << "Failed to reconnect connection "
@@ -333,6 +343,8 @@ void ConnectionPool::connectionMonitorTask()
 
         std::this_thread::sleep_for(monitorSleepDuration);
     }
+
+    LOG_DBG(3) << "Exiting connection pool monitor task";
 }
 
 void ConnectionPool::addNewConnectionOnDemand()
@@ -398,7 +410,7 @@ void ConnectionPool::send(
     LOG_DBG(3) << "Attempting to send message of size " << message.size();
 
     CLProtoClientBootstrap *client = nullptr;
-    const auto sendStart = std::chrono::system_clock::now();
+    const auto sendStart = std::chrono::steady_clock::now();
     try {
         while ((client == nullptr) || !client->connected()) {
             // First, check if the connection pool has been stopped
@@ -427,13 +439,14 @@ void ConnectionPool::send(
                 using namespace std::chrono_literals;
                 std::this_thread::sleep_for(1s);
 
-                if (std::chrono::system_clock::now() - sendStart >
+                if (std::chrono::steady_clock::now() - sendStart >
                     m_providerTimeout) {
                     // If sending message fails duration exceeds specified
                     // timeout - stop trying
                     throw std::system_error(
                         std::make_error_code(std::errc::timed_out));
                 }
+
                 continue;
             }
         }
@@ -454,8 +467,7 @@ void ConnectionPool::send(
     catch (const std::system_error &e) {
         LOG(ERROR) << "Failed sending messages due to: " << e.what();
 
-        folly::via(folly::getCPUExecutor().get(),
-            [callback, code = e.code()] { callback(code); });
+        putClientBack(client);
 
         if (e.code().value() == ETIMEDOUT) {
             if (areAllConnectionsDown()) {
@@ -466,9 +478,8 @@ void ConnectionPool::send(
             }
         }
 
-        putClientBack(client);
-
         callback(e.code());
+
         return;
     }
     catch (...) {
@@ -478,6 +489,7 @@ void ConnectionPool::send(
 
         callback(
             std::make_error_code(std::errc::resource_unavailable_try_again));
+
         return;
     }
 
@@ -486,7 +498,7 @@ void ConnectionPool::send(
         return;
     }
 
-    const auto now = std::chrono::system_clock::now();
+    const auto now = std::chrono::steady_clock::now();
 
     if (now - sendStart > m_providerTimeout) {
         LOG_DBG(1) << "Idle connection not found before timeout";
@@ -506,21 +518,32 @@ void ConnectionPool::send(
 
     client->getPipeline()
         ->write(message)
-        .within(sendRemainingTimeout)
-        .via(folly::getCPUExecutor().get())
-        .thenValue(
-            [callback](auto && /*unit*/) { callback(std::error_code{}); })
         .via(m_executor.get())
-
-        .thenTry([this, client](folly::Try<folly::Unit> &&maybeUnit) {
+        .within(sendRemainingTimeout)
+        .thenTry([this, callback, client](folly::Try<folly::Unit> &&maybeUnit) {
             if (maybeUnit.hasException()) {
                 LOG_DBG(1) << "Sending message failed due to: "
                            << maybeUnit.exception().what();
+
+                if (areAllConnectionsDown()) {
+                    if (m_onConnectionLostCallback)
+                        m_onConnectionLostCallback();
+
+                    m_connectionState = State::CONNECTION_LOST;
+                }
+
+                callback(std::make_error_code(std::errc::timed_out));
             }
-            else
+            else {
                 LOG_DBG(3) << "Message sent";
+                callback(std::error_code{});
+            }
 
             putClientBack(client);
+
+            if (maybeUnit.hasException()) {
+                maybeUnit.throwIfFailed();
+            }
         });
 
     LOG_DBG(3) << "Message queued";
