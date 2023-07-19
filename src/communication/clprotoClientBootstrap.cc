@@ -286,5 +286,9 @@ bool CLProtoClientBootstrap::connected()
 bool CLProtoClientBootstrap::handshakeDone() const { return m_handshakeDone; }
 
 uint32_t CLProtoClientBootstrap::connectionId() const { return m_connectionId; }
+
+bool CLProtoClientBootstrap::idle() const { return m_idle; }
+
+void CLProtoClientBootstrap::idle(bool i) { m_idle = i; }
 } // namespace communication
 } // namespace one

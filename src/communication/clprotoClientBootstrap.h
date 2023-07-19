@@ -56,6 +56,10 @@ public:
 
     uint32_t connectionId() const;
 
+    bool idle() const;
+
+    void idle(bool i);
+
 private:
     using wangle::ClientBootstrap<CLProtoPipeline>::connect;
 
@@ -63,6 +67,7 @@ private:
     const bool m_performCLProtoUpgrade;
     const bool m_performCLProtoHandshake;
     bool m_handshakeDone{false};
+    bool m_idle{true};
 
     std::function<void(void)> m_eofCallback;
 };
