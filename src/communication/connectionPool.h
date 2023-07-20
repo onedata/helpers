@@ -52,6 +52,58 @@ public:
     };
 
     /**
+     * IdleConnectionGuard ensures that each connection taken from connection
+     * pool, is returned after a message is sent.
+     */
+    class IdleConnectionGuard {
+    public:
+        explicit IdleConnectionGuard(ConnectionPool *pool)
+            : m_pool{pool}
+        {
+            assert(m_pool != nullptr);
+        }
+
+        IdleConnectionGuard(IdleConnectionGuard &&other) noexcept
+        {
+            if (this == &other)
+                return;
+
+            m_pool = other.m_pool;
+            m_client = other.m_client;
+            other.m_pool = nullptr;
+            other.m_client = nullptr;
+        }
+
+        IdleConnectionGuard &operator=(IdleConnectionGuard &&other) noexcept
+        {
+            if (this == &other)
+                return *this;
+
+            m_pool = other.m_pool;
+            m_client = other.m_client;
+            other.m_pool = nullptr;
+            other.m_client = nullptr;
+
+            return *this;
+        }
+
+        IdleConnectionGuard(const IdleConnectionGuard &) = delete;
+        IdleConnectionGuard &operator=(IdleConnectionGuard const &) = delete;
+
+        ~IdleConnectionGuard()
+        {
+            if (m_pool != nullptr)
+                m_pool->putClientBack(m_client);
+        }
+
+        void setClient(CLProtoClientBootstrap *client) { m_client = client; }
+
+    private:
+        ConnectionPool *m_pool{nullptr};
+        CLProtoClientBootstrap *m_client{nullptr};
+    };
+
+    /**
      * Constructor.
      * @param connectionsNumber Number of connections that should be maintained
      * by this pool.
@@ -161,6 +213,8 @@ public:
     void setOnReconnectCallback(std::function<void()> onReconnectCallback);
 
 private:
+    void connectionMonitorTick();
+
     void addConnection(int connectionId);
 
     void connectionMonitorTask();
@@ -217,6 +271,10 @@ private:
     // Pipeline factory for creating wangle handler pipelines for each
     // connection
     std::shared_ptr<CLProtoPipelineFactory> m_pipelineFactory;
+
+    std::mutex m_connectionMonitorMutex;
+    std::condition_variable m_connectionMonitorCV;
+    bool m_connectionMonitorWait{true};
 
     // Fixed pool of connection instances
     std::mutex m_connectionsMutex;

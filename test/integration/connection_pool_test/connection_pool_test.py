@@ -27,7 +27,7 @@ def endpoint(appmock_client):
 
 @pytest.yield_fixture
 def cp(endpoint):
-    pool = connection_pool.ConnectionPoolProxy(5, 2, endpoint.ip, endpoint.port)
+    pool = connection_pool.ConnectionPoolProxy(25, 4, endpoint.ip, endpoint.port)
     yield pool
     pool.stop()
 
