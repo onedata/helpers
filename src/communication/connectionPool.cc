@@ -72,7 +72,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const bool clprotoHandshake, const bool /* waitForReconnect */,
     const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
-    , m_minConnectionsNumber{connectionsNumber == 0ULL ? 0ULL : 1ULL}
+    , m_minConnectionsNumber{connectionsNumber == 0ULL ? 0ULL : 2ULL}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
