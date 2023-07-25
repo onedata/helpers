@@ -72,7 +72,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const bool clprotoHandshake, const bool /* waitForReconnect */,
     const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
-    , m_minConnectionsNumber{connectionsNumber == 0ULL ? 0ULL : 2ULL}
+    , m_minConnectionsNumber{connectionsNumber == 0ULL ? 0ULL : 1ULL}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
@@ -292,12 +292,16 @@ void ConnectionPool::connectionMonitorTask()
     }
 
     // Connection pool monitor task loop period for CONNECTED state
-    const auto kConnectedMonitorSleepDuration = 10s;
+    const auto kConnectedMonitorSleepDuration{5s};
 
     // Connection pool monitor task loop period for CONNECTION_LOST state
-    const auto kDisconnectedMonitorSleepDuration = 10s;
+    const auto kDisconnectedMonitorSleepDuration{5s};
 
-    auto monitorSleepDuration = kConnectedMonitorSleepDuration;
+    auto monitorSleepDuration{kConnectedMonitorSleepDuration};
+
+    const auto kMinimumIterationGap{1s};
+
+    std::chrono::steady_clock::time_point lastIterationStart{};
 
     // Loop until connection pool is forcibly stopped using stop()
     // i.e. as long as m_connectionState != State::STOPPED
@@ -307,6 +311,9 @@ void ConnectionPool::connectionMonitorTask()
         // m_connectionMonitorWait variable is set to false, which breaks
         // out of continue loop, which is done by calling
         // connectionMonitorTick()
+        LOG_DBG(4) << "Monitor task - waiting for tick signal for: "
+                   << monitorSleepDuration.count() << " [s]";
+
         std::unique_lock<std::mutex> lk(m_connectionMonitorMutex);
         if (!m_connectionMonitorCV.wait_for(lk, monitorSleepDuration,
                 [this] { return !m_connectionMonitorWait; })) {
@@ -318,6 +325,15 @@ void ConnectionPool::connectionMonitorTask()
 
         if (m_connectionState == State::STOPPED)
             break;
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto timeSinceLastIteration = now - lastIterationStart;
+        if (timeSinceLastIteration < kMinimumIterationGap) {
+            std::this_thread::sleep_for(
+                kMinimumIterationGap - timeSinceLastIteration);
+        }
+
+        lastIterationStart = std::chrono::steady_clock::now();
 
         // Make sure that the size of connection pool has at least
         // m_minConnectionsNumber elements
@@ -339,13 +355,10 @@ void ConnectionPool::connectionMonitorTask()
                     if (client->connected())
                         continue;
 
-                    int reconnectAttempt =
-                        m_connectionState == State::CONNECTION_LOST ? 1 : 0;
-
                     LOG_DBG(3) << "Trying to renew connection "
                                << client->connectionId();
 
-                    connectClient(client, reconnectAttempt).get();
+                    connectClient(client, 0).get();
                 }
                 catch (...) {
                     LOG_DBG(1) << "Failed to reconnect connection "
@@ -354,6 +367,9 @@ void ConnectionPool::connectionMonitorTask()
                     if (m_connectionState == State::CONNECTION_LOST) {
                         monitorSleepDuration =
                             std::min(3600s, monitorSleepDuration * 2);
+
+                        LOG_DBG(1) << "Next reconnect retry in "
+                                   << monitorSleepDuration.count() << " [s]";
                     }
 
                     continue;
@@ -385,9 +401,7 @@ void ConnectionPool::connectionMonitorTask()
 
 void ConnectionPool::addNewConnectionOnDemand()
 {
-    constexpr auto kNeedMoreConnectionsThreshold{2ULL};
-
-    if (m_needMoreConnections > kNeedMoreConnectionsThreshold &&
+    if (m_needMoreConnections > detail::kNeedMoreConnectionsThreshold &&
         connectionsSize() < m_connectionsNumber) {
         if (!areAllConnectionsDown())
             addConnection(connectionsSize());
@@ -444,6 +458,8 @@ void ConnectionPool::ensureMinimumNumberOfConnections()
 
 void ConnectionPool::connectionMonitorTick()
 {
+    LOG_FCALL();
+
     std::lock_guard<std::mutex> lk{m_connectionMonitorMutex};
     m_connectionMonitorWait = false;
     m_connectionMonitorCV.notify_one();
@@ -452,6 +468,8 @@ void ConnectionPool::connectionMonitorTick()
 void ConnectionPool::send(
     const std::string &message, const Callback &callback, const int /*unused*/)
 {
+    using namespace std::chrono_literals;
+
     LOG_FCALL() << LOG_FARG(message.size());
 
     if (m_connectionState == State::STOPPED || m_connectionsNumber == 0) {
@@ -471,6 +489,7 @@ void ConnectionPool::send(
     IdleConnectionGuard idleConnectionGuard{this};
 
     const auto sendStart = std::chrono::steady_clock::now();
+    auto waitForIdleConnectionMilliseconds = 100ms;
     try {
         while ((client == nullptr) || !client->connected()) {
             // First, check if the connection pool has been stopped
@@ -494,15 +513,29 @@ void ConnectionPool::send(
                               "available - current connection pool size "
                            << connectionsSize();
 
+                // Request new connection at most once for each 'send'
                 if (m_connectionState == State::CONNECTED) {
                     ++m_needMoreConnections;
-                    if (m_needMoreConnections > 2) {
+                    if (m_needMoreConnections >
+                        detail::kNeedMoreConnectionsThreshold) {
                         connectionMonitorTick();
                     }
                 }
 
-                using namespace std::chrono_literals;
-                std::this_thread::sleep_for(100ms);
+                const auto kMaximumIdleConnectionRetryWait{10s};
+                const auto kIdleConnectionRetryBackoff{1.5};
+
+                std::this_thread::sleep_for(waitForIdleConnectionMilliseconds);
+                if (waitForIdleConnectionMilliseconds <
+                    kMaximumIdleConnectionRetryWait)
+                    waitForIdleConnectionMilliseconds =
+                        std::chrono::milliseconds{static_cast<size_t>(
+                            waitForIdleConnectionMilliseconds.count() *
+                            kIdleConnectionRetryBackoff)};
+
+                LOG_DBG(1) << "No idle connection available - retry in: "
+                           << waitForIdleConnectionMilliseconds.count()
+                           << " [ms]";
 
                 if (std::chrono::steady_clock::now() - sendStart >
                     m_providerTimeout) {

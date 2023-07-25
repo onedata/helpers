@@ -32,7 +32,8 @@ class CertificateData;
 } // namespace cert
 
 namespace detail {
-const auto kDefaultProviderTimeout = 120UL;
+const auto kDefaultProviderTimeout{120UL};
+constexpr auto kNeedMoreConnectionsThreshold{2ULL};
 } // namespace detail
 
 /**
