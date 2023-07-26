@@ -72,7 +72,9 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     const bool clprotoHandshake, const bool /* waitForReconnect */,
     const std::chrono::seconds providerTimeout)
     : m_connectionsNumber{connectionsNumber}
-    , m_minConnectionsNumber{connectionsNumber == 0ULL ? 0ULL : 1ULL}
+    , m_minConnectionsNumber{connectionsNumber == 0ULL
+              ? 0ULL
+              : std::min<std::size_t>(connectionsNumber, 2)}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
@@ -420,9 +422,8 @@ folly::Future<folly::Unit> ConnectionPool::connectClient(
 {
     return client->connect(m_host, m_port, retries)
         .via(m_executor.get())
-        .thenValue([this, clientPtr = client.get()](auto && /*unit*/) {
-            m_idleConnections.emplace(clientPtr);
-        })
+        .thenValue([this, clientPtr = client.get()](
+                       auto && /*unit*/) { putClientBack(clientPtr); })
         .thenError(folly::tag_t<folly::exception_wrapper>{},
             [this, client](auto &&ew) {
                 return folly::makeSemiFuture()
