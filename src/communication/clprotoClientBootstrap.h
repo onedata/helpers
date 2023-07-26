@@ -60,6 +60,8 @@ public:
 
     void idle(bool i);
 
+    bool firstConnection() const;
+
 private:
     using wangle::ClientBootstrap<CLProtoPipeline>::connect;
 
@@ -68,6 +70,7 @@ private:
     const bool m_performCLProtoHandshake;
     bool m_handshakeDone{false};
     bool m_idle{true};
+    bool m_firstConnection{true};
 
     std::function<void(void)> m_eofCallback;
 };

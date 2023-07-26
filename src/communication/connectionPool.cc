@@ -358,7 +358,13 @@ void ConnectionPool::connectionMonitorTask()
                     LOG_DBG(3) << "Trying to renew connection "
                                << client->connectionId();
 
-                    connectClient(client, 0).get();
+                    const int reconnectAttempt =
+                        (m_connectionState == State::CONNECTION_LOST) ||
+                            !client->firstConnection()
+                        ? 1
+                        : 0;
+
+                    connectClient(client, reconnectAttempt).get();
                 }
                 catch (...) {
                     LOG_DBG(1) << "Failed to reconnect connection "
