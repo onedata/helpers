@@ -311,6 +311,9 @@ void ConnectionPool::connectionMonitorTask()
     // Loop until connection pool is forcibly stopped using stop()
     // i.e. as long as m_connectionState != State::STOPPED
     while (true) {
+        if (m_connectionState == State::STOPPED)
+            break;
+
         // This condition variable is responsible for controlling loop
         // iteration - either the monitorSleepDuration expires or the
         // m_connectionMonitorWait variable is set to false, which breaks
@@ -352,6 +355,9 @@ void ConnectionPool::connectionMonitorTask()
         {
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
             for (auto &client : m_connections) {
+                if (m_connectionState == State::STOPPED)
+                    break;
+
                 LOG_DBG(3) << "Checking connection " << client->connectionId()
                            << " status - "
                            << (client->idle() ? "idle" : "taken");
@@ -393,6 +399,9 @@ void ConnectionPool::connectionMonitorTask()
                     if (m_onReconnectCallback)
                         m_onReconnectCallback();
                 }
+
+                if (m_connectionState == State::STOPPED)
+                    break;
 
                 m_connectionState = State::CONNECTED;
 
@@ -666,7 +675,7 @@ void ConnectionPool::stop()
 {
     LOG_FCALL();
 
-    LOG(INFO) << "Stopping connection pool";
+    LOG_DBG(1) << "Stopping connection pool";
 
     if (m_connectionState == State::CREATED ||
         m_connectionState == State::STOPPED) {
@@ -690,7 +699,7 @@ void ConnectionPool::stop()
 
     m_executor->stop();
 
-    LOG(INFO) << "Connection pool stopped";
+    LOG_DBG(1) << "Connection pool stopped";
 }
 
 folly::Future<folly::Unit> ConnectionPool::close()
