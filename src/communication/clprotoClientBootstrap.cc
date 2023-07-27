@@ -29,8 +29,8 @@ namespace communication {
 /**
  * List of consecutive socket reconnection delays in milliseconds.
  */
-static const std::array<int, 12> CLIENT_RECONNECT_DELAYS{
-    0, 10000, 10000, 10000, 10000, 10000, 10000, 30000, 30000, 30000, 60'000};
+static const std::array<int, 12> CLIENT_RECONNECT_DELAYS{0, 10, 10000, 10000,
+    10000, 10000, 10000, 10000, 30000, 30000, 30000, 60'000};
 
 static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 10;
 
@@ -57,6 +57,8 @@ void CLProtoClientBootstrap::setEOFCallback(
 folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     const folly::fbstring &host, const int port, size_t reconnectAttempt)
 {
+    m_firstConnection = false;
+
     reconnectAttempt =
         std::min<size_t>(CLIENT_RECONNECT_DELAYS.size() - 1, reconnectAttempt);
 
@@ -286,5 +288,15 @@ bool CLProtoClientBootstrap::connected()
 bool CLProtoClientBootstrap::handshakeDone() const { return m_handshakeDone; }
 
 uint32_t CLProtoClientBootstrap::connectionId() const { return m_connectionId; }
+
+bool CLProtoClientBootstrap::idle() const { return m_idle; }
+
+void CLProtoClientBootstrap::idle(bool i) { m_idle = i; }
+
+bool CLProtoClientBootstrap::firstConnection() const
+{
+    return m_firstConnection;
+}
+
 } // namespace communication
 } // namespace one
