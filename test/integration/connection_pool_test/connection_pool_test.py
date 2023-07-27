@@ -32,6 +32,25 @@ def cp(endpoint):
     pool.stop()
 
 
+def test_cp_should_stop(result, endpoint, msg_num = 10, msg_size = 1000, repeats = 20):
+    """Starts and stops connection pool multiple times to ensure the pool
+       stops without deadlock."""
+
+
+    for _ in range(repeats):
+        msg = random_str(msg_size).encode('utf-8')
+
+        cp = connection_pool.ConnectionPoolProxy(
+            10, 4, endpoint.ip, endpoint.port)
+
+        for _ in range(msg_num):
+            cp.send(msg)
+
+        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
+
+        cp.stop()
+
+
 @pytest.mark.performance(
     parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
     configs={
@@ -59,7 +78,7 @@ def test_cp_should_send_messages(result, endpoint, cp, msg_num, msg_size):
             cp.send(msg)
 
     with measure(send_time):
-        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=600)
+        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
 
     result.set([
         Parameter.send_time(send_time),

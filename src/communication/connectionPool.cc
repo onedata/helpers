@@ -291,6 +291,9 @@ void ConnectionPool::connectionMonitorTask()
     // Wait for the connection pool to start
     while (m_connectionState == State::CREATED) {
         std::this_thread::sleep_for(100ms);
+
+        if (m_connectionState == State::STOPPED)
+            return;
     }
 
     // Connection pool monitor task loop period for CONNECTED state
@@ -663,8 +666,14 @@ void ConnectionPool::stop()
 {
     LOG_FCALL();
 
+    LOG(INFO) << "Stopping connection pool";
+
     if (m_connectionState == State::CREATED ||
         m_connectionState == State::STOPPED) {
+        m_connectionState = State::STOPPED;
+
+        connectionMonitorTick();
+
         if (m_connectionMonitorThread.joinable())
             m_connectionMonitorThread.join();
         return;
@@ -680,6 +689,8 @@ void ConnectionPool::stop()
     close().get();
 
     m_executor->stop();
+
+    LOG(INFO) << "Connection pool stopped";
 }
 
 folly::Future<folly::Unit> ConnectionPool::close()
