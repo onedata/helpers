@@ -110,7 +110,7 @@ void ConnectionPool::addConnection(int connectionId)
         // Report to upper layers that all connections have been lost
         LOG_DBG(3) << "Entered EOF callback...";
 
-        if (m_connectionState == State::CONNECTED && areAllConnectionsDown()) {
+        if (areAllConnectionsDown()) {
             m_idleConnections.clear();
 
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
@@ -231,10 +231,17 @@ void ConnectionPool::connect()
         using namespace std::chrono_literals;
         std::this_thread::sleep_for(10ms);
 
-        if (std::chrono::system_clock::now() - connectStart >
-            m_providerTimeout) {
+        if ((std::chrono::system_clock::now() - connectStart >
+                m_providerTimeout) ||
+            (m_connectionState == State::STOPPED)) {
+
+            if (m_lastException) {
+                rethrow_exception(m_lastException);
+            }
+
             LOG(ERROR) << "Failed to establish connection to Oneprovider in "
                        << m_providerTimeout.count() << " [s]";
+
             throw std::system_error(std::make_error_code(std::errc::timed_out));
         }
     }
@@ -353,15 +360,18 @@ void ConnectionPool::connectionMonitorTask()
         // Loop over all connections and check their status, try to reconnect
         // if necessary
         {
-            std::lock_guard<std::mutex> guard{m_connectionsMutex};
-            for (auto &client : m_connections) {
-                if (m_connectionState == State::STOPPED)
-                    break;
+            std::vector<std::pair<uint32_t, folly::Future<folly::Unit>>> futs;
 
-                LOG_DBG(3) << "Checking connection " << client->connectionId()
-                           << " status - "
-                           << (client->idle() ? "idle" : "taken");
-                try {
+            {
+                std::lock_guard<std::mutex> guard{m_connectionsMutex};
+                for (auto &client : m_connections) {
+                    if (m_connectionState == State::STOPPED)
+                        break;
+
+                    LOG_DBG(3)
+                        << "Checking connection " << client->connectionId()
+                        << " status - " << (client->idle() ? "idle" : "taken");
+
                     // Skip working connections
                     if (client->connected())
                         continue;
@@ -375,11 +385,27 @@ void ConnectionPool::connectionMonitorTask()
                         ? 1
                         : 0;
 
-                    connectClient(client, reconnectAttempt).get();
+                    futs.emplace_back(client->connectionId(),
+                        connectClient(client, reconnectAttempt));
+                }
+            }
+
+            for (auto &f : futs) {
+                try {
+                    std::move(f.second).get();
+                }
+                catch (std::system_error &e) {
+                    if (std::string{"handshake"} ==
+                        e.code().category().name()) {
+                        m_lastException = std::current_exception();
+                        m_connectionState = State::STOPPED;
+                        break;
+                    }
+
+                    throw e;
                 }
                 catch (...) {
-                    LOG_DBG(1) << "Failed to reconnect connection "
-                               << client->connectionId();
+                    LOG_DBG(1) << "Failed to reconnect connection " << f.first;
 
                     if (m_connectionState == State::CONNECTION_LOST) {
                         monitorSleepDuration =
@@ -392,8 +418,7 @@ void ConnectionPool::connectionMonitorTask()
                     continue;
                 }
 
-                LOG_DBG(1) << "Connection " << client->connectionId()
-                           << " is now live";
+                LOG_DBG(1) << "Connection " << f.first << " is now live";
 
                 if (m_connectionState == State::CONNECTION_LOST) {
                     if (m_onReconnectCallback)
@@ -407,13 +432,13 @@ void ConnectionPool::connectionMonitorTask()
 
                 monitorSleepDuration = kConnectedMonitorSleepDuration;
             }
+
+            if (m_connectionState == State::STOPPED)
+                break;
+
+            if (m_connectionState == State::CONNECTION_LOST)
+                monitorSleepDuration = kDisconnectedMonitorSleepDuration;
         }
-
-        if (m_connectionState == State::STOPPED)
-            break;
-
-        if (m_connectionState == State::CONNECTION_LOST)
-            monitorSleepDuration = kDisconnectedMonitorSleepDuration;
     }
 
     LOG_DBG(3) << "Exiting connection pool monitor task";
@@ -434,6 +459,7 @@ folly::Future<folly::Unit> ConnectionPool::connectClient(
 {
     return client->connect(m_host, m_port, retries)
         .via(m_executor.get())
+        .within(m_providerTimeout)
         .thenValue([this, clientPtr = client.get()](
                        auto && /*unit*/) { putClientBack(clientPtr); })
         .thenError(folly::tag_t<folly::exception_wrapper>{},

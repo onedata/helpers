@@ -62,7 +62,9 @@ void Retrier<LowerLayer>::send(
     auto wrappedCallback = [this, message, retries,
                                callback = std::move(callback)](
                                const std::error_code &ec) mutable {
-        if (ec && (ec.value() != ETIMEDOUT && ec.value() != ECONNRESET) &&
+        if (ec &&
+            (std::string{"handshake"} != ec.category().name() &&
+                ec.value() != ETIMEDOUT && ec.value() != ECONNRESET) &&
             retries > 0) {
             LOG(WARNING) << "Resending message due to error (" << ec.message()
                          << ") - remaining retry count: " << retries;

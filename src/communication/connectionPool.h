@@ -289,6 +289,7 @@ private:
 
     std::thread m_connectionMonitorThread;
     std::atomic<size_t> m_needMoreConnections;
+    std::exception_ptr m_lastException;
 };
 
 } // namespace communication
