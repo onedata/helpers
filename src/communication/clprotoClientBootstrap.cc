@@ -208,33 +208,38 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
                             return folly::makeFuture();
                         })
-                        // Once upgrade is finished successfully, remove the
+                        // Once upgrade is finished, remove the
                         // clproto upgrade handler
-                        .thenValue([this, pipeline](auto && /*unit*/) {
+                        .thenTry([this, pipeline, host, port](
+                                     auto &&maybeUnit) {
                             if (m_performCLProtoHandshake) {
+                                if (maybeUnit.hasException()) {
+                                    if (pipeline != nullptr)
+                                        pipeline->finalize();
+                                    LOG(ERROR)
+                                        << "Connection refused by remote "
+                                           "Oneprovider at "
+                                        << host << ":" << port << ": "
+                                        << folly::exceptionStr(
+                                               maybeUnit.exception());
+
+                                    maybeUnit.throwIfFailed();
+                                }
+
                                 LOG_DBG(3)
                                     << "Removing clproto handshake handler";
 
-                                pipeline->remove<
-                                    codec::CLProtoHandshakeResponseHandler>();
-                                pipeline->finalize();
+                                if (pipeline != nullptr) {
+                                    pipeline->remove<codec::
+                                            CLProtoHandshakeResponseHandler>();
+                                    pipeline->finalize();
+                                }
 
                                 m_handshakeDone = true;
+                                LOG_DBG(1) << "CLProto connection with id "
+                                           << connectionId() << " established";
                             }
-
-                            LOG_DBG(1) << "CLProto connection with id "
-                                       << connectionId() << " established";
-                        })
-                        .thenError(folly::tag_t<folly::exception_wrapper>{},
-                            [pipeline, host, port](auto &&ew) {
-                                if (pipeline != nullptr)
-                                    pipeline->finalize();
-                                LOG(ERROR) << "Connection refused by remote "
-                                              "Oneprovider at "
-                                           << host << ":" << port << ": "
-                                           << folly::exceptionStr(ew);
-                                ew.throw_exception();
-                            });
+                        });
                 })
                 .thenError(folly::tag_t<std::system_error>{},
                     [this, host, port, executor, reconnectAttempt](auto &&e) {
