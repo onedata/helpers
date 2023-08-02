@@ -32,7 +32,8 @@ class CertificateData;
 } // namespace cert
 
 namespace detail {
-const auto kDefaultProviderTimeout = 120UL;
+const auto kDefaultProviderTimeout{120UL};
+constexpr auto kNeedMoreConnectionsThreshold{2ULL};
 } // namespace detail
 
 /**
@@ -42,6 +43,66 @@ const auto kDefaultProviderTimeout = 120UL;
 class ConnectionPool {
 public:
     using Callback = std::function<void(const std::error_code &)>;
+
+    enum class State {
+        CREATED,   /*< Connection pool has been created, but not started yet */
+        CONNECTED, /*< Connection pool is connected or connecting */
+        CONNECTION_LOST, /*< Connection has been lost for a time longer than
+                            timeout period */
+        STOPPED /*< Connection pool has been stopped, clean up resources */
+    };
+
+    /**
+     * IdleConnectionGuard ensures that each connection taken from connection
+     * pool, is returned after a message is sent.
+     */
+    class IdleConnectionGuard {
+    public:
+        explicit IdleConnectionGuard(ConnectionPool *pool)
+            : m_pool{pool}
+        {
+            assert(m_pool != nullptr);
+        }
+
+        IdleConnectionGuard(IdleConnectionGuard &&other) noexcept
+        {
+            if (this == &other)
+                return;
+
+            m_pool = other.m_pool;
+            m_client = other.m_client;
+            other.m_pool = nullptr;
+            other.m_client = nullptr;
+        }
+
+        IdleConnectionGuard &operator=(IdleConnectionGuard &&other) noexcept
+        {
+            if (this == &other)
+                return *this;
+
+            m_pool = other.m_pool;
+            m_client = other.m_client;
+            other.m_pool = nullptr;
+            other.m_client = nullptr;
+
+            return *this;
+        }
+
+        IdleConnectionGuard(const IdleConnectionGuard &) = delete;
+        IdleConnectionGuard &operator=(IdleConnectionGuard const &) = delete;
+
+        ~IdleConnectionGuard()
+        {
+            if (m_pool != nullptr)
+                m_pool->putClientBack(m_client);
+        }
+
+        void setClient(CLProtoClientBootstrap *client) { m_client = client; }
+
+    private:
+        ConnectionPool *m_pool{nullptr};
+        CLProtoClientBootstrap *m_client{nullptr};
+    };
 
     /**
      * Constructor.
@@ -57,11 +118,14 @@ public:
      * upgrade to clproto protocol after connection.
      * @param clprotoHandshake Flag determining whether connections should
      * perform clproto handshake after upgrading to clproto.
+     * @param waitForReconnect If true, wait for connections to resume until
+     *                         providerTimeout, if false, return ECONNRESET
      * @param providerTimeout Timeout for each request to a provider in seconds.
      */
     ConnectionPool(std::size_t connectionsNumber, std::size_t workersNumber,
         std::string host, uint16_t port, bool verifyServerCertificate,
         bool clprotoUpgrade = true, bool clprotoHandshake = true,
+        bool waitForReconnect = false,
         std::chrono::seconds providerTimeout = std::chrono::seconds{
             detail::kDefaultProviderTimeout});
 
@@ -69,6 +133,12 @@ public:
     ConnectionPool &operator=(const ConnectionPool &) = delete;
     ConnectionPool(ConnectionPool &&) = delete;
     ConnectionPool &operator=(ConnectionPool &&) = delete;
+
+    /**
+     * Destructor.
+     * Calls @c stop().
+     */
+    virtual ~ConnectionPool();
 
     /**
      * Creates connections to the remote endpoint specified in the constructor.
@@ -130,12 +200,6 @@ public:
         int /*unused*/ = int{});
 
     /**
-     * Destructor.
-     * Calls @c stop().
-     */
-    virtual ~ConnectionPool();
-
-    /**
      * Stops the @c ConnectionPool operations.
      * All connections are dropped. This method exists to break the wait of any
      * threads waiting in @c send.
@@ -150,6 +214,27 @@ public:
     void setOnReconnectCallback(std::function<void()> onReconnectCallback);
 
 private:
+    void connectionMonitorTick();
+
+    void addConnection(int connectionId);
+
+    void connectionMonitorTask();
+
+    bool areAllConnectionsAlive();
+
+    bool areAllConnectionsDown();
+
+    void ensureMinimumNumberOfConnections();
+
+    void addNewConnectionOnDemand();
+
+    folly::Future<folly::Unit> connectClient(
+        std::shared_ptr<CLProtoClientBootstrap> client, int retries);
+
+    void putClientBack(CLProtoClientBootstrap *client);
+
+    size_t connectionsSize();
+
     /**
      * Close connections and handler pipelines.
      */
@@ -164,7 +249,10 @@ private:
      */
     static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
 
+    /** Maximum connections number */
     const std::size_t m_connectionsNumber;
+    /** Minimum connections number */
+    const std::size_t m_minConnectionsNumber;
     const std::string m_host;
     const uint16_t m_port;
     const bool m_verifyServerCertificate;
@@ -174,11 +262,9 @@ private:
 
     std::shared_ptr<const cert::CertificateData> m_certificateData;
 
-    // Application level flag determining whether the connection pool is
-    // connected or not. It does not mean that the connections are active as
-    // they may have failed. This flag is set to true after first successfull
-    // connection, and reset only after stop() is called.
-    std::atomic<bool> m_connected;
+    // Application level state determining whether the connection pool is
+    // connected or not.
+    std::atomic<State> m_connectionState;
 
     // Shared executor for the connection pool
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
@@ -187,7 +273,12 @@ private:
     // connection
     std::shared_ptr<CLProtoPipelineFactory> m_pipelineFactory;
 
+    std::mutex m_connectionMonitorMutex;
+    std::condition_variable m_connectionMonitorCV;
+    bool m_connectionMonitorWait{true};
+
     // Fixed pool of connection instances
+    std::mutex m_connectionsMutex;
     std::vector<std::shared_ptr<CLProtoClientBootstrap>> m_connections{};
 
     // Queue of pointers to currently idle connections from the fixed pool
@@ -195,6 +286,10 @@ private:
 
     std::function<void()> m_onConnectionLostCallback;
     std::function<void()> m_onReconnectCallback;
+
+    std::thread m_connectionMonitorThread;
+    std::atomic<size_t> m_needMoreConnections;
+    std::exception_ptr m_lastException;
 };
 
 } // namespace communication

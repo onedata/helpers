@@ -134,7 +134,7 @@ public:
         uint64_t m_seqNum{};    // expected sequence number
         uint64_t m_seqNumAck{}; // first unacknowledged sequence number
         // buffer of messages with sequence number greater than expected
-        // sequnece number sorted in ascending sequence number order
+        // sequence number sorted in ascending sequence number order
         tbb::concurrent_priority_queue<ServerMessagePtr, GreaterSeqNum>
             m_buffer;
     };
@@ -188,9 +188,9 @@ public:
 
     void schedulePeriodicMessageRequest();
 
-private:
     void sendMessageStreamReset();
 
+private:
     void sendMessageRequest(
         uint64_t streamId, uint64_t lowerSeqNum, uint64_t upperSeqNum);
 
@@ -204,7 +204,9 @@ private:
     SchedulerPtr m_scheduler;
     std::function<void()> m_cancelPeriodicMessageRequest = [] {};
     BuffersMutexType m_buffersMutex;
-    tbb::concurrent_hash_map<uint64_t, Buffer> m_buffers;
+    tbb::concurrent_hash_map</* stream id */ uint64_t,
+        /* stream messages */ Buffer>
+        m_buffers;
 };
 
 template <class LowerLayer, class Scheduler>
