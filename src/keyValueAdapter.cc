@@ -339,6 +339,9 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
         },
         MAX_ASYNC_DELETE_OBJECTS);
 
+    if (futs.empty())
+        return folly::makeFuture();
+
     return folly::collectAll(futs.begin(), futs.end())
         .via(m_executor.get())
         .thenValue([](std::vector<folly::Try<folly::Unit>> &&res) {
@@ -503,6 +506,9 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                     return folly::makeFuture();
                 },
                 MAX_ASYNC_DELETE_OBJECTS);
+
+            if (futs.empty())
+                return folly::makeFuture();
 
             return folly::collectAll(futs.begin(), futs.end())
                 .via(executor.get())
@@ -766,6 +772,9 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
         futs.emplace_back(std::move(fut));
         blockId++;
     }
+
+    if (futs.empty())
+        return folly::makeFuture();
 
     return folly::collectAll(futs.begin(), futs.end())
         .via(m_executor.get())

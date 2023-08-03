@@ -20,17 +20,16 @@ BufferedFileHandle::BufferedFileHandle(folly::fbstring fileId,
     : FileHandle{std::move(fileId), std::move(bufferAgent)}
     , m_wrappedHandle{std::move(wrappedHandle)}
     , m_bufferLimits{bl}
-    , m_scheduler{std::move(scheduler)}
     , m_readCache{std::make_shared<ReadCache>(bl.readBufferMinSize,
           bl.readBufferMaxSize, bl.readBufferPrefetchDuration,
           bl.prefetchPowerBase, bl.targetLatency, *m_wrappedHandle)}
     , m_writeBuffer{std::make_shared<WriteBuffer>(bl.writeBufferMinSize,
           bl.writeBufferMaxSize, bl.writeBufferFlushDelay, *m_wrappedHandle,
-          m_scheduler, m_readCache)}
+          scheduler, m_readCache)}
     , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
+    , m_scheduler{std::move(scheduler)}
 {
     LOG_FCALL() << LOG_FARG(fileId);
-    m_writeBuffer->scheduleFlush();
 }
 } // namespace buffering
 } // namespace helpers

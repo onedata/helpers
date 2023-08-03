@@ -121,6 +121,9 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
         blockOffset = blockNumber * blockSize;
     }
 
+    if (futs.empty())
+        return folly::makeFuture();
+
     auto *executor = m_bufferStorageHelper->executor().get();
 
     return folly::collectAll(futs.begin(), futs.end())

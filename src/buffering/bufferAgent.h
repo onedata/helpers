@@ -49,10 +49,11 @@ public:
      * returns false, it means that the global buffer memory limit has been
      * exhausted and buffered file handles cannot be created until some other
      * are closed.
+     *
      * @param readSize The size in bytes of maximum memory needed by the read
-     * buffer
+     *                 buffer
      * @param writeSize The size in bytes of maximum memory needed by the write
-     * buffer
+     *                  buffer
      */
     bool reserveBuffers(size_t readSize, size_t writeSize)
     {
@@ -66,8 +67,15 @@ public:
                     m_bufferLimits.writeBuffersTotalSize))) {
             m_readBuffersReservedSize += readSize;
             m_writeBuffersReservedSize += writeSize;
+
+            LOG_DBG(3) << "Reserved helper buffers - read: " << readSize
+                       << " write: " << writeSize;
+
             return true;
         }
+
+        LOG_DBG(3)
+            << "Couldn't reserve buffers for helper - memory limits exhausted";
 
         return false;
     }
@@ -75,23 +83,30 @@ public:
     /**
      * This function tries to release the readSize and writeSize bytes from the
      * memory limit guard.
+     *
      * @param readSize The size in bytes of maximum memory used by the read
-     * buffer
+     *                 buffer
      * @param writeSize The size in bytes of maximum memory used by the write
-     * buffer
+     *                  buffer
      */
     bool releaseBuffers(size_t readSize, size_t writeSize)
     {
         std::lock_guard<std::mutex> lock{m_mutex};
 
-        if ((m_readBuffersReservedSize - readSize >= 0) &&
-            (m_writeBuffersReservedSize - writeSize >= 0)) {
-            m_readBuffersReservedSize -= readSize;
-            m_writeBuffersReservedSize -= writeSize;
-            return true;
-        }
+        LOG_DBG(3) << "Releasing memory for helper buffer - read: " << readSize
+                   << " write: " << writeSize;
 
-        return false;
+        if (m_readBuffersReservedSize - readSize >= 0)
+            m_readBuffersReservedSize -= readSize;
+        else
+            m_readBuffersReservedSize = 0;
+
+        if (m_writeBuffersReservedSize - writeSize >= 0)
+            m_writeBuffersReservedSize -= writeSize;
+        else
+            m_writeBuffersReservedSize = 0;
+
+        return true;
     }
 
 private:
@@ -118,6 +133,8 @@ public:
 
     ~BufferedFileHandle() override
     {
+        LOG_FCALL();
+
         if (m_bufferMemoryLimitGuard) {
             m_bufferMemoryLimitGuard->releaseBuffers(
                 m_bufferLimits.readBufferMaxSize,
@@ -171,6 +188,8 @@ public:
 
     folly::Future<folly::Unit> flush() override
     {
+        LOG_FCALL();
+
         return m_writeBuffer->fsync().thenValue(
             [readCache = m_readCache, wrappedHandle = m_wrappedHandle](
                 auto && /*unit*/) {
@@ -217,10 +236,10 @@ public:
 private:
     FileHandlePtr m_wrappedHandle;
     BufferLimits m_bufferLimits;
-    std::shared_ptr<Scheduler> m_scheduler;
     std::shared_ptr<ReadCache> m_readCache;
     std::shared_ptr<WriteBuffer> m_writeBuffer;
     std::shared_ptr<BufferAgentsMemoryLimitGuard> m_bufferMemoryLimitGuard;
+    std::shared_ptr<Scheduler> m_scheduler;
 };
 
 class BufferAgent : public StorageHelper,
