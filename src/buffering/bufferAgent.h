@@ -121,8 +121,9 @@ class BufferAgent;
 
 class BufferedFileHandle : public FileHandle {
 public:
-    BufferedFileHandle(folly::fbstring fileId, FileHandlePtr wrappedHandle,
-        const BufferLimits &bl, std::shared_ptr<Scheduler> scheduler,
+    BufferedFileHandle(const folly::fbstring &fileId,
+        FileHandlePtr wrappedHandle, const BufferLimits &bl,
+        std::shared_ptr<Scheduler> scheduler,
         std::shared_ptr<BufferAgent> bufferAgent,
         std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 

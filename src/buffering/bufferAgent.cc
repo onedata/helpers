@@ -12,12 +12,12 @@ namespace one {
 namespace helpers {
 namespace buffering {
 
-BufferedFileHandle::BufferedFileHandle(folly::fbstring fileId,
+BufferedFileHandle::BufferedFileHandle(const folly::fbstring &fileId,
     FileHandlePtr wrappedHandle, const BufferLimits &bl,
     std::shared_ptr<Scheduler> scheduler,
     std::shared_ptr<BufferAgent> bufferAgent,
     std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
-    : FileHandle{std::move(fileId), std::move(bufferAgent)}
+    : FileHandle{fileId, std::move(bufferAgent)}
     , m_wrappedHandle{std::move(wrappedHandle)}
     , m_bufferLimits{bl}
     , m_readCache{std::make_shared<ReadCache>(bl.readBufferMinSize,
