@@ -144,7 +144,7 @@ folly::Future<FileHandlePtr> ProxyHelper::open(
 
     return folly::makeSemiFuture()
         .via(m_communicator.executor().get())
-        .thenValue([&, this](auto && /*unit*/) {
+        .thenValue([fileId, openParams, this](auto && /*unit*/) {
             return std::dynamic_pointer_cast<FileHandle>(
                 std::make_shared<ProxyFileHandle>(fileId, m_storageId,
                     openParams, m_communicator, shared_from_this(), m_timeout));

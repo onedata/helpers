@@ -8,6 +8,7 @@ import os
 import sys
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
@@ -52,7 +53,7 @@ def test_cp_should_stop(result, endpoint, msg_num = 10, msg_size = 1000, repeats
 
 
 @pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    parameters=[Parameter.msg_num(10000), Parameter.msg_size(100, 'B')],
     configs={
         'multiple_small_messages': {
             'description': 'Sends multiple small messages using connection '
@@ -86,9 +87,19 @@ def test_cp_should_send_messages(result, endpoint, cp, msg_num, msg_size):
         Parameter.msgps(msg_num, send_time)
     ])
 
+def test_cp_should_send_messages_parallel(endpoint, cp, msg_num=10000, msg_size=100, workers=100):
+    msg = random_str(msg_size).encode('utf-8')
+
+    def send(m):
+        cp.send(m)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        executor.map(send, [msg for _ in range(msg_num)])
+
+    endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
 
 @pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    parameters=[Parameter.msg_num(2000), Parameter.msg_size(100, 'B')],
     configs={
         'multiple_small_messages': {
             'description': 'Receives multiple small messages using '

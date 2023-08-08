@@ -99,6 +99,8 @@ public:
 
         void setClient(CLProtoClientBootstrap *client) { m_client = client; }
 
+        CLProtoClientBootstrap *client() const { return m_client; };
+
     private:
         ConnectionPool *m_pool{nullptr};
         CLProtoClientBootstrap *m_client{nullptr};
@@ -228,6 +230,8 @@ private:
 
     void addNewConnectionOnDemand();
 
+    folly::Future<IdleConnectionGuard> getIdleClient(Callback callback);
+
     folly::Future<folly::Unit> connectClient(
         std::shared_ptr<CLProtoClientBootstrap> client, int retries);
 
@@ -290,6 +294,8 @@ private:
     std::thread m_connectionMonitorThread;
     std::atomic<size_t> m_needMoreConnections;
     std::exception_ptr m_lastException;
+    std::atomic<size_t> m_sentMessageCounter;
+    std::atomic<size_t> m_queuedMessageCounter;
 };
 
 } // namespace communication

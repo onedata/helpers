@@ -8,6 +8,7 @@ import os
 import sys
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
@@ -15,7 +16,6 @@ from test_common import *
 # noinspection PyUnresolvedReferences
 from environment import appmock, common, docker
 import communication_stack
-
 
 @pytest.yield_fixture
 def endpoint(appmock_client):
@@ -62,7 +62,7 @@ def test_send(result, endpoint, com3, msg_num = 1, msg_size = 100):
     ])
 
 
-def test_communicate(result, endpoint, com3, msg_num = 10, msg_size = 100):
+def test_communicate(result, endpoint, com3, msg_num = 1000, msg_size = 100):
     """Sends multiple messages and receives replies using communicator."""
 
     com3.connect()
