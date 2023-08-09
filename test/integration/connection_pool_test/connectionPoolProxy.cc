@@ -11,6 +11,7 @@
 
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
+#include <glog/logging.h>
 #include <tbb/concurrent_queue.h>
 
 #include <atomic>
@@ -68,6 +69,8 @@ namespace {
 boost::shared_ptr<ConnectionPoolProxy> create(
     int conn, int workers, std::string host, int port)
 {
+    FLAGS_v = 0;
+
     one::helpers::init();
 
     return boost::make_shared<ConnectionPoolProxy>(

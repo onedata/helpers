@@ -34,6 +34,7 @@ class CertificateData;
 namespace detail {
 const auto kDefaultProviderTimeout{120UL};
 constexpr auto kNeedMoreConnectionsThreshold{2ULL};
+const auto kInitialIdleConnectionWaitDelay{10};
 } // namespace detail
 
 /**
@@ -60,6 +61,9 @@ public:
     public:
         explicit IdleConnectionGuard(ConnectionPool *pool)
             : m_pool{pool}
+            , m_startedAt{std::chrono::steady_clock::now()}
+            , m_waitDelay{std::chrono::milliseconds{
+                  detail::kInitialIdleConnectionWaitDelay}}
         {
             assert(m_pool != nullptr);
         }
@@ -71,8 +75,12 @@ public:
 
             m_pool = other.m_pool;
             m_client = other.m_client;
-            other.m_pool = nullptr;
-            other.m_client = nullptr;
+            m_startedAt = other.m_startedAt;
+            m_waitDelay = other.m_waitDelay;
+            other.m_pool = {};
+            other.m_client = {};
+            other.m_startedAt = {};
+            other.m_waitDelay = {};
         }
 
         IdleConnectionGuard &operator=(IdleConnectionGuard &&other) noexcept
@@ -82,8 +90,12 @@ public:
 
             m_pool = other.m_pool;
             m_client = other.m_client;
-            other.m_pool = nullptr;
-            other.m_client = nullptr;
+            m_startedAt = other.m_startedAt;
+            m_waitDelay = other.m_waitDelay;
+            other.m_pool = {};
+            other.m_client = {};
+            other.m_startedAt = {};
+            other.m_waitDelay = {};
 
             return *this;
         }
@@ -101,9 +113,29 @@ public:
 
         CLProtoClientBootstrap *client() const { return m_client; };
 
+        void setStartedAt(
+            std::chrono::time_point<std::chrono::steady_clock> start)
+        {
+            m_startedAt = start;
+        }
+
+        std::chrono::time_point<std::chrono::steady_clock> startedAt() const
+        {
+            return m_startedAt;
+        }
+
+        void setWaitDelay(std::chrono::milliseconds waitDelay)
+        {
+            m_waitDelay = waitDelay;
+        }
+
+        std::chrono::milliseconds waitDelay() const { return m_waitDelay; }
+
     private:
         ConnectionPool *m_pool{nullptr};
         CLProtoClientBootstrap *m_client{nullptr};
+        std::chrono::time_point<std::chrono::steady_clock> m_startedAt{};
+        std::chrono::milliseconds m_waitDelay{};
     };
 
     /**
@@ -230,7 +262,8 @@ private:
 
     void addNewConnectionOnDemand();
 
-    folly::Future<IdleConnectionGuard> getIdleClient(Callback callback);
+    folly::Future<IdleConnectionGuard> getIdleClient(
+        Callback callback, IdleConnectionGuard &&idleConnectionGuard);
 
     folly::Future<folly::Unit> connectClient(
         std::shared_ptr<CLProtoClientBootstrap> client, int retries);

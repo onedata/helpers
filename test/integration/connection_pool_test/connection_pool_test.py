@@ -33,10 +33,9 @@ def cp(endpoint):
     pool.stop()
 
 
-def test_cp_should_stop(result, endpoint, msg_num = 10, msg_size = 1000, repeats = 20):
+def test_cp_should_stop(endpoint, msg_num = 10, msg_size = 1000, repeats = 20):
     """Starts and stops connection pool multiple times to ensure the pool
        stops without deadlock."""
-
 
     for _ in range(repeats):
         msg = random_str(msg_size).encode('utf-8')
