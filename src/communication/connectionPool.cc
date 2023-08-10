@@ -74,7 +74,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     : m_connectionsNumber{connectionsNumber}
     , m_minConnectionsNumber{connectionsNumber == 0ULL
               ? 0ULL
-              : std::min<std::size_t>(connectionsNumber, 2)}
+              : std::min<std::size_t>(connectionsNumber, 1)}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
@@ -560,11 +560,6 @@ ConnectionPool::getIdleClient(
                 callback(std::make_error_code(std::errc::timed_out));
                 return std::move(idleConnectionGuard);
             }
-
-            if (waitDelay < kMaximumIdleConnectionRetryWait)
-                idleConnectionGuard.setWaitDelay(
-                    std::chrono::milliseconds{static_cast<size_t>(
-                        waitDelay.count() * kIdleConnectionRetryBackoff)});
 
             LOG_DBG(1) << "No idle connection available (pool size "
                        << connectionsSize()
