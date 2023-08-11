@@ -247,6 +247,10 @@ public:
 
     void setOnReconnectCallback(std::function<void()> onReconnectCallback);
 
+    size_t sentMessageCounter() const { return m_sentMessageCounter; }
+
+    size_t queuedMessageCounter() const { return m_queuedMessageCounter; }
+
 private:
     void connectionMonitorTick();
 

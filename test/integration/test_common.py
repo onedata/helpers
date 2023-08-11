@@ -22,6 +22,10 @@ sys.path = [appmock_dir, docker_dir, annotations_dir, proto_dir] + sys.path
 
 from proto import messages_pb2
 
+@contextmanager
+def timer() -> float:
+    start = time.perf_counter()
+    yield lambda: time.perf_counter() - start
 
 def random_int(lower_bound=1, upper_bound=100):
     return random.randint(lower_bound, upper_bound)

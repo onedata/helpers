@@ -74,7 +74,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     : m_connectionsNumber{connectionsNumber}
     , m_minConnectionsNumber{connectionsNumber == 0ULL
               ? 0ULL
-              : std::min<std::size_t>(connectionsNumber, 1)}
+              : std::min<std::size_t>(connectionsNumber, 2)}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
@@ -113,7 +113,7 @@ void ConnectionPool::addConnection(int connectionId)
         // Report to upper layers that all connections have been lost
         LOG_DBG(3) << "Entered EOF callback...";
 
-        if (areAllConnectionsDown()) {
+        if (m_connectionState == State::CONNECTED && areAllConnectionsDown()) {
             m_idleConnections.clear();
 
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
@@ -309,7 +309,7 @@ void ConnectionPool::connectionMonitorTask()
     }
 
     // Connection pool monitor task loop period for CONNECTED state
-    const auto kConnectedMonitorSleepDuration{10s};
+    const auto kConnectedMonitorSleepDuration{5s};
 
     // Connection pool monitor task loop period for CONNECTION_LOST state
     const auto kDisconnectedMonitorSleepDuration{5s};
@@ -397,6 +397,10 @@ void ConnectionPool::connectionMonitorTask()
                 catch (std::system_error &e) {
                     if (std::string{"handshake"} ==
                         e.code().category().name()) {
+                        LOG(ERROR)
+                            << "Handshake with Oneprovider failed due to: "
+                            << e.what() << " - stopping connection pool";
+
                         m_lastException = std::current_exception();
                         m_connectionState = State::STOPPED;
                         break;
@@ -530,13 +534,14 @@ ConnectionPool::getIdleClient(
                 callback(std::make_error_code(std::errc::connection_aborted));
             });
 
-            return std::move(idleConnectionGuard);
+            throw std::system_error(
+                std::make_error_code(std::errc::connection_aborted));
         }
 
         // Wait for an idle connection to become available
         if (!m_idleConnections.try_pop(client)) {
-
-            if (m_connectionState == State::CONNECTED) {
+            if (m_connectionState == State::CONNECTED &&
+                !areAllConnectionsDown()) {
                 ++m_needMoreConnections;
                 if (m_needMoreConnections >
                     detail::kNeedMoreConnectionsThreshold) {
@@ -558,10 +563,16 @@ ConnectionPool::getIdleClient(
                            << soFar.count();
 
                 callback(std::make_error_code(std::errc::timed_out));
-                return std::move(idleConnectionGuard);
+                throw std::system_error(
+                    std::make_error_code(std::errc::timed_out));
             }
 
-            LOG_DBG(1) << "No idle connection available (pool size "
+            if (waitDelay < kMaximumIdleConnectionRetryWait)
+                idleConnectionGuard.setWaitDelay(
+                    std::chrono::milliseconds{static_cast<size_t>(
+                        waitDelay.count() * kIdleConnectionRetryBackoff)});
+
+            LOG_DBG(3) << "No idle connection available (pool size "
                        << connectionsSize()
                        << ") - retry in: " << waitDelay.count() << " [ms]";
 
@@ -581,7 +592,7 @@ ConnectionPool::getIdleClient(
             idleConnectionGuard.setClient(client);
             client->idle(false);
 
-            LOG_DBG(1) << "Retrieved active connection "
+            LOG_DBG(3) << "Retrieved active connection "
                        << client->connectionId() << " from connection pool";
 
             break;
@@ -615,23 +626,6 @@ void ConnectionPool::send(
         .thenValue([this, callback](auto && /*unit*/) {
             return getIdleClient(callback, IdleConnectionGuard{this});
         })
-        .thenValue([callback](
-                       IdleConnectionGuard &&idleConnectionGuard) mutable {
-            if (idleConnectionGuard.client() == nullptr)
-                throw std::system_error{
-                    std::make_error_code(std::errc::timed_out)};
-
-            if (idleConnectionGuard.client()->getPipeline() == nullptr ||
-                !idleConnectionGuard.client()
-                     ->getPipeline()
-                     ->getTransport()
-                     ->good()) {
-                callback(std::make_error_code(std::errc::connection_aborted));
-                return std::move(idleConnectionGuard);
-            }
-
-            return std::move(idleConnectionGuard);
-        })
         .thenValue([this, message, callback](
                        IdleConnectionGuard &&idleConnectionGuard) {
             const auto soFar = std::chrono::duration_cast<std::chrono::seconds>(
@@ -648,6 +642,8 @@ void ConnectionPool::send(
             }
 
             auto *client = idleConnectionGuard.client();
+
+            assert(client != nullptr);
 
             return client->getPipeline()
                 ->write(message)
@@ -671,17 +667,18 @@ void ConnectionPool::send(
                         }
 
                         callback(std::make_error_code(std::errc::timed_out));
+
+                        maybeUnit.throwIfFailed();
                     }
                     else {
-                        LOG_DBG(3) << "Message sent: " << ++m_sentMessageCounter
+                        ++m_sentMessageCounter;
+                        --m_queuedMessageCounter;
+
+                        LOG_DBG(3) << "Message sent: " << m_sentMessageCounter
                                    << " - queued: " << m_queuedMessageCounter
                                    << " [" << connectionId << "]";
 
                         callback(std::error_code{});
-                    }
-
-                    if (maybeUnit.hasException()) {
-                        maybeUnit.throwIfFailed();
                     }
                 });
         })
@@ -716,7 +713,9 @@ void ConnectionPool::send(
                 std::errc::resource_unavailable_try_again));
         });
 
-    LOG_DBG(3) << "Message queued: " << ++m_queuedMessageCounter << " ["
+    ++m_queuedMessageCounter;
+
+    LOG_DBG(3) << "Message queued: " << m_queuedMessageCounter << " ["
                << "?"
                << "]";
 }
@@ -756,7 +755,8 @@ void ConnectionPool::stop()
 
     m_executor->stop();
 
-    LOG(INFO) << "Connection pool stopped";
+    LOG(INFO) << "Connection pool stopped - sent: " << m_sentMessageCounter
+              << ", queued: " << m_queuedMessageCounter;
 }
 
 folly::Future<folly::Unit> ConnectionPool::close()

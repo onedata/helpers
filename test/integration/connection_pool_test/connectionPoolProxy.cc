@@ -49,6 +49,10 @@ public:
             msg, [](auto) {}, int{});
     }
 
+    size_t sentMessageCounter() { return m_pool.sentMessageCounter(); }
+
+    size_t queuedMessageCounter() { return m_pool.queuedMessageCounter(); }
+
     std::string popMessage()
     {
         std::string msg;
@@ -86,5 +90,8 @@ BOOST_PYTHON_MODULE(connection_pool)
         .def("stop", &ConnectionPoolProxy::stop)
         .def("send", &ConnectionPoolProxy::send)
         .def("popMessage", &ConnectionPoolProxy::popMessage)
-        .def("size", &ConnectionPoolProxy::size);
+        .def("size", &ConnectionPoolProxy::size)
+        .def("sentMessageCounter", &ConnectionPoolProxy::sentMessageCounter)
+        .def(
+            "queuedMessageCounter", &ConnectionPoolProxy::queuedMessageCounter);
 }

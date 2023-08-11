@@ -80,8 +80,12 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     return folly::makeFuture()
         .via(executor)
         .thenValue([this, reconnectAttempt, reconnectDelay](auto && /*unit*/) {
-            LOG_DBG(1) << "Reconnect attempt " << reconnectAttempt << " in "
-                       << reconnectDelay << " [ms]";
+            if (reconnectAttempt == 0)
+                LOG_DBG(1) << "Connect attempt in " << reconnectDelay
+                           << " [ms]";
+            else
+                LOG_DBG(1) << "Reconnect attempt " << reconnectAttempt << " in "
+                           << reconnectDelay << " [ms]";
 
             m_handshakeDone = false;
 

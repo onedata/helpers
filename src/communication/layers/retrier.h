@@ -64,7 +64,8 @@ void Retrier<LowerLayer>::send(
                                const std::error_code &ec) mutable {
         if (ec &&
             (std::string{"handshake"} != ec.category().name() &&
-                ec.value() != ETIMEDOUT && ec.value() != ECONNRESET) &&
+                ec.value() != ETIMEDOUT && ec.value() != ECONNRESET &&
+                ec.value() != ECONNABORTED) &&
             retries > 0) {
             LOG(WARNING) << "Resending message due to error (" << ec.message()
                          << ") - remaining retry count: " << retries;
