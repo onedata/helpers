@@ -258,8 +258,6 @@ private:
 
     void connectionMonitorTask();
 
-    bool areAllConnectionsAlive();
-
     bool areAllConnectionsDown();
 
     void ensureMinimumNumberOfConnections();

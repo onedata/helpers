@@ -127,18 +127,7 @@ void ConnectionPool::addConnection(int connectionId)
 
 bool ConnectionPool::isConnected()
 {
-    return m_connectionState == State::CONNECTED && areAllConnectionsAlive();
-}
-
-bool ConnectionPool::areAllConnectionsAlive()
-{
-    std::lock_guard<std::mutex> guard{m_connectionsMutex};
-
-    return std::all_of(m_connections.begin(), m_connections.end(),
-        [performCLProtoHandshake = m_clprotoHandshake](auto &c) {
-            return c->connected() &&
-                (c->handshakeDone() || !performCLProtoHandshake);
-        });
+    return m_connectionState == State::CONNECTED && !areAllConnectionsDown();
 }
 
 bool ConnectionPool::areAllConnectionsDown()
@@ -609,8 +598,9 @@ void ConnectionPool::send(
 
     LOG_FCALL() << LOG_FARG(message.size());
 
-    if (m_connectionState == State::STOPPED || m_connectionsNumber == 0) {
-        LOG_DBG(1) << "Connection pool stopped - cannot send message...";
+    if (m_connectionState == State::STOPPED ||
+        (m_connectionsNumber == 0 && m_connectionState != State::CREATED)) {
+        LOG(ERROR) << "Connection pool stopped - cannot send message...";
 
         callback(std::make_error_code(std::errc::connection_aborted));
         return;
@@ -692,14 +682,17 @@ void ConnectionPool::send(
             })
         .thenError(folly::tag_t<std::system_error>{},
             [this, callback](auto &&e) {
-                LOG(ERROR) << "Failed sending messages due to: " << e.what();
+                if (m_connectionState != State::STOPPED) {
+                    LOG(ERROR)
+                        << "Failed sending messages due to: " << e.what();
 
-                if (e.code().value() == ETIMEDOUT) {
-                    if (areAllConnectionsDown()) {
-                        if (m_onConnectionLostCallback)
-                            m_onConnectionLostCallback();
+                    if (e.code().value() == ETIMEDOUT) {
+                        if (areAllConnectionsDown()) {
+                            if (m_onConnectionLostCallback)
+                                m_onConnectionLostCallback();
 
-                        m_connectionState = State::CONNECTION_LOST;
+                            m_connectionState = State::CONNECTION_LOST;
+                        }
                     }
                 }
 
