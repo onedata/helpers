@@ -193,16 +193,23 @@ template <class Communicator> void TypedStream<Communicator>::reset()
 {
     LOG_FCALL();
 
-    LOG_DBG(3) << "Removing stream messages from stream " << m_streamId;
+    LOG_DBG(3) << "Renumbering stream message " << m_streamId
+               << " sequence numbers from 0";
 
     std::lock_guard<BufferMutexType> lock{m_bufferMutex};
     m_sequenceId = 0;
 
     std::vector<ClientMessagePtr> processed;
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
-        if (it->has_message_stream())
-            LOG_DBG(3) << "Removing old stream message with id: "
-                       << it->message_stream().sequence_number();
+        LOG_DBG(3) << "Resetting stream message sequence number to: "
+                   << m_sequenceId;
+        it->mutable_message_stream()->set_sequence_number(m_sequenceId++);
+        processed.emplace_back(std::move(it));
+    }
+
+    for (auto &msgStream : processed) {
+        auto msgCopy = std::make_unique<clproto::ClientMessage>(*msgStream);
+        m_buffer.emplace(std::move(msgStream));
     }
 }
 
@@ -234,20 +241,11 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
         m_buffer.emplace(std::move(msgCopy));
     }
 
-    using namespace std::chrono_literals;
-
-    try {
-        m_communicator->template communicateRaw<messages::Status>(
-                          std::move(msg))
-            .via(folly::getGlobalCPUExecutor())
-            .within(m_providerTimeout,
-                std::system_error{std::make_error_code(std::errc::timed_out)})
-            .get();
-    }
-    catch (std::system_error &e) {
-        LOG(ERROR) << "Synchronous subscription failed with timeout";
-        throw e;
-    }
+    m_communicator->template communicateRaw<messages::Status>(std::move(msg))
+        .via(folly::getGlobalCPUExecutor())
+        .within(m_providerTimeout,
+            std::system_error{std::make_error_code(std::errc::timed_out)})
+        .get();
 }
 
 template <class Communicator>
