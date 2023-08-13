@@ -109,11 +109,14 @@ void ConnectionPool::addConnection(int connectionId)
     client->group(m_executor);
     client->pipelineFactory(m_pipelineFactory);
     client->sslContext(createSSLContext());
-    client->setEOFCallback([this]() {
+    client->setEOFCallback([this, connectionId]() {
         // Report to upper layers that all connections have been lost
-        LOG_DBG(3) << "Entered EOF callback...";
+        LOG_DBG(1) << "Connection " << connectionId
+                   << " entered EOF callback...";
 
-        if (m_connectionState == State::CONNECTED && areAllConnectionsDown()) {
+        if ((m_connectionState == State::CONNECTED ||
+                m_connectionState == State::CONNECTION_LOST) &&
+            areAllConnectionsDown()) {
             m_idleConnections.clear();
 
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
@@ -330,7 +333,7 @@ void ConnectionPool::connectionMonitorTask()
             m_connectionMonitorWait = true;
         }
 
-        LOG_DBG(3) << "Monitor task - starting monitoring chores";
+        LOG_DBG(3) << "Connection monitor task - starting next loop iteration";
 
         if (m_connectionState == State::STOPPED)
             break;
@@ -502,7 +505,7 @@ void ConnectionPool::connectionMonitorTick()
 
     std::lock_guard<std::mutex> lk{m_connectionMonitorMutex};
     m_connectionMonitorWait = false;
-    m_connectionMonitorCV.notify_all();
+    m_connectionMonitorCV.notify_one();
 }
 
 folly::Future<ConnectionPool::IdleConnectionGuard>
@@ -598,9 +601,15 @@ void ConnectionPool::send(
 
     LOG_FCALL() << LOG_FARG(message.size());
 
-    if (m_connectionState == State::STOPPED ||
-        (m_connectionsNumber == 0 && m_connectionState != State::CREATED)) {
-        LOG(ERROR) << "Connection pool stopped - cannot send message...";
+    if (m_connectionState == State::STOPPED) {
+        LOG_DBG(1) << "Connection pool stopped - cannot send message...";
+
+        callback(std::make_error_code(std::errc::connection_aborted));
+        return;
+    }
+
+    if (m_connectionState != State::CREATED && m_connectionsNumber == 0) {
+        LOG_DBG(1) << "Connection pool empty - cannot send message...";
 
         callback(std::make_error_code(std::errc::connection_aborted));
         return;
@@ -653,12 +662,12 @@ void ConnectionPool::send(
                             if (m_onConnectionLostCallback)
                                 m_onConnectionLostCallback();
 
+                            LOG_DBG(1) << "Entered connection lost state...";
+
                             m_connectionState = State::CONNECTION_LOST;
                         }
 
                         callback(std::make_error_code(std::errc::timed_out));
-
-                        maybeUnit.throwIfFailed();
                     }
                     else {
                         ++m_sentMessageCounter;
@@ -684,23 +693,25 @@ void ConnectionPool::send(
             [this, callback](auto &&e) {
                 if (m_connectionState != State::STOPPED) {
                     LOG(ERROR)
-                        << "Failed sending messages due to: " << e.what();
+                        << "Failed sending messages due to system error: "
+                        << e.what();
 
                     if (e.code().value() == ETIMEDOUT) {
                         if (areAllConnectionsDown()) {
                             if (m_onConnectionLostCallback)
                                 m_onConnectionLostCallback();
 
+                            LOG_DBG(1) << "Entered connection lost state...";
+
                             m_connectionState = State::CONNECTION_LOST;
                         }
                     }
-                }
 
-                callback(e.code());
+                    callback(e.code());
+                }
             })
-        .thenError(folly::tag_t<std::exception>{}, [callback](auto && /*e*/) {
-            LOG(ERROR)
-                << "Failed sending messages due to unknown connection error";
+        .thenError(folly::tag_t<std::exception>{}, [callback](auto &&e) {
+            LOG(ERROR) << "Failed sending messages due to: " << e.what();
 
             callback(std::make_error_code(
                 std::errc::resource_unavailable_try_again));
@@ -708,9 +719,7 @@ void ConnectionPool::send(
 
     ++m_queuedMessageCounter;
 
-    LOG_DBG(3) << "Message queued: " << m_queuedMessageCounter << " ["
-               << "?"
-               << "]";
+    LOG_DBG(3) << "Message queued: " << m_queuedMessageCounter;
 }
 
 ConnectionPool::~ConnectionPool()
