@@ -178,8 +178,16 @@ void TypedStream<Communicator>::sendSync(ClientMessagePtr msg)
 
     auto *msgStream = msg->mutable_message_stream();
     msgStream->set_stream_id(m_streamId);
-    msgStream->set_sequence_number(m_sequenceId++);
-    saveAndPassSync(std::move(msg));
+    const auto messageSequenceId = m_sequenceId++;
+    msgStream->set_sequence_number(messageSequenceId);
+    try {
+        saveAndPassSync(std::move(msg));
+    }
+    catch (std::exception &e) {
+        LOG(ERROR) << "Response to synchronous stream message "
+                   << messageSequenceId << " not received due to " << e.what();
+        throw e;
+    }
 }
 
 template <class Communicator> void TypedStream<Communicator>::close()
