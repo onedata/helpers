@@ -106,8 +106,7 @@ void ConnectionPool::addConnection(int connectionId)
 
     auto client = std::make_shared<CLProtoClientBootstrap>(
         connectionId, m_clprotoUpgrade, m_clprotoHandshake);
-    client->group(std::make_shared<folly::IOThreadPoolExecutor>(
-        1, std::make_shared<folly::NamedThreadFactory>("CPConn")));
+    client->group(m_executor);
     client->pipelineFactory(m_pipelineFactory);
     client->sslContext(createSSLContext());
     client->setEOFCallback([this, connectionId]() {

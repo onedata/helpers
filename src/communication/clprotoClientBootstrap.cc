@@ -118,7 +118,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
-                    return folly::makeFuture()
+                    return folly::makeSemiFuture()
                         .via(executor)
                         .thenValue(
                             // After connection, attempt to upgrade the

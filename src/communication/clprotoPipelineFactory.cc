@@ -55,9 +55,10 @@ CLProtoPipeline::Ptr CLProtoPipelineFactory::newPipeline(
 
     pipeline->addBack(wangle::AsyncSocketHandler{sock});
 
-    pipeline->addBack(wangle::OutputBufferingHandler{});
-
+    // Ensure we can write from any thread
     pipeline->addBack(wangle::EventBaseHandler{});
+
+    pipeline->addBack(wangle::OutputBufferingHandler{});
 
     if (VLOG_IS_ON(4))
         pipeline->addBack(codec::PacketLogger{});
