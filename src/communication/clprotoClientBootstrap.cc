@@ -32,7 +32,7 @@ namespace communication {
 static const std::array<int, 12> CLIENT_RECONNECT_DELAYS{0, 10, 10000, 10000,
     10000, 10000, 10000, 10000, 30000, 30000, 30000, 60'000};
 
-static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 10;
+static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 30;
 
 CLProtoClientBootstrap::CLProtoClientBootstrap(const uint32_t id,
     const bool performCLProtoUpgrade, const bool performCLProtoHandshake)
