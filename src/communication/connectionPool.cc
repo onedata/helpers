@@ -730,7 +730,7 @@ ConnectionPool::~ConnectionPool()
 }
 
 void ConnectionPool::stop()
-{
+try {
     LOG_FCALL();
 
     LOG_DBG(1) << "Stopping connection pool";
@@ -759,6 +759,10 @@ void ConnectionPool::stop()
 
     LOG(INFO) << "Connection pool stopped - sent: " << m_sentMessageCounter
               << ", queued: " << m_queuedMessageCounter;
+}
+catch (std::exception &e) {
+    LOG(INFO) << "Error stopping configuration communicator (ignored): "
+              << e.what();
 }
 
 folly::Future<folly::Unit> ConnectionPool::close()
