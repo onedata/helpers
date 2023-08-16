@@ -786,9 +786,14 @@ folly::Future<folly::Unit> ConnectionPool::close()
         stopFutures.emplace_back(
             folly::via(folly::getCPUExecutor().get())
                 .thenValue([client](auto && /*unit*/) mutable {
+                    if (client->getPipeline() == nullptr)
+                        return folly::Future<folly::Unit>{};
                     return client->getPipeline()->close();
                 }));
     }
+
+    if (stopFutures.empty())
+        return folly::Future<folly::Unit>{};
 
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
         .via(folly::getCPUExecutor().get())
