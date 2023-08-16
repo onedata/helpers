@@ -240,8 +240,6 @@ public:
      */
     void stop();
 
-    std::shared_ptr<folly::Executor> executor() { return m_executor; }
-
     void setOnConnectionLostCallback(
         std::function<void()> onConnectionLostCallback);
 
@@ -250,6 +248,8 @@ public:
     size_t sentMessageCounter() const { return m_sentMessageCounter; }
 
     size_t queuedMessageCounter() const { return m_queuedMessageCounter; }
+
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
 private:
     void connectionMonitorTick();

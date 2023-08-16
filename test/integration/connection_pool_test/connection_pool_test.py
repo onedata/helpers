@@ -28,7 +28,7 @@ def endpoint(appmock_client):
 
 @pytest.yield_fixture
 def cp(endpoint):
-    pool = connection_pool.ConnectionPoolProxy(25, 4, endpoint.ip, endpoint.port)
+    pool = connection_pool.ConnectionPoolProxy(25, 1, endpoint.ip, endpoint.port)
     yield pool
     pool.stop()
 
@@ -41,7 +41,7 @@ def test_cp_should_stop(endpoint, msg_num = 10, msg_size = 1000, repeats = 20):
         msg = random_str(msg_size).encode('utf-8')
 
         cp = connection_pool.ConnectionPoolProxy(
-            10, 4, endpoint.ip, endpoint.port)
+            10, 1, endpoint.ip, endpoint.port)
 
         for _ in range(msg_num):
             cp.send(msg)
@@ -107,6 +107,7 @@ def test_cp_should_send_messages_parallel(endpoint, cp, msg_num=10000,
         assert cp.queuedMessageCounter() == 0
 
         print(f'Sending {msg_num} messages took {t():.4f} seconds')
+
 
 @pytest.mark.performance(
     parameters=[Parameter.msg_num(2000), Parameter.msg_size(100, 'B')],

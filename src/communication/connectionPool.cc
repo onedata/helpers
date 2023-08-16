@@ -67,7 +67,7 @@ void log_ssl_info_callback(const SSL *s, int where, int ret)
 #endif
 
 ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
-    const std::size_t /*workersNumber*/, std::string host, const uint16_t port,
+    const std::size_t workersNumber, std::string host, const uint16_t port,
     const bool verifyServerCertificate, const bool clprotoUpgrade,
     const bool clprotoHandshake, const bool /* waitForReconnect */,
     const std::chrono::seconds providerTimeout)
@@ -83,7 +83,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_clprotoHandshake{clprotoHandshake}
     , m_connectionState{State::CREATED}
     , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
-          1, std::make_shared<folly::NamedThreadFactory>("CPWork"))}
+          workersNumber, std::make_shared<folly::NamedThreadFactory>("CPWork"))}
     , m_needMoreConnections{0}
     , m_sentMessageCounter{}
     , m_queuedMessageCounter{}
@@ -106,7 +106,8 @@ void ConnectionPool::addConnection(int connectionId)
 
     auto client = std::make_shared<CLProtoClientBootstrap>(
         connectionId, m_clprotoUpgrade, m_clprotoHandshake);
-    client->group(m_executor);
+    client->group(std::make_shared<folly::IOThreadPoolExecutor>(
+        1, std::make_shared<folly::NamedThreadFactory>("CPConn")));
     client->pipelineFactory(m_pipelineFactory);
     client->sslContext(createSSLContext());
     client->setEOFCallback([this, connectionId]() {
@@ -625,6 +626,7 @@ void ConnectionPool::send(
         .thenValue([this, callback](auto && /*unit*/) {
             return getIdleClient(callback, IdleConnectionGuard{this});
         })
+        .via(m_executor.get())
         .thenValue([this, message, callback](
                        IdleConnectionGuard &&idleConnectionGuard) {
             const auto soFar = std::chrono::duration_cast<std::chrono::seconds>(
@@ -650,6 +652,7 @@ void ConnectionPool::send(
                 .within(writeTimeout,
                     std::system_error{
                         std::make_error_code(std::errc::timed_out)})
+                .via(m_executor.get())
                 .thenTry([this, callback, connectionId = client->connectionId(),
                              idleConnectionGuard =
                                  std::move(idleConnectionGuard)](
