@@ -36,7 +36,11 @@ public:
 
     void setCertificateData(std::shared_ptr<cert::CertificateData>) { }
 
-    void send(std::string, Callback /*callback*/, const int = int{}) { }
+    folly::Future<folly::Unit> send(
+        std::string, Callback /*callback*/, const int = int{})
+    {
+        return folly::makeFuture();
+    }
 };
 
 using CustomCommunicator = layers::Translator<layers::Replier<

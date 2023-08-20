@@ -230,8 +230,8 @@ public:
      * @param callback Callback function that is called on send success or
      * error.
      */
-    void send(const std::string &message, const Callback &callback,
-        int /*unused*/ = int{});
+    folly::Future<folly::Unit> send(const std::string &message,
+        const Callback &callback, int /*unused*/ = int{});
 
     /**
      * Stops the @c ConnectionPool operations.

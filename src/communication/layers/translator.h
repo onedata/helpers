@@ -64,7 +64,7 @@ public:
      * @param retires The retries argument to pass to the lower layer.
      * @see ConnectionPool::send()
      */
-    auto send(
+    folly::Future<folly::Unit> send(
         messages::ClientMessage &&msg, int retries = DEFAULT_RETRY_NUMBER);
 
     /**
@@ -222,7 +222,7 @@ public:
 };
 
 template <class LowerLayer>
-auto Translator<LowerLayer>::send(
+folly::Future<folly::Unit> Translator<LowerLayer>::send(
     messages::ClientMessage &&msg, const int retries)
 {
     LOG_FCALL() << LOG_FARG(retries);
@@ -241,10 +241,10 @@ auto Translator<LowerLayer>::send(
             promise->setValue();
     };
 
-    LowerLayer::send(
-        messages::serialize(std::move(msg)), std::move(callback), retries);
-
-    return promise->getFuture();
+    return LowerLayer::send(
+        messages::serialize(std::move(msg)), std::move(callback), retries)
+        .thenValue([promise = std::move(promise)](
+                       auto && /*unit*/) { return promise->getFuture(); });
 }
 
 } // namespace layers

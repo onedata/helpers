@@ -52,11 +52,12 @@ public:
      * @return same as lower layer's @c send().
      * @see ConnectionPool::send()
      */
-    void send(std::string message, Callback callback, int retries);
+    folly::Future<folly::Unit> send(
+        std::string message, Callback callback, int retries);
 };
 
 template <class LowerLayer>
-void Retrier<LowerLayer>::send(
+folly::Future<folly::Unit> Retrier<LowerLayer>::send(
     std::string message, Callback callback, const int retries)
 {
     auto wrappedCallback = [this, message, retries,
@@ -81,7 +82,8 @@ void Retrier<LowerLayer>::send(
         }
     };
 
-    LowerLayer::send(std::move(message), std::move(wrappedCallback), retries);
+    return LowerLayer::send(
+        std::move(message), std::move(wrappedCallback), retries);
 }
 
 } // namespace layers

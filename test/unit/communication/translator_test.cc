@@ -55,7 +55,12 @@ struct LowerLayer {
     MOCK_METHOD3(replyProxy,
         void(const clproto::ServerMessage, const clproto::ClientMessage, int));
 
-    void send(ClientMessagePtr cmp, Callback, int i) { sendProxy(*cmp, i); }
+    folly::Future<folly::Unit> send(ClientMessagePtr cmp, Callback, int i)
+    {
+        sendProxy(*cmp, i);
+
+        return folly::makeFuture();
+    }
 
     void communicate(ClientMessagePtr cmp, CommunicateCallback callback, int i)
     {

@@ -32,12 +32,14 @@ struct LowerLayer {
 
     MOCK_METHOD2(sendProxy, bool(std::string, int));
 
-    void send(std::string msg, Callback callback, int i)
+    folly::Future<folly::Unit> send(std::string msg, Callback callback, int i)
     {
         if (!sendProxy(std::move(msg), i))
             callback(std::make_error_code(std::errc::owner_dead));
         else
             callback(std::error_code{});
+
+        return folly::makeFuture();
     }
 };
 
