@@ -585,7 +585,9 @@ ConnectionPool::getIdleClient(
             client->idle(false);
 
             LOG_DBG(3) << "Retrieved active connection "
-                       << client->connectionId() << " from connection pool";
+                       << client->connectionId()
+                       << " from connection pool of size: "
+                       << connectionsSize();
 
             break;
         }
@@ -629,6 +631,13 @@ folly::Future<folly::Unit> ConnectionPool::send(
             .via(m_executor.get())
             .thenValue([this, message, callback](
                            IdleConnectionGuard &&idleConnectionGuard) {
+                if (m_connectionState == State::STOPPED) {
+                    LOG_DBG(1)
+                        << "Connection pool stopped - ignoring send message...";
+
+                    return folly::makeFuture();
+                }
+
                 const auto soFar =
                     std::chrono::duration_cast<std::chrono::seconds>(
                         std::chrono::steady_clock::now() -
@@ -647,8 +656,13 @@ folly::Future<folly::Unit> ConnectionPool::send(
 
                 auto *client = idleConnectionGuard.client();
 
-                assert(client != nullptr);
+                if (m_connectionState == State::STOPPED) {
+                    LOG_DBG(1) << "Got null connection - aborting...";
 
+                    callback(
+                        std::make_error_code(std::errc::connection_aborted));
+                    return folly::makeFuture();
+                }
                 return client->getPipeline()
                     ->write(message)
                     .via(m_executor.get())
@@ -720,6 +734,12 @@ folly::Future<folly::Unit> ConnectionPool::send(
                         }
 
                         callback(e.code());
+                    }
+                    else {
+                        LOG_DBG(1)
+                            << "Ignoring message send exception due to alread "
+                               "stopped connection pool: "
+                            << e.what();
                     }
                 })
             .thenError(folly::tag_t<std::exception>{}, [callback](auto &&e) {
@@ -827,6 +847,9 @@ folly::Future<folly::Unit> ConnectionPool::close()
         .thenValue([this](auto && /*res*/) {
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
             m_connections.clear();
+
+            LOG_DBG(3) << "Connections cleared";
+
             return folly::Future<folly::Unit>{};
         });
 }
