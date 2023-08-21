@@ -516,9 +516,6 @@ ConnectionPool::getIdleClient(
 
     CLProtoClientBootstrap *client{nullptr};
 
-    if (m_connectionState == State::STOPPED)
-        return std::move(idleConnectionGuard);
-
     while ((client == nullptr) || !client->connected()) {
         // First, check if the connection pool has been stopped
         // intentionally client-side
