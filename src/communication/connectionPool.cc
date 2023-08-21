@@ -516,6 +516,9 @@ ConnectionPool::getIdleClient(
 
     CLProtoClientBootstrap *client{nullptr};
 
+    if (m_connectionState == State::STOPPED)
+        return std::move(idleConnectionGuard);
+
     while ((client == nullptr) || !client->connected()) {
         // First, check if the connection pool has been stopped
         // intentionally client-side
@@ -767,7 +770,11 @@ try {
     if (m_connectionMonitorThread.joinable())
         m_connectionMonitorThread.join();
 
+    LOG_DBG(3) << "Closing connections";
+
     close().get();
+
+    LOG_DBG(3) << "Stopping connection thread pool";
 
     m_executor->stop();
 
@@ -784,31 +791,39 @@ catch (...) {
 
 folly::Future<folly::Unit> ConnectionPool::close()
 {
+    LOG_FCALL();
+
     m_idleConnections.clear();
 
     // Cancel any threads waiting on m_idleConnections.pop()
     m_idleConnections.abort();
 
-    if (m_connections.empty())
-        return folly::Future<folly::Unit>{};
-
     folly::fbvector<folly::Future<folly::Unit>> stopFutures;
 
-    for (const auto &client : m_connections) {
-        if ((client->getPipeline() == nullptr) || !client->connected())
-            continue;
+    {
+        std::lock_guard<std::mutex> guard{m_connectionsMutex};
+        if (m_connections.empty())
+            return folly::Future<folly::Unit>{};
 
-        stopFutures.emplace_back(
-            folly::via(folly::getCPUExecutor().get())
-                .thenValue([client](auto && /*unit*/) mutable {
-                    if (client->getPipeline() == nullptr)
-                        return folly::Future<folly::Unit>{};
-                    return client->getPipeline()->close();
-                }));
+        for (const auto &client : m_connections) {
+            if ((client->getPipeline() == nullptr) || !client->connected())
+                continue;
+
+            stopFutures.emplace_back(
+                folly::via(folly::getCPUExecutor().get())
+                    .thenValue([client](auto && /*unit*/) mutable {
+                        if (client->getPipeline() == nullptr)
+                            return folly::Future<folly::Unit>{};
+                        return client->getPipeline()->close();
+                    }));
+        }
     }
 
     if (stopFutures.empty())
         return folly::Future<folly::Unit>{};
+
+    LOG_DBG(3) << "Waiting for actual close of " << stopFutures.size()
+               << " connections";
 
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
         .via(folly::getCPUExecutor().get())
