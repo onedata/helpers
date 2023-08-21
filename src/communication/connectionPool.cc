@@ -778,6 +778,9 @@ catch (std::exception &e) {
     LOG(INFO) << "Error stopping configuration communicator (ignored): "
               << e.what();
 }
+catch (...) {
+    LOG(INFO) << "Error stopping configuration communicator (ignored)";
+}
 
 folly::Future<folly::Unit> ConnectionPool::close()
 {
