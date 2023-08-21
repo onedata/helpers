@@ -663,6 +663,7 @@ folly::Future<folly::Unit> ConnectionPool::send(
                         std::make_error_code(std::errc::connection_aborted));
                     return folly::makeFuture();
                 }
+
                 return client->getPipeline()
                     ->write(message)
                     .via(m_executor.get())
@@ -670,40 +671,54 @@ folly::Future<folly::Unit> ConnectionPool::send(
                         std::system_error{
                             std::make_error_code(std::errc::timed_out)})
                     .via(m_executor.get())
-                    .thenTry(
-                        [this, callback, connectionId = client->connectionId(),
-                            idleConnectionGuard =
-                                std::move(idleConnectionGuard)](
-                            folly::Try<folly::Unit> &&maybeUnit) {
-                            if (maybeUnit.hasException()) {
-                                LOG_DBG(1) << "Sending message failed due to: "
-                                           << maybeUnit.exception().what();
+                    .thenTry([this, callback,
+                                 connectionId = client->connectionId(),
+                                 idleConnectionGuard =
+                                     std::move(idleConnectionGuard)](
+                                 folly::Try<folly::Unit> &&maybeUnit) {
+                        if (maybeUnit.hasException()) {
+                            const auto &e = maybeUnit.exception();
+                            if (e.what() ==
+                                "close() called while sends still pending") {
 
-                                if (areAllConnectionsDown()) {
-                                    if (m_onConnectionLostCallback)
-                                        m_onConnectionLostCallback();
-
-                                    LOG_DBG(1)
-                                        << "Entered connection lost state...";
-
-                                    m_connectionState = State::CONNECTION_LOST;
-                                }
-
-                                callback(
-                                    std::make_error_code(std::errc::timed_out));
-                            }
-                            else {
-                                ++m_sentMessageCounter;
-                                --m_queuedMessageCounter;
-
-                                LOG_DBG(3)
-                                    << "Message sent: " << m_sentMessageCounter
-                                    << " - queued: " << m_queuedMessageCounter
-                                    << " [" << connectionId << "]";
+                                LOG_DBG(3) << "close() called while sends "
+                                              "still pending - ignoring...";
 
                                 callback(std::error_code{});
+
+                                return folly::makeFuture();
                             }
-                        });
+
+                            LOG_DBG(1) << "Sending message failed due to: "
+                                       << e.what();
+
+                            if (areAllConnectionsDown()) {
+                                if (m_onConnectionLostCallback)
+                                    m_onConnectionLostCallback();
+
+                                LOG_DBG(1)
+                                    << "Entered connection lost state...";
+
+                                m_connectionState = State::CONNECTION_LOST;
+                            }
+
+                            callback(
+                                std::make_error_code(std::errc::timed_out));
+                        }
+                        else {
+                            ++m_sentMessageCounter;
+                            --m_queuedMessageCounter;
+
+                            LOG_DBG(3)
+                                << "Message sent: " << m_sentMessageCounter
+                                << " - queued: " << m_queuedMessageCounter
+                                << " [" << connectionId << "]";
+
+                            callback(std::error_code{});
+                        }
+
+                        return folly::makeFuture();
+                    });
             })
             .thenError(folly::tag_t<tbb::user_abort>{},
                 [callback](auto && /*e*/) { // We have aborted the wait by
