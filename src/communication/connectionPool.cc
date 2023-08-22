@@ -671,54 +671,44 @@ folly::Future<folly::Unit> ConnectionPool::send(
                         std::system_error{
                             std::make_error_code(std::errc::timed_out)})
                     .via(m_executor.get())
-                    .thenTry([this, callback,
-                                 connectionId = client->connectionId(),
-                                 idleConnectionGuard =
-                                     std::move(idleConnectionGuard)](
-                                 folly::Try<folly::Unit> &&maybeUnit) {
-                        if (maybeUnit.hasException()) {
-                            const auto &e = maybeUnit.exception();
-                            if (e.what() ==
-                                "close() called while sends still pending") {
+                    .thenTry(
+                        [this, callback, connectionId = client->connectionId(),
+                            idleConnectionGuard =
+                                std::move(idleConnectionGuard)](
+                            folly::Try<folly::Unit> &&maybeUnit) {
+                            if (maybeUnit.hasException()) {
+                                const auto &e = maybeUnit.exception();
 
-                                LOG_DBG(3) << "close() called while sends "
-                                              "still pending - ignoring...";
+                                LOG_DBG(1) << "Sending message failed due to: "
+                                           << e.what();
+
+                                if (areAllConnectionsDown()) {
+                                    if (m_onConnectionLostCallback)
+                                        m_onConnectionLostCallback();
+
+                                    LOG_DBG(1)
+                                        << "Entered connection lost state...";
+
+                                    m_connectionState = State::CONNECTION_LOST;
+                                }
+
+                                callback(
+                                    std::make_error_code(std::errc::timed_out));
+                            }
+                            else {
+                                ++m_sentMessageCounter;
+                                --m_queuedMessageCounter;
+
+                                LOG_DBG(3)
+                                    << "Message sent: " << m_sentMessageCounter
+                                    << " - queued: " << m_queuedMessageCounter
+                                    << " [" << connectionId << "]";
 
                                 callback(std::error_code{});
-
-                                return folly::makeFuture();
                             }
 
-                            LOG_DBG(1) << "Sending message failed due to: "
-                                       << e.what();
-
-                            if (areAllConnectionsDown()) {
-                                if (m_onConnectionLostCallback)
-                                    m_onConnectionLostCallback();
-
-                                LOG_DBG(1)
-                                    << "Entered connection lost state...";
-
-                                m_connectionState = State::CONNECTION_LOST;
-                            }
-
-                            callback(
-                                std::make_error_code(std::errc::timed_out));
-                        }
-                        else {
-                            ++m_sentMessageCounter;
-                            --m_queuedMessageCounter;
-
-                            LOG_DBG(3)
-                                << "Message sent: " << m_sentMessageCounter
-                                << " - queued: " << m_queuedMessageCounter
-                                << " [" << connectionId << "]";
-
-                            callback(std::error_code{});
-                        }
-
-                        return folly::makeFuture();
-                    });
+                            return folly::makeFuture();
+                        });
             })
             .thenError(folly::tag_t<tbb::user_abort>{},
                 [callback](auto && /*e*/) { // We have aborted the wait by
@@ -784,8 +774,10 @@ try {
 
     LOG_DBG(1) << "Stopping connection pool";
 
-    if (m_connectionState == State::CREATED ||
-        m_connectionState == State::STOPPED) {
+    if (m_connectionState == State::STOPPED)
+        return;
+
+    if (m_connectionState == State::CREATED) {
         m_connectionState = State::STOPPED;
 
         connectionMonitorTick();
@@ -793,6 +785,15 @@ try {
         if (m_connectionMonitorThread.joinable())
             m_connectionMonitorThread.join();
         return;
+    }
+
+    using namespace std::chrono_literals;
+
+    // Wait for all queued messages to go out
+    const auto waitUntil = std::chrono::steady_clock::now() + 30s;
+    while ((std::chrono::steady_clock::now() < waitUntil) &&
+        (m_queuedMessageCounter > 0) && !areAllConnectionsDown()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     m_connectionState = State::STOPPED;
@@ -847,6 +848,22 @@ folly::Future<folly::Unit> ConnectionPool::close()
                         if (client->getPipeline() == nullptr)
                             return folly::Future<folly::Unit>{};
                         return client->getPipeline()->close();
+                    })
+                    .thenTry([](auto &&maybe) {
+                        if (maybe.hasException()) {
+                            if (maybe.exception().what() ==
+                                "close() called while sends still pending") {
+
+                                LOG_DBG(1) << "close() called while sends "
+                                              "still pending - ignoring...";
+
+                                return folly::makeFuture();
+                            }
+
+                            maybe.throwIfFailed();
+                        }
+
+                        return folly::makeFuture();
                     }));
         }
     }
@@ -858,7 +875,7 @@ folly::Future<folly::Unit> ConnectionPool::close()
                << " connections";
 
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
-        .via(folly::getCPUExecutor().get())
+        .via(m_executor.get())
         .thenValue([this](auto && /*res*/) {
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
             m_connections.clear();

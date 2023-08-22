@@ -28,12 +28,26 @@ def endpoint(appmock_client):
 
 @pytest.yield_fixture
 def cp(endpoint):
-    pool = connection_pool.ConnectionPoolProxy(25, 1, endpoint.ip, endpoint.port)
+    pool = connection_pool.ConnectionPoolProxy(25, 1, endpoint.ip,
+                                               endpoint.port)
     yield pool
     pool.stop()
 
 
-def test_cp_should_stop(endpoint, msg_num = 10, msg_size = 1000, repeats = 20):
+def test_cp_should_ignore_close_while_send(
+        endpoint, msg_num=10, msg_size=1000000, repeats=4):
+    """Send multiple messages and stop the connection pool - ignore pending
+       send errors."""
+
+    for _ in range(repeats):
+        cp = connection_pool.ConnectionPoolProxy(1, 1, endpoint.ip, endpoint.port)
+
+        cp.sendMultipleAsync(random_str(msg_size).encode('utf-8'), msg_num)
+
+        cp.stop()
+
+
+def test_cp_should_stop(endpoint, msg_num=10, msg_size=1000, repeats=20):
     """Starts and stops connection pool multiple times to ensure the pool
        stops without deadlock."""
 

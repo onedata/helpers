@@ -51,6 +51,15 @@ public:
             .get();
     }
 
+    void sendMultipleAsync(const std::string msg, size_t count)
+    {
+        while (count-- > 0)
+            m_pool.send(
+                msg, [](auto) {}, int{});
+
+        stop();
+    }
+
     size_t sentMessageCounter() { return m_pool.sentMessageCounter(); }
 
     size_t queuedMessageCounter() { return m_pool.queuedMessageCounter(); }
@@ -91,6 +100,7 @@ BOOST_PYTHON_MODULE(connection_pool)
         .def("__init__", make_constructor(create))
         .def("stop", &ConnectionPoolProxy::stop)
         .def("send", &ConnectionPoolProxy::send)
+        .def("sendMultipleAsync", &ConnectionPoolProxy::sendMultipleAsync)
         .def("popMessage", &ConnectionPoolProxy::popMessage)
         .def("size", &ConnectionPoolProxy::size)
         .def("sentMessageCounter", &ConnectionPoolProxy::sentMessageCounter)
