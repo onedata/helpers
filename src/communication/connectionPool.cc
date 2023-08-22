@@ -788,12 +788,15 @@ try {
     }
 
     using namespace std::chrono_literals;
+    using std::chrono::steady_clock;
+    const auto kPendingMessagesWaitTick{10ms};
+    const auto kPendingMessagesWaitTime{30s};
 
     // Wait for all queued messages to go out
-    const auto waitUntil = std::chrono::steady_clock::now() + 30s;
-    while ((std::chrono::steady_clock::now() < waitUntil) &&
-        (m_queuedMessageCounter > 0) && !areAllConnectionsDown()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const auto waitUntil = steady_clock::now() + kPendingMessagesWaitTime;
+    while ((steady_clock::now() < waitUntil) && (m_queuedMessageCounter > 0) &&
+        !areAllConnectionsDown()) {
+        std::this_thread::sleep_for(kPendingMessagesWaitTick);
     }
 
     m_connectionState = State::STOPPED;
