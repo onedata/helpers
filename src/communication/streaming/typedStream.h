@@ -178,8 +178,16 @@ void TypedStream<Communicator>::sendSync(ClientMessagePtr msg)
 
     auto *msgStream = msg->mutable_message_stream();
     msgStream->set_stream_id(m_streamId);
-    msgStream->set_sequence_number(m_sequenceId++);
-    saveAndPassSync(std::move(msg));
+    const auto messageSequenceId = m_sequenceId++;
+    msgStream->set_sequence_number(messageSequenceId);
+    try {
+        saveAndPassSync(std::move(msg));
+    }
+    catch (std::exception &e) {
+        LOG(ERROR) << "Response to synchronous stream message "
+                   << messageSequenceId << " not received due to " << e.what();
+        throw e;
+    }
 }
 
 template <class Communicator> void TypedStream<Communicator>::close()
@@ -241,10 +249,11 @@ void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
         m_buffer.emplace(std::move(msgCopy));
     }
 
-    communication::wait(
-        m_communicator->template communicateRaw<messages::Status>(
-            std::move(msg)),
-        m_providerTimeout);
+    m_communicator->template communicateRaw<messages::Status>(std::move(msg))
+        .via(folly::getGlobalCPUExecutor())
+        .within(m_providerTimeout,
+            std::system_error{std::make_error_code(std::errc::timed_out)})
+        .get();
 }
 
 template <class Communicator>
@@ -334,8 +343,8 @@ void TypedStream<Communicator>::dropMessagesWithLowerSequenceNumber(
 
     std::shared_lock<BufferMutexType> lock{m_bufferMutex};
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
-        // Keep the message in the buffer if it's sequence number is larger than
-        // the acknowledgement number
+        // Keep the message in the buffer if it's sequence number is larger
+        // than the acknowledgement number
         if (it->message_stream().sequence_number() > sequenceNumber) {
             m_buffer.emplace(std::move(it));
             break;

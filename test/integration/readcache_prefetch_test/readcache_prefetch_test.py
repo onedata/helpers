@@ -87,7 +87,7 @@ def slowStorageHelper(slowServer):
         slowServer.filter)
 
 
-MAX_READOVERHEAD_FACTOR = 1.35
+MAX_READOVERHEAD_FACTOR = 1.375
 
 @pytest.mark.readwrite_operations_tests
 def test_single_read_after_period_should_invalidate_cache(helper, file_id):

@@ -8,6 +8,7 @@ import os
 import sys
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
@@ -15,7 +16,7 @@ from test_common import *
 # noinspection PyUnresolvedReferences
 from environment import appmock, common, docker
 import communication_stack
-
+from proto import messages_pb2, common_messages_pb2
 
 @pytest.yield_fixture
 def endpoint(appmock_client):
@@ -62,7 +63,7 @@ def test_send(result, endpoint, com3, msg_num = 1, msg_size = 100):
     ])
 
 
-def test_communicate(result, endpoint, com3, msg_num = 10, msg_size = 100):
+def test_communicate(result, endpoint, com3, msg_num = 1000, msg_size = 100):
     """Sends multiple messages and receives replies using communicator."""
 
     com3.connect()
@@ -91,26 +92,34 @@ def test_communicate(result, endpoint, com3, msg_num = 10, msg_size = 100):
     ])
 
 
-@pytest.mark.skip()
-def test_successful_handshake(endpoint, com1):
-    handshake = com1.setHandshake("handshake", False)
-    com1.connect()
+def test_successful_handshake(appmock_client):
+    for _ in range(0, 10):
+        endpoint = appmock_client.tcp_endpoint(443)
 
-    # Skip message stream request
-    endpoint.wait_for_any_messages(msg_count=1)
+        com1 = communication_stack.Communicator(
+            1, 1, endpoint.ip, endpoint.port, True)
 
-    com1.sendAsync("this is another request")
+        handshake = com1.setHandshake("handshake".encode('utf-8'), False)
 
-    endpoint.wait_for_specific_messages(handshake)
+        com1.connect()
 
-    assert 1 == endpoint.all_messages_count()-1
+        # Skip message stream request
+        endpoint.wait_for_any_messages(msg_count=1)
 
-    reply = communication_stack.prepareReply(handshake, "handshakeReply")
+        com1.sendAsync("this is another request")
 
-    endpoint.send(reply)
+        server_message = messages_pb2.ServerMessage()
+        server_message.handshake_response.status = common_messages_pb2.Status.ok
+        endpoint.send(server_message.SerializeToString())
 
-    assert com1.handshakeResponse() == reply
-    endpoint.wait_for_any_messages(msg_count=2)
+        endpoint.wait_for_any_messages(msg_count=3)
+
+        com1.stop()
+
+        appmock_client.reset_tcp_history()
+        appmock_client.reset_rest_history()
+
+
 
 
 @pytest.mark.skip()

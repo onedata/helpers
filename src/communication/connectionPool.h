@@ -34,6 +34,7 @@ class CertificateData;
 namespace detail {
 const auto kDefaultProviderTimeout{120UL};
 constexpr auto kNeedMoreConnectionsThreshold{2ULL};
+const auto kInitialIdleConnectionWaitDelay{10};
 } // namespace detail
 
 /**
@@ -60,6 +61,9 @@ public:
     public:
         explicit IdleConnectionGuard(ConnectionPool *pool)
             : m_pool{pool}
+            , m_startedAt{std::chrono::steady_clock::now()}
+            , m_waitDelay{std::chrono::milliseconds{
+                  detail::kInitialIdleConnectionWaitDelay}}
         {
             assert(m_pool != nullptr);
         }
@@ -71,8 +75,12 @@ public:
 
             m_pool = other.m_pool;
             m_client = other.m_client;
-            other.m_pool = nullptr;
-            other.m_client = nullptr;
+            m_startedAt = other.m_startedAt;
+            m_waitDelay = other.m_waitDelay;
+            other.m_pool = {};
+            other.m_client = {};
+            other.m_startedAt = {};
+            other.m_waitDelay = {};
         }
 
         IdleConnectionGuard &operator=(IdleConnectionGuard &&other) noexcept
@@ -82,8 +90,12 @@ public:
 
             m_pool = other.m_pool;
             m_client = other.m_client;
-            other.m_pool = nullptr;
-            other.m_client = nullptr;
+            m_startedAt = other.m_startedAt;
+            m_waitDelay = other.m_waitDelay;
+            other.m_pool = {};
+            other.m_client = {};
+            other.m_startedAt = {};
+            other.m_waitDelay = {};
 
             return *this;
         }
@@ -99,9 +111,31 @@ public:
 
         void setClient(CLProtoClientBootstrap *client) { m_client = client; }
 
+        CLProtoClientBootstrap *client() const { return m_client; };
+
+        void setStartedAt(
+            std::chrono::time_point<std::chrono::steady_clock> start)
+        {
+            m_startedAt = start;
+        }
+
+        std::chrono::time_point<std::chrono::steady_clock> startedAt() const
+        {
+            return m_startedAt;
+        }
+
+        void setWaitDelay(std::chrono::milliseconds waitDelay)
+        {
+            m_waitDelay = waitDelay;
+        }
+
+        std::chrono::milliseconds waitDelay() const { return m_waitDelay; }
+
     private:
         ConnectionPool *m_pool{nullptr};
         CLProtoClientBootstrap *m_client{nullptr};
+        std::chrono::time_point<std::chrono::steady_clock> m_startedAt{};
+        std::chrono::milliseconds m_waitDelay{};
     };
 
     /**
@@ -196,8 +230,8 @@ public:
      * @param callback Callback function that is called on send success or
      * error.
      */
-    void send(const std::string &message, const Callback &callback,
-        int /*unused*/ = int{});
+    folly::Future<folly::Unit> send(const std::string &message,
+        const Callback &callback, int /*unused*/ = int{});
 
     /**
      * Stops the @c ConnectionPool operations.
@@ -206,12 +240,16 @@ public:
      */
     void stop();
 
-    std::shared_ptr<folly::Executor> executor() { return m_executor; }
-
     void setOnConnectionLostCallback(
         std::function<void()> onConnectionLostCallback);
 
     void setOnReconnectCallback(std::function<void()> onReconnectCallback);
+
+    size_t sentMessageCounter() const { return m_sentMessageCounter; }
+
+    size_t queuedMessageCounter() const { return m_queuedMessageCounter; }
+
+    std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
 private:
     void connectionMonitorTick();
@@ -220,13 +258,14 @@ private:
 
     void connectionMonitorTask();
 
-    bool areAllConnectionsAlive();
-
     bool areAllConnectionsDown();
 
     void ensureMinimumNumberOfConnections();
 
     void addNewConnectionOnDemand();
+
+    folly::Future<IdleConnectionGuard> getIdleClient(
+        Callback callback, IdleConnectionGuard &&idleConnectionGuard);
 
     folly::Future<folly::Unit> connectClient(
         std::shared_ptr<CLProtoClientBootstrap> client, int retries);
@@ -290,6 +329,8 @@ private:
     std::thread m_connectionMonitorThread;
     std::atomic<size_t> m_needMoreConnections;
     std::exception_ptr m_lastException;
+    std::atomic<size_t> m_sentMessageCounter;
+    std::atomic<size_t> m_queuedMessageCounter;
 };
 
 } // namespace communication

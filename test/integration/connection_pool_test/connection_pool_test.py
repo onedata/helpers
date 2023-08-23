@@ -8,6 +8,7 @@ import os
 import sys
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
@@ -27,21 +28,34 @@ def endpoint(appmock_client):
 
 @pytest.yield_fixture
 def cp(endpoint):
-    pool = connection_pool.ConnectionPoolProxy(25, 4, endpoint.ip, endpoint.port)
+    pool = connection_pool.ConnectionPoolProxy(25, 1, endpoint.ip,
+                                               endpoint.port)
     yield pool
     pool.stop()
 
 
-def test_cp_should_stop(result, endpoint, msg_num = 10, msg_size = 1000, repeats = 20):
+def test_cp_should_ignore_close_while_send(
+        endpoint, msg_num=10, msg_size=1000000, repeats=4):
+    """Send multiple messages and stop the connection pool - ignore pending
+       send errors."""
+
+    for _ in range(repeats):
+        cp = connection_pool.ConnectionPoolProxy(1, 1, endpoint.ip, endpoint.port)
+
+        cp.sendMultipleAsync(random_str(msg_size).encode('utf-8'), msg_num)
+
+        cp.stop()
+
+
+def test_cp_should_stop(endpoint, msg_num=10, msg_size=1000, repeats=20):
     """Starts and stops connection pool multiple times to ensure the pool
        stops without deadlock."""
-
 
     for _ in range(repeats):
         msg = random_str(msg_size).encode('utf-8')
 
         cp = connection_pool.ConnectionPoolProxy(
-            10, 4, endpoint.ip, endpoint.port)
+            10, 1, endpoint.ip, endpoint.port)
 
         for _ in range(msg_num):
             cp.send(msg)
@@ -52,7 +66,7 @@ def test_cp_should_stop(result, endpoint, msg_num = 10, msg_size = 1000, repeats
 
 
 @pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    parameters=[Parameter.msg_num(10000), Parameter.msg_size(100, 'B')],
     configs={
         'multiple_small_messages': {
             'description': 'Sends multiple small messages using connection '
@@ -87,8 +101,30 @@ def test_cp_should_send_messages(result, endpoint, cp, msg_num, msg_size):
     ])
 
 
+def test_cp_should_send_messages_parallel(endpoint, cp, msg_num=10000,
+                                          msg_size=100, workers=100):
+    msg = random_str(msg_size).encode('utf-8')
+
+    def send(m):
+        cp.send(m)
+        return 'ok'
+
+    with timer() as t:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futs = executor.map(send, [msg for _ in range(msg_num)])
+            for fut in futs:
+                assert fut == 'ok'
+
+        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
+
+        assert cp.sentMessageCounter() == msg_num
+        assert cp.queuedMessageCounter() == 0
+
+        print(f'Sending {msg_num} messages took {t():.4f} seconds')
+
+
 @pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    parameters=[Parameter.msg_num(2000), Parameter.msg_size(100, 'B')],
     configs={
         'multiple_small_messages': {
             'description': 'Receives multiple small messages using '

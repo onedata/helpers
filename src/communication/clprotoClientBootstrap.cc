@@ -32,7 +32,7 @@ namespace communication {
 static const std::array<int, 12> CLIENT_RECONNECT_DELAYS{0, 10, 10000, 10000,
     10000, 10000, 10000, 10000, 30000, 30000, 30000, 60'000};
 
-static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 10;
+static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 30;
 
 CLProtoClientBootstrap::CLProtoClientBootstrap(const uint32_t id,
     const bool performCLProtoUpgrade, const bool performCLProtoHandshake)
@@ -80,8 +80,12 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     return folly::makeFuture()
         .via(executor)
         .thenValue([this, reconnectAttempt, reconnectDelay](auto && /*unit*/) {
-            LOG(INFO) << "Reconnect attempt " << reconnectAttempt << " in "
-                      << reconnectDelay << " [ms]";
+            if (reconnectAttempt == 0)
+                LOG_DBG(1) << "Connect attempt in " << reconnectDelay
+                           << " [ms]";
+            else
+                LOG_DBG(1) << "Reconnect attempt " << reconnectAttempt << " in "
+                           << reconnectDelay << " [ms]";
 
             m_handshakeDone = false;
 
@@ -114,7 +118,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                     pipeline->getHandler<codec::CLProtoMessageHandler>()
                         ->setEOFCallback(m_eofCallback);
 
-                    return folly::makeFuture()
+                    return folly::makeSemiFuture()
                         .via(executor)
                         .thenValue(
                             // After connection, attempt to upgrade the

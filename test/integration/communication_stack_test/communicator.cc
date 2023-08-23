@@ -10,6 +10,7 @@
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/smart_ptr.hpp>
+#include <glog/logging.h>
 
 #include <chrono>
 #include <memory>
@@ -185,6 +186,8 @@ boost::shared_ptr<CommunicatorProxy> create(
     const unsigned int connectionsNumber, const unsigned int workersNumber,
     std::string host, const unsigned short port, const bool handshake)
 {
+    FLAGS_v = 0;
+
     helpers::init();
 
     return boost::make_shared<CommunicatorProxy>(

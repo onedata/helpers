@@ -82,8 +82,11 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_clprotoUpgrade{clprotoUpgrade}
     , m_clprotoHandshake{clprotoHandshake}
     , m_connectionState{State::CREATED}
-    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(workersNumber)}
+    , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+          workersNumber, std::make_shared<folly::NamedThreadFactory>("CPWork"))}
     , m_needMoreConnections{0}
+    , m_sentMessageCounter{}
+    , m_queuedMessageCounter{}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
@@ -106,11 +109,14 @@ void ConnectionPool::addConnection(int connectionId)
     client->group(m_executor);
     client->pipelineFactory(m_pipelineFactory);
     client->sslContext(createSSLContext());
-    client->setEOFCallback([this]() {
+    client->setEOFCallback([this, connectionId]() {
         // Report to upper layers that all connections have been lost
-        LOG_DBG(3) << "Entered EOF callback...";
+        LOG_DBG(1) << "Connection " << connectionId
+                   << " entered EOF callback...";
 
-        if (areAllConnectionsDown()) {
+        if ((m_connectionState == State::CONNECTED ||
+                m_connectionState == State::CONNECTION_LOST) &&
+            areAllConnectionsDown()) {
             m_idleConnections.clear();
 
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
@@ -124,18 +130,7 @@ void ConnectionPool::addConnection(int connectionId)
 
 bool ConnectionPool::isConnected()
 {
-    return m_connectionState == State::CONNECTED && areAllConnectionsAlive();
-}
-
-bool ConnectionPool::areAllConnectionsAlive()
-{
-    std::lock_guard<std::mutex> guard{m_connectionsMutex};
-
-    return std::all_of(m_connections.begin(), m_connections.end(),
-        [performCLProtoHandshake = m_clprotoHandshake](auto &c) {
-            return c->connected() &&
-                (c->handshakeDone() || !performCLProtoHandshake);
-        });
+    return m_connectionState == State::CONNECTED && !areAllConnectionsDown();
 }
 
 bool ConnectionPool::areAllConnectionsDown()
@@ -250,7 +245,7 @@ void ConnectionPool::connect()
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now() - connectStart);
 
-    LOG(INFO) << "Connection to Oneprovider established in "
+    LOG(INFO) << "Connection to Oneprovider " << m_host << " established in "
               << connectDuration.count() << " [ms]";
 }
 
@@ -287,9 +282,11 @@ void ConnectionPool::setCertificateData(
 
 void ConnectionPool::connectionMonitorTask()
 {
+    folly::setThreadName("CPMon");
+
     using namespace std::chrono_literals;
 
-    LOG_DBG(3) << "Starting connection monitor task";
+    LOG_DBG(1) << "Starting connection monitor task";
 
     // This is just needed for mock tests
     if (m_connectionsNumber == 0)
@@ -311,8 +308,6 @@ void ConnectionPool::connectionMonitorTask()
 
     auto monitorSleepDuration{kConnectedMonitorSleepDuration};
 
-    const auto kMinimumIterationGap{1s};
-
     std::chrono::steady_clock::time_point lastIterationStart{};
 
     // Loop until connection pool is forcibly stopped using stop()
@@ -326,27 +321,22 @@ void ConnectionPool::connectionMonitorTask()
         // m_connectionMonitorWait variable is set to false, which breaks
         // out of continue loop, which is done by calling
         // connectionMonitorTick()
-        LOG_DBG(4) << "Monitor task - waiting for tick signal for: "
+        LOG_DBG(3) << "Monitor task - waiting for tick signal for: "
                    << monitorSleepDuration.count() << " [s]";
 
-        std::unique_lock<std::mutex> lk(m_connectionMonitorMutex);
-        if (!m_connectionMonitorCV.wait_for(lk, monitorSleepDuration,
-                [this] { return !m_connectionMonitorWait; })) {
-            continue;
+        {
+            std::unique_lock<std::mutex> lk(m_connectionMonitorMutex);
+            m_connectionMonitorCV.wait_for(lk, monitorSleepDuration,
+                [this] { return !m_connectionMonitorWait; });
+
+            // Set monitor task loop to wait mode
+            m_connectionMonitorWait = true;
         }
 
-        // Set monitor task loop to wait mode
-        m_connectionMonitorWait = true;
+        LOG_DBG(3) << "Connection monitor task - starting next loop iteration";
 
         if (m_connectionState == State::STOPPED)
             break;
-
-        const auto now = std::chrono::steady_clock::now();
-        const auto timeSinceLastIteration = now - lastIterationStart;
-        if (timeSinceLastIteration < kMinimumIterationGap) {
-            std::this_thread::sleep_for(
-                kMinimumIterationGap - timeSinceLastIteration);
-        }
 
         lastIterationStart = std::chrono::steady_clock::now();
 
@@ -392,11 +382,17 @@ void ConnectionPool::connectionMonitorTask()
 
             for (auto &f : futs) {
                 try {
-                    std::move(f.second).get();
+                    std::move(f.second)
+                        .via(folly::getGlobalCPUExecutor().get())
+                        .get();
                 }
                 catch (std::system_error &e) {
                     if (std::string{"handshake"} ==
                         e.code().category().name()) {
+                        LOG(ERROR)
+                            << "Handshake with Oneprovider failed due to: "
+                            << e.what() << " - stopping connection pool";
+
                         m_lastException = std::current_exception();
                         m_connectionState = State::STOPPED;
                         break;
@@ -418,7 +414,7 @@ void ConnectionPool::connectionMonitorTask()
                     continue;
                 }
 
-                LOG_DBG(1) << "Connection " << f.first << " is now live";
+                LOG_DBG(2) << "Connection " << f.first << " is now live";
 
                 if (m_connectionState == State::CONNECTION_LOST) {
                     if (m_onReconnectCallback)
@@ -438,6 +434,12 @@ void ConnectionPool::connectionMonitorTask()
 
             if (m_connectionState == State::CONNECTION_LOST)
                 monitorSleepDuration = kDisconnectedMonitorSleepDuration;
+
+            {
+                std::unique_lock<std::mutex> lk(m_connectionMonitorMutex);
+                m_needMoreConnections = 0;
+                m_connectionMonitorWait = true;
+            }
         }
     }
 
@@ -458,14 +460,13 @@ folly::Future<folly::Unit> ConnectionPool::connectClient(
     std::shared_ptr<CLProtoClientBootstrap> client, int retries)
 {
     return client->connect(m_host, m_port, retries)
-        .via(m_executor.get())
         .within(m_providerTimeout)
         .thenValue([this, clientPtr = client.get()](
                        auto && /*unit*/) { putClientBack(clientPtr); })
         .thenError(folly::tag_t<folly::exception_wrapper>{},
             [this, client](auto &&ew) {
                 return folly::makeSemiFuture()
-                    .via(m_executor.get())
+                    .via(folly::getGlobalCPUExecutor().get())
                     .thenValue(
                         [this, client](auto && /*unit*/) { return close(); })
                     .thenValue(
@@ -482,9 +483,6 @@ void ConnectionPool::putClientBack(CLProtoClientBootstrap *client)
         client->idle(true);
 
         m_idleConnections.emplace(client);
-
-        assert(static_cast<decltype(m_connections)::size_type>(
-                   m_idleConnections.size()) <= m_connections.size());
     }
 }
 
@@ -510,18 +508,113 @@ void ConnectionPool::connectionMonitorTick()
     m_connectionMonitorCV.notify_one();
 }
 
-void ConnectionPool::send(
+folly::Future<ConnectionPool::IdleConnectionGuard>
+ConnectionPool::getIdleClient(
+    Callback callback, IdleConnectionGuard &&idleConnectionGuard)
+{
+    using namespace std::chrono_literals;
+
+    CLProtoClientBootstrap *client{nullptr};
+
+    while ((client == nullptr) || !client->connected()) {
+        // First, check if the connection pool has been stopped
+        // intentionally client-side
+        if (m_connectionState == State::STOPPED) {
+            LOG_DBG(1) << "Connection pool stopped - cannot send message...";
+
+            folly::via(folly::getCPUExecutor().get(), [callback] {
+                callback(std::make_error_code(std::errc::connection_aborted));
+            });
+
+            throw std::system_error(
+                std::make_error_code(std::errc::connection_aborted));
+        }
+
+        // Wait for an idle connection to become available
+        if (!m_idleConnections.try_pop(client)) {
+            if (m_connectionState == State::CONNECTED &&
+                !areAllConnectionsDown()) {
+                ++m_needMoreConnections;
+                if (m_needMoreConnections >
+                    detail::kNeedMoreConnectionsThreshold) {
+                    connectionMonitorTick();
+                }
+            }
+
+            const auto kMaximumIdleConnectionRetryWait{10s};
+            const auto kIdleConnectionRetryBackoff{1.5};
+            auto waitDelay = idleConnectionGuard.waitDelay();
+
+            const auto soFar = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() -
+                idleConnectionGuard.startedAt());
+            const std::chrono::seconds writeTimeout = m_providerTimeout - soFar;
+
+            if (writeTimeout.count() <= 0) {
+                LOG_DBG(1) << "Idle connection not found before timeout - took "
+                           << soFar.count();
+
+                callback(std::make_error_code(std::errc::timed_out));
+                throw std::system_error(
+                    std::make_error_code(std::errc::timed_out));
+            }
+
+            if (waitDelay < kMaximumIdleConnectionRetryWait)
+                idleConnectionGuard.setWaitDelay(
+                    std::chrono::milliseconds{static_cast<size_t>(
+                        waitDelay.count() * kIdleConnectionRetryBackoff)});
+
+            LOG_DBG(3) << "No idle connection available (pool size "
+                       << connectionsSize()
+                       << ") - retry in: " << waitDelay.count() << " [ms]";
+
+            return folly::makeSemiFuture()
+                .via(m_executor.get())
+                .delayed(waitDelay)
+                .thenValue(
+                    [this, callback = std::move(callback),
+                        idleConnectionGuard = std::move(idleConnectionGuard)](
+                        auto && /*unit*/) mutable {
+                        return getIdleClient(
+                            callback, std::move(idleConnectionGuard));
+                    });
+        }
+
+        if (client != nullptr) {
+            idleConnectionGuard.setClient(client);
+            client->idle(false);
+
+            LOG_DBG(3) << "Retrieved active connection "
+                       << client->connectionId()
+                       << " from connection pool of size: "
+                       << connectionsSize();
+
+            break;
+        }
+    }
+
+    return std::move(idleConnectionGuard);
+}
+
+folly::Future<folly::Unit> ConnectionPool::send(
     const std::string &message, const Callback &callback, const int /*unused*/)
 {
     using namespace std::chrono_literals;
 
     LOG_FCALL() << LOG_FARG(message.size());
 
-    if (m_connectionState == State::STOPPED || m_connectionsNumber == 0) {
+    if (m_connectionState == State::STOPPED) {
         LOG_DBG(1) << "Connection pool stopped - cannot send message...";
 
         callback(std::make_error_code(std::errc::connection_aborted));
-        return;
+        return folly::makeFuture();
+    }
+
+    if (m_connectionState != State::CREATED && m_connectionsNumber == 0) {
+        LOG_DBG(1) << "Connection pool empty - cannot send message...";
+
+        callback(std::make_error_code(std::errc::connection_aborted));
+        return folly::makeFuture();
     }
 
     if (m_connectionState == State::CONNECTION_LOST)
@@ -529,165 +622,143 @@ void ConnectionPool::send(
 
     LOG_DBG(3) << "Attempting to send message of size " << message.size();
 
-    CLProtoClientBootstrap *client{nullptr};
+    auto f =
+        folly::makeSemiFuture()
+            .via(m_executor.get())
+            .thenValue([this, callback](auto && /*unit*/) {
+                return getIdleClient(callback, IdleConnectionGuard{this});
+            })
+            .via(m_executor.get())
+            .thenValue([this, message, callback](
+                           IdleConnectionGuard &&idleConnectionGuard) {
+                if (m_connectionState == State::STOPPED) {
+                    LOG_DBG(1)
+                        << "Connection pool stopped - ignoring send message...";
 
-    IdleConnectionGuard idleConnectionGuard{this};
-
-    const auto sendStart = std::chrono::steady_clock::now();
-    auto waitForIdleConnectionMilliseconds = 100ms;
-    try {
-        while ((client == nullptr) || !client->connected()) {
-            // First, check if the connection pool has been stopped
-            // intentionally client-side
-            if (m_connectionState == State::STOPPED) {
-                LOG_DBG(1)
-                    << "Connection pool stopped - cannot send message...";
-
-                folly::via(folly::getCPUExecutor().get(), [callback] {
-                    callback(
-                        std::make_error_code(std::errc::connection_aborted));
-                });
-
-                return;
-            }
-
-            // Wait for an idle connection to become available
-            // If all connections are
-            if (!m_idleConnections.try_pop(client)) {
-                LOG_DBG(1) << "Waiting for an idle connection to become "
-                              "available - current connection pool size "
-                           << connectionsSize();
-
-                // Request new connection at most once for each 'send'
-                if (m_connectionState == State::CONNECTED) {
-                    ++m_needMoreConnections;
-                    if (m_needMoreConnections >
-                        detail::kNeedMoreConnectionsThreshold) {
-                        connectionMonitorTick();
-                    }
+                    return folly::makeFuture();
                 }
 
-                const auto kMaximumIdleConnectionRetryWait{10s};
-                const auto kIdleConnectionRetryBackoff{1.5};
+                const auto soFar =
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now() -
+                        idleConnectionGuard.startedAt());
+                const std::chrono::seconds writeTimeout =
+                    m_providerTimeout - soFar;
 
-                std::this_thread::sleep_for(waitForIdleConnectionMilliseconds);
-                if (waitForIdleConnectionMilliseconds <
-                    kMaximumIdleConnectionRetryWait)
-                    waitForIdleConnectionMilliseconds =
-                        std::chrono::milliseconds{static_cast<size_t>(
-                            waitForIdleConnectionMilliseconds.count() *
-                            kIdleConnectionRetryBackoff)};
+                if (writeTimeout.count() <= 0) {
+                    LOG_DBG(1)
+                        << "Idle connection not found before timeout - took "
+                        << soFar.count();
 
-                LOG_DBG(1) << "No idle connection available - retry in: "
-                           << waitForIdleConnectionMilliseconds.count()
-                           << " [ms]";
-
-                if (std::chrono::steady_clock::now() - sendStart >
-                    m_providerTimeout) {
-                    // If sending message fails duration exceeds specified
-                    // timeout - stop trying
                     throw std::system_error(
                         std::make_error_code(std::errc::timed_out));
                 }
 
-                continue;
-            }
+                auto *client = idleConnectionGuard.client();
 
-            if (client != nullptr) {
-                idleConnectionGuard.setClient(client);
-                client->idle(false);
-            }
-        }
+                if (m_connectionState == State::STOPPED) {
+                    LOG_DBG(1) << "Got null connection - aborting...";
 
-        LOG_DBG(3) << "Retrieved active connection " << client->connectionId()
-                   << " from connection pool";
-    }
-    catch (const tbb::user_abort &) {
-        // We have aborted the wait by calling stop()
-        LOG_DBG(2) << "Waiting for connection from connection pool aborted";
-
-        callback(std::make_error_code(std::errc::connection_aborted));
-
-        return;
-    }
-    catch (const std::system_error &e) {
-        LOG(ERROR) << "Failed sending messages due to: " << e.what();
-
-        if (e.code().value() == ETIMEDOUT) {
-            if (areAllConnectionsDown()) {
-                if (m_onConnectionLostCallback)
-                    m_onConnectionLostCallback();
-
-                m_connectionState = State::CONNECTION_LOST;
-            }
-        }
-
-        callback(e.code());
-
-        return;
-    }
-    catch (...) {
-        LOG(ERROR) << "Failed sending messages due to unknown connection error";
-
-        callback(
-            std::make_error_code(std::errc::resource_unavailable_try_again));
-
-        return;
-    }
-
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::seconds writeTimeout = m_providerTimeout -
-        std::chrono::duration_cast<std::chrono::seconds>(now - sendStart);
-
-    if (writeTimeout.count() <= 0) {
-        LOG_DBG(1) << "Idle connection not found before timeout";
-
-        folly::via(folly::getCPUExecutor().get(), [callback] {
-            callback(std::make_error_code(std::errc::timed_out));
-        });
-
-        callback(std::make_error_code(std::errc::timed_out));
-
-        return;
-    }
-
-    if (client->getPipeline() == nullptr ||
-        !client->getPipeline()->getTransport()->good()) {
-        callback(std::make_error_code(std::errc::connection_aborted));
-        return;
-    }
-
-    client->getPipeline()
-        ->write(message)
-        .within(writeTimeout,
-            std::system_error{std::make_error_code(std::errc::timed_out)})
-        .thenTry([this, callback,
-                     idleConnectionGuard = std::move(idleConnectionGuard)](
-                     folly::Try<folly::Unit> &&maybeUnit) {
-            if (maybeUnit.hasException()) {
-                LOG_DBG(1) << "Sending message failed due to: "
-                           << maybeUnit.exception().what();
-
-                if (areAllConnectionsDown()) {
-                    if (m_onConnectionLostCallback)
-                        m_onConnectionLostCallback();
-
-                    m_connectionState = State::CONNECTION_LOST;
+                    callback(
+                        std::make_error_code(std::errc::connection_aborted));
+                    return folly::makeFuture();
                 }
 
-                callback(std::make_error_code(std::errc::timed_out));
-            }
-            else {
-                LOG_DBG(3) << "Message sent";
-                callback(std::error_code{});
-            }
+                return client->getPipeline()
+                    ->write(message)
+                    .via(m_executor.get())
+                    .within(writeTimeout,
+                        std::system_error{
+                            std::make_error_code(std::errc::timed_out)})
+                    .via(m_executor.get())
+                    .thenTry(
+                        [this, callback, connectionId = client->connectionId(),
+                            idleConnectionGuard =
+                                std::move(idleConnectionGuard)](
+                            folly::Try<folly::Unit> &&maybeUnit) {
+                            if (maybeUnit.hasException()) {
+                                const auto &e = maybeUnit.exception();
 
-            if (maybeUnit.hasException()) {
-                maybeUnit.throwIfFailed();
-            }
-        });
+                                LOG_DBG(1) << "Sending message failed due to: "
+                                           << e.what();
 
-    LOG_DBG(3) << "Message queued";
+                                if (areAllConnectionsDown()) {
+                                    if (m_onConnectionLostCallback)
+                                        m_onConnectionLostCallback();
+
+                                    LOG_DBG(1)
+                                        << "Entered connection lost state...";
+
+                                    m_connectionState = State::CONNECTION_LOST;
+                                }
+
+                                callback(
+                                    std::make_error_code(std::errc::timed_out));
+                            }
+                            else {
+                                ++m_sentMessageCounter;
+                                --m_queuedMessageCounter;
+
+                                LOG_DBG(3)
+                                    << "Message sent: " << m_sentMessageCounter
+                                    << " - queued: " << m_queuedMessageCounter
+                                    << " [" << connectionId << "]";
+
+                                callback(std::error_code{});
+                            }
+
+                            return folly::makeFuture();
+                        });
+            })
+            .thenError(folly::tag_t<tbb::user_abort>{},
+                [callback](auto && /*e*/) { // We have aborted the wait by
+                                            // calling stop()
+                    LOG(ERROR) << "Waiting for connection from connection pool "
+                                  "aborted";
+
+                    callback(
+                        std::make_error_code(std::errc::connection_aborted));
+                })
+            .thenError(folly::tag_t<std::system_error>{},
+                [this, callback](auto &&e) {
+                    if (m_connectionState != State::STOPPED) {
+                        LOG(ERROR)
+                            << "Failed sending messages due to system error: "
+                            << e.what();
+
+                        if (e.code().value() == ETIMEDOUT) {
+                            if (areAllConnectionsDown()) {
+                                if (m_onConnectionLostCallback)
+                                    m_onConnectionLostCallback();
+
+                                LOG_DBG(1)
+                                    << "Entered connection lost state...";
+
+                                m_connectionState = State::CONNECTION_LOST;
+                            }
+                        }
+
+                        callback(e.code());
+                    }
+                    else {
+                        LOG_DBG(1)
+                            << "Ignoring message send exception due to alread "
+                               "stopped connection pool: "
+                            << e.what();
+                    }
+                })
+            .thenError(folly::tag_t<std::exception>{}, [callback](auto &&e) {
+                LOG(ERROR) << "Failed sending messages due to: " << e.what();
+
+                callback(std::make_error_code(
+                    std::errc::resource_unavailable_try_again));
+            });
+
+    ++m_queuedMessageCounter;
+
+    LOG_DBG(3) << "Message queued: " << m_queuedMessageCounter;
+
+    return f;
 }
 
 ConnectionPool::~ConnectionPool()
@@ -698,13 +769,15 @@ ConnectionPool::~ConnectionPool()
 }
 
 void ConnectionPool::stop()
-{
+try {
     LOG_FCALL();
 
     LOG_DBG(1) << "Stopping connection pool";
 
-    if (m_connectionState == State::CREATED ||
-        m_connectionState == State::STOPPED) {
+    if (m_connectionState == State::STOPPED)
+        return;
+
+    if (m_connectionState == State::CREATED) {
         m_connectionState = State::STOPPED;
 
         connectionMonitorTick();
@@ -714,6 +787,18 @@ void ConnectionPool::stop()
         return;
     }
 
+    using namespace std::chrono_literals;
+    using std::chrono::steady_clock;
+    const auto kPendingMessagesWaitTick{10ms};
+    const auto kPendingMessagesWaitTime{30s};
+
+    // Wait for all queued messages to go out
+    const auto waitUntil = steady_clock::now() + kPendingMessagesWaitTime;
+    while ((steady_clock::now() < waitUntil) && (m_queuedMessageCounter > 0) &&
+        !areAllConnectionsDown()) {
+        std::this_thread::sleep_for(kPendingMessagesWaitTick);
+    }
+
     m_connectionState = State::STOPPED;
 
     connectionMonitorTick();
@@ -721,41 +806,85 @@ void ConnectionPool::stop()
     if (m_connectionMonitorThread.joinable())
         m_connectionMonitorThread.join();
 
+    LOG_DBG(3) << "Closing connections";
+
     close().get();
+
+    LOG_DBG(3) << "Stopping connection thread pool";
 
     m_executor->stop();
 
-    LOG_DBG(1) << "Connection pool stopped";
+    LOG(INFO) << "Connection pool stopped - sent: " << m_sentMessageCounter
+              << ", queued: " << m_queuedMessageCounter;
+}
+catch (std::exception &e) {
+    LOG(INFO) << "Error stopping configuration communicator (ignored): "
+              << e.what();
+}
+catch (...) {
+    LOG(INFO) << "Error stopping configuration communicator (ignored)";
 }
 
 folly::Future<folly::Unit> ConnectionPool::close()
 {
+    LOG_FCALL();
+
     m_idleConnections.clear();
 
     // Cancel any threads waiting on m_idleConnections.pop()
     m_idleConnections.abort();
 
-    if (m_connections.empty())
-        return folly::Future<folly::Unit>{};
-
     folly::fbvector<folly::Future<folly::Unit>> stopFutures;
 
-    for (const auto &client : m_connections) {
-        if ((client->getPipeline() == nullptr) || !client->connected())
-            continue;
+    {
+        std::lock_guard<std::mutex> guard{m_connectionsMutex};
+        if (m_connections.empty())
+            return folly::Future<folly::Unit>{};
 
-        stopFutures.emplace_back(
-            folly::via(folly::getCPUExecutor().get())
-                .thenValue([client](auto && /*unit*/) mutable {
-                    return client->getPipeline()->close();
-                }));
+        for (const auto &client : m_connections) {
+            if ((client->getPipeline() == nullptr) || !client->connected())
+                continue;
+
+            stopFutures.emplace_back(
+                folly::via(folly::getCPUExecutor().get())
+                    .thenValue([client](auto && /*unit*/) mutable {
+                        if (client->getPipeline() == nullptr)
+                            return folly::Future<folly::Unit>{};
+                        return client->getPipeline()->close();
+                    })
+                    .thenTry([](auto &&maybe) {
+                        if (maybe.hasException()) {
+                            if (maybe.exception().what() ==
+                                "close() called while sends still pending") {
+
+                                LOG_DBG(1) << "close() called while sends "
+                                              "still pending - ignoring...";
+
+                                return folly::makeFuture();
+                            }
+
+                            maybe.throwIfFailed();
+                        }
+
+                        return folly::makeFuture();
+                    }));
+        }
     }
 
+    if (stopFutures.empty())
+        return folly::Future<folly::Unit>{};
+
+    LOG_DBG(3) << "Waiting for actual close of " << stopFutures.size()
+               << " connections";
+
     return folly::collectAll(stopFutures.begin(), stopFutures.end())
-        .via(folly::getCPUExecutor().get())
+        .via(m_executor.get())
         .thenValue([this](auto && /*res*/) {
             std::lock_guard<std::mutex> guard{m_connectionsMutex};
             m_connections.clear();
+
+            LOG_DBG(3) << "Connections cleared";
+
             return folly::Future<folly::Unit>{};
         });
 }

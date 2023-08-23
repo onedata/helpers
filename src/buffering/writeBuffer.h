@@ -77,7 +77,9 @@ public:
     ~WriteBuffer()
     {
         LOG_FCALL();
-        m_cancelFlushSchedule();
+
+        if (m_cancelFlushSchedule)
+            m_cancelFlushSchedule();
     }
 
     folly::Future<std::size_t> write(
@@ -93,7 +95,9 @@ public:
 
         std::unique_lock<FiberMutex> lock{m_mutex};
 
-        m_cancelFlushSchedule();
+        if (m_cancelFlushSchedule)
+            m_cancelFlushSchedule();
+
         scheduleFlush();
 
         const std::size_t size = buf.chainLength();
@@ -136,6 +140,7 @@ public:
         LOG_FCALL();
 
         std::unique_lock<FiberMutex> lock{m_mutex};
+
         pushBuffer();
         return confirmAll();
     }
@@ -260,6 +265,9 @@ private:
             m_pendingConfirmation -= m_confirmationFutures.front().first;
             m_confirmationFutures.pop();
         }
+
+        if (confirmFutures.empty())
+            return folly::makeFuture();
 
         return folly::collectAll(std::move(confirmFutures))
             .via(m_handle.helper()->executor().get())

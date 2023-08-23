@@ -11,6 +11,7 @@
 
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
+#include <glog/logging.h>
 #include <tbb/concurrent_queue.h>
 
 #include <atomic>
@@ -44,9 +45,24 @@ public:
 
     void send(const std::string &msg)
     {
-        m_pool.send(
-            msg, [](auto) {}, int{});
+        m_pool
+            .send(
+                msg, [](auto) {}, int{})
+            .get();
     }
+
+    void sendMultipleAsync(const std::string msg, size_t count)
+    {
+        while (count-- > 0)
+            m_pool.send(
+                msg, [](auto) {}, int{});
+
+        stop();
+    }
+
+    size_t sentMessageCounter() { return m_pool.sentMessageCounter(); }
+
+    size_t queuedMessageCounter() { return m_pool.queuedMessageCounter(); }
 
     std::string popMessage()
     {
@@ -68,6 +84,8 @@ namespace {
 boost::shared_ptr<ConnectionPoolProxy> create(
     int conn, int workers, std::string host, int port)
 {
+    FLAGS_v = 0;
+
     one::helpers::init();
 
     return boost::make_shared<ConnectionPoolProxy>(
@@ -82,6 +100,10 @@ BOOST_PYTHON_MODULE(connection_pool)
         .def("__init__", make_constructor(create))
         .def("stop", &ConnectionPoolProxy::stop)
         .def("send", &ConnectionPoolProxy::send)
+        .def("sendMultipleAsync", &ConnectionPoolProxy::sendMultipleAsync)
         .def("popMessage", &ConnectionPoolProxy::popMessage)
-        .def("size", &ConnectionPoolProxy::size);
+        .def("size", &ConnectionPoolProxy::size)
+        .def("sentMessageCounter", &ConnectionPoolProxy::sentMessageCounter)
+        .def(
+            "queuedMessageCounter", &ConnectionPoolProxy::queuedMessageCounter);
 }
