@@ -88,7 +88,7 @@ public:
                 std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
                     accessKey, secretKey, false, false, false, 25,
                     std::numeric_limits<size_t>::max(), 0664, 0775,
-                    scheme == "https", std::chrono::seconds{20},
+                    scheme == "https", "us-east-1", std::chrono::seconds{20},
                     StoragePathType::FLAT),
                 m_executor, blockSize);
 
@@ -97,7 +97,7 @@ public:
                 std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
                     accessKey, secretKey, false, false, false, 25,
                     std::numeric_limits<size_t>::max(), 0664, 0775,
-                    scheme == "https", std::chrono::seconds{20},
+                    scheme == "https", "us-east-1", std::chrono::seconds{20},
                     StoragePathType::CANONICAL),
                 m_executor, 0);
 

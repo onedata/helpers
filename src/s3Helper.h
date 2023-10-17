@@ -49,7 +49,8 @@ public:
 
     std::vector<folly::fbstring> overridableParams() const override
     {
-        return {"scheme", "hostname", "timeout"};
+        return {"scheme", "hostname", "timeout", "region",
+            "validateServerCertificate"};
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(
@@ -75,7 +76,8 @@ public:
         const auto &secretKey =
             getParam<std::string>(parameters, "secretKey", "");
         const auto version = getParam<int>(parameters, "signatureVersion", 4);
-        const auto verifySSL = getParam<bool>(parameters, "verifySSL", true);
+        const auto verifyServerCertificate =
+            getParam<bool>(parameters, "verifyServerCertificate", true);
         const auto disableExpectHeader =
             getParam<bool>(parameters, "disableExpectHeader", false);
         const auto enableClockSkewAdjustment =
@@ -93,6 +95,8 @@ public:
             parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
         const auto &blockSize =
             getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
+        const auto &region =
+            getParam<std::string>(parameters, "region", "us-east-1");
 
         if (version != 4)
             throw std::invalid_argument(
@@ -102,10 +106,10 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<S3Helper>(hostname, bucketName, accessKey,
-                secretKey, verifySSL, disableExpectHeader,
+                secretKey, verifyServerCertificate, disableExpectHeader,
                 enableClockSkewAdjustment, maxConnections,
                 maximumCanonicalObjectSize, parsePosixPermissions(fileMode),
-                parsePosixPermissions(dirMode), scheme == "https",
+                parsePosixPermissions(dirMode), scheme == "https", region,
                 std::move(timeout), storagePathType),
             m_executor, blockSize, executionContext);
     }
@@ -132,10 +136,11 @@ public:
      */
     S3Helper(const folly::fbstring &hostname, const folly::fbstring &bucketName,
         const folly::fbstring &accessKey, const folly::fbstring &secretKey,
-        const bool verifySSL, const bool disableExpectHeader,
+        const bool verifyServerCertificate, const bool disableExpectHeader,
         const bool enableClockSkewAdjustment, const int maxConnections,
         const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
         const mode_t dirMode, const bool useHttps = true,
+        folly::fbstring region = "us-east-1",
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
 
@@ -171,7 +176,7 @@ public:
     const Timeout &timeout() override { return m_timeout; }
 
 private:
-    static folly::fbstring getRegion(const folly::fbstring &hostname);
+    folly::fbstring getRegion(const folly::fbstring &hostname);
 
     folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
     folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;
@@ -186,6 +191,7 @@ private:
 
     const mode_t m_fileMode;
     const mode_t m_dirMode;
+    folly::fbstring m_defaultRegion;
 };
 
 /*
