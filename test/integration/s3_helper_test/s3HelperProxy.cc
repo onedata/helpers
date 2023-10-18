@@ -86,7 +86,7 @@ public:
               std::make_shared<one::helpers::S3Helper>(std::move(hostName),
                   std::move(bucketName), std::move(accessKey),
                   std::move(secretKey), false, false, false, 25,
-                  2 * 1024 * 1024, 0664, 0775, scheme == "https",
+                  2 * 1024 * 1024, 0664, 0775, scheme == "https", "us-east-1",
                   std::chrono::seconds{20}, storagePathType),
               m_executor, blockSize)}
     {

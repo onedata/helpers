@@ -125,15 +125,16 @@ namespace helpers {
 
 S3Helper::S3Helper(const folly::fbstring &hostname,
     const folly::fbstring &bucketName, const folly::fbstring &accessKey,
-    const folly::fbstring &secretKey, const bool verifySSL,
+    const folly::fbstring &secretKey, const bool verifyServerCertificate,
     const bool disableExpectHeader, const bool enableClockSkewAdjustment,
     const int maxConnections, const std::size_t maximumCanonicalObjectSize,
     const mode_t fileMode, const mode_t dirMode, const bool useHttps,
-    Timeout timeout, StoragePathType storagePathType)
+    folly::fbstring region, Timeout timeout, StoragePathType storagePathType)
     : KeyValueHelper{false, storagePathType, maximumCanonicalObjectSize}
     , m_timeout{timeout}
     , m_fileMode{fileMode}
     , m_dirMode{dirMode}
+    , m_defaultRegion{std::move(region)}
 {
     LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
                 << LOG_FARG(accessKey) << LOG_FARG(secretKey)
@@ -161,7 +162,7 @@ S3Helper::S3Helper(const folly::fbstring &hostname,
     configuration.connectTimeoutMs = m_timeout.count();
     configuration.requestTimeoutMs = m_timeout.count();
     configuration.enableClockSkewAdjustment = enableClockSkewAdjustment;
-    configuration.verifySSL = verifySSL;
+    configuration.verifySSL = verifyServerCertificate;
     configuration.disableExpectHeader = disableExpectHeader;
     configuration.maxConnections = maxConnections;
 
@@ -204,9 +205,9 @@ folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
         }
     }
 
-    LOG_DBG(1) << "Using default S3 region us-east-1";
+    LOG_DBG(1) << "Using default S3 region " << m_defaultRegion;
 
-    return "us-east-1";
+    return m_defaultRegion;
 }
 
 folly::fbstring S3Helper::toEffectiveKey(const folly::fbstring &key) const
