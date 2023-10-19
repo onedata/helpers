@@ -228,7 +228,8 @@ void ConnectionPool::connect()
 
         if ((std::chrono::system_clock::now() - connectStart >
                 m_providerTimeout) ||
-            (m_connectionState == State::STOPPED)) {
+            (m_connectionState == State::STOPPED ||
+                m_connectionState == State::HANDSHAKE_FAILED)) {
 
             if (m_lastException) {
                 rethrow_exception(m_lastException);
@@ -296,7 +297,8 @@ void ConnectionPool::connectionMonitorTask()
     while (m_connectionState == State::CREATED) {
         std::this_thread::sleep_for(100ms);
 
-        if (m_connectionState == State::STOPPED)
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED)
             return;
     }
 
@@ -313,7 +315,8 @@ void ConnectionPool::connectionMonitorTask()
     // Loop until connection pool is forcibly stopped using stop()
     // i.e. as long as m_connectionState != State::STOPPED
     while (true) {
-        if (m_connectionState == State::STOPPED)
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED)
             break;
 
         // This condition variable is responsible for controlling loop
@@ -355,7 +358,8 @@ void ConnectionPool::connectionMonitorTask()
             {
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
                 for (auto &client : m_connections) {
-                    if (m_connectionState == State::STOPPED)
+                    if (m_connectionState == State::STOPPED ||
+                        m_connectionState == State::HANDSHAKE_FAILED)
                         break;
 
                     LOG_DBG(3)
@@ -394,7 +398,7 @@ void ConnectionPool::connectionMonitorTask()
                             << e.what() << " - stopping connection pool";
 
                         m_lastException = std::current_exception();
-                        m_connectionState = State::STOPPED;
+                        m_connectionState = State::HANDSHAKE_FAILED;
                         break;
                     }
 
@@ -421,7 +425,8 @@ void ConnectionPool::connectionMonitorTask()
                         m_onReconnectCallback();
                 }
 
-                if (m_connectionState == State::STOPPED)
+                if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::HANDSHAKE_FAILED)
                     break;
 
                 m_connectionState = State::CONNECTED;
@@ -429,7 +434,8 @@ void ConnectionPool::connectionMonitorTask()
                 monitorSleepDuration = kConnectedMonitorSleepDuration;
             }
 
-            if (m_connectionState == State::STOPPED)
+            if (m_connectionState == State::STOPPED ||
+                m_connectionState == State::HANDSHAKE_FAILED)
                 break;
 
             if (m_connectionState == State::CONNECTION_LOST)
@@ -777,7 +783,8 @@ try {
     if (m_connectionState == State::STOPPED)
         return;
 
-    if (m_connectionState == State::CREATED) {
+    if (m_connectionState == State::CREATED ||
+        m_connectionState == State::HANDSHAKE_FAILED) {
         m_connectionState = State::STOPPED;
 
         connectionMonitorTick();
