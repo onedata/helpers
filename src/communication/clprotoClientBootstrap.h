@@ -50,6 +50,8 @@ public:
 
     bool connected();
 
+    void setEOFCallbackCalled(bool v);
+
     bool handshakeDone() const;
 
     void setEOFCallback(std::function<void(void)> eofCallback);
@@ -73,6 +75,7 @@ private:
     bool m_firstConnection{true};
 
     std::function<void(void)> m_eofCallback;
+    bool m_eofCallbackCalled{false};
 };
 } // namespace communication
 } // namespace one
