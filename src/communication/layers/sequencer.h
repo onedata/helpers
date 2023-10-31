@@ -262,7 +262,8 @@ template <class LowerLayer, class Scheduler>
 void Sequencer<LowerLayer, Scheduler>::connect()
 {
     LowerLayer::connect();
-    sendMessageStreamReset().get();
+    if (LowerLayer::isConnected())
+        sendMessageStreamReset().get();
 }
 
 template <class LowerLayer, class Scheduler>

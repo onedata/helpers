@@ -286,7 +286,10 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 bool CLProtoClientBootstrap::connected()
 {
     if (m_eofCallbackCalled)
-        return true;
+        return false;
+
+    if (m_performCLProtoHandshake && !m_handshakeDone)
+        return false;
 
     if (getPipeline() == nullptr)
         return false;

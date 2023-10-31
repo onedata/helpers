@@ -52,6 +52,8 @@ struct LowerLayer {
         sendProxy(*cmp);
         return folly::makeFuture();
     }
+
+    bool isConnected() { return true; }
 };
 
 struct SequencerTest : public ::testing::Test {

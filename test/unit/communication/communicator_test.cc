@@ -27,6 +27,8 @@ public:
 
     void connect() { }
 
+    bool isConnected() { return true; }
+
     std::shared_ptr<folly::Executor> executor()
     {
         return folly::getIOExecutor();
