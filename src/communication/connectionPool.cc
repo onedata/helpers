@@ -74,7 +74,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     : m_connectionsNumber{connectionsNumber}
     , m_minConnectionsNumber{connectionsNumber == 0ULL
               ? 0ULL
-              : std::min<std::size_t>(connectionsNumber, 2)}
+              : std::min<std::size_t>(connectionsNumber, 1)}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
@@ -594,6 +594,11 @@ ConnectionPool::getIdleClient(
                     });
         }
 
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED) {
+            break;
+        }
+
         if (client != nullptr && client->connected()) {
             idleConnectionGuard.setClient(client);
             client->idle(false);
@@ -646,7 +651,8 @@ folly::Future<folly::Unit> ConnectionPool::send(
             .via(m_executor.get())
             .thenValue([this, message, callback](
                            IdleConnectionGuard &&idleConnectionGuard) {
-                if (m_connectionState == State::STOPPED) {
+                if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::HANDSHAKE_FAILED) {
                     LOG_DBG(1)
                         << "Connection pool stopped - ignoring send message...";
 
@@ -671,7 +677,8 @@ folly::Future<folly::Unit> ConnectionPool::send(
 
                 auto *client = idleConnectionGuard.client();
 
-                if (m_connectionState == State::STOPPED) {
+                if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::HANDSHAKE_FAILED) {
                     LOG_DBG(1) << "Got null connection - aborting...";
 
                     callback(
