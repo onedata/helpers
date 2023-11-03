@@ -43,6 +43,11 @@ public:
     CLProtoClientBootstrap(
         uint32_t id, bool performCLProtoUpgrade, bool performCLProtoHandshake);
 
+    CLProtoClientBootstrap(const CLProtoClientBootstrap &) = delete;
+    CLProtoClientBootstrap(CLProtoClientBootstrap &&) = delete;
+    CLProtoClientBootstrap &operator=(const CLProtoClientBootstrap &) = delete;
+    CLProtoClientBootstrap &operator=(CLProtoClientBootstrap &&) = delete;
+
     ~CLProtoClientBootstrap() override;
 
     void makePipeline(std::shared_ptr<folly::AsyncTransport> socket) override;
