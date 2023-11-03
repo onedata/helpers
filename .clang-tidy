@@ -15,6 +15,7 @@ Checks: >-
   -hicpp-*,
   -google-runtime-references,
   -llvm-header-guard,
+  -llvmlibc*,
   -modernize-avoid-bind,
   -modernize-use-trailing-return-type,
   -modernize-use-default-member-init,

@@ -56,7 +56,8 @@ constexpr std::size_t kProxyHelperMaximumWriteBufferSize = 52'428'800;
 
 #ifdef BUILD_PROXY_IO
 
-StorageHelperCreator::StorageHelperCreator(
+template <typename CommunicatorT>
+StorageHelperCreator<CommunicatorT>::StorageHelperCreator(
 #if WITH_CEPH
     std::shared_ptr<folly::IOExecutor> cephExecutor,
     std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
@@ -81,9 +82,8 @@ StorageHelperCreator::StorageHelperCreator(
     std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
     std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
-    communication::Communicator &communicator,
-    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
-    ExecutionContext executionContext)
+    CommunicatorT &communicator, std::size_t bufferSchedulerWorkers,
+    buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
     :
 #if WITH_CEPH
     m_cephExecutor{std::move(cephExecutor)}
@@ -196,7 +196,9 @@ StorageHelperCreator::StorageHelperCreator(
 }
 #endif
 
-std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
+template <typename CommunicatorT>
+std::shared_ptr<StorageHelper>
+StorageHelperCreator<CommunicatorT>::getStorageHelper(
     const folly::fbstring &name,
     const std::unordered_map<folly::fbstring, folly::fbstring> &args,
     const bool buffered,
@@ -255,9 +257,9 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 
 #ifdef BUILD_PROXY_IO
     if (name == PROXY_HELPER_NAME)
-        helper =
-            ProxyHelperFactory{m_communicator}.createStorageHelperWithOverride(
-                args, overrideParams, m_executionContext);
+        helper = ProxyHelperFactory<CommunicatorT>{m_communicator}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
 #endif
 
 #if WITH_S3
@@ -444,6 +446,8 @@ std::shared_ptr<StorageHelper> StorageHelperCreator::getStorageHelper(
 
     return helper;
 }
+
+template class StorageHelperCreator<communication::Communicator>;
 
 } // namespace helpers
 } // namespace one

@@ -37,7 +37,8 @@ public:
         std::string storageId, std::string host, const unsigned short port)
         : m_communicator{1, 1, host, port, false, true, false}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
-        , m_helper{std::make_shared<one::helpers::ProxyHelper>(
+        , m_helper{std::make_shared<
+              one::helpers::ProxyHelper<one::communication::Communicator>>(
               storageId, m_communicator)}
     {
         m_communicator.setScheduler(m_scheduler);
@@ -91,7 +92,8 @@ public:
 private:
     one::communication::Communicator m_communicator;
     std::shared_ptr<one::Scheduler> m_scheduler;
-    std::shared_ptr<one::helpers::ProxyHelper> m_helper;
+    std::shared_ptr<one::helpers::ProxyHelper<one::communication::Communicator>>
+        m_helper;
     std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
 };
 

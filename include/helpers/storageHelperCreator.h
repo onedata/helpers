@@ -114,7 +114,7 @@ struct BufferLimits {
 /**
  * Factory providing objects of requested storage helpers.
  */
-class StorageHelperCreator final {
+template <typename CommunicatorT> class StorageHelperCreator final {
 public:
 #ifdef BUILD_PROXY_IO
     StorageHelperCreator(
@@ -142,8 +142,7 @@ public:
         std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
         std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
-        communication::Communicator &m_communicator,
-        std::size_t bufferSchedulerWorkers = 1,
+        CommunicatorT &m_communicator, std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #else
@@ -233,7 +232,7 @@ private:
         m_bufferMemoryLimitGuard;
 
 #ifdef BUILD_PROXY_IO
-    communication::Communicator &m_communicator;
+    CommunicatorT &m_communicator;
 #endif
 
     ExecutionContext m_executionContext;
