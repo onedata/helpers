@@ -275,7 +275,8 @@ StorageHelperCreator<CommunicatorT>::StorageHelperCreator(
 }
 #else
 
-StorageHelperCreator::StorageHelperCreator(
+template <typename CommunicatorT>
+StorageHelperCreator<CommunicatorT>::StorageHelperCreator(
 #if WITH_CEPH
     std::shared_ptr<folly::IOExecutor> cephExecutor,
     std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
