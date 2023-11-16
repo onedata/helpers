@@ -129,7 +129,7 @@ long to_ms(const Timeout &duration)
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration)
         .count();
 }
-}
+} // namespace
 
 S3Helper::S3Helper(const folly::fbstring &hostname,
     const folly::fbstring &bucketName, const folly::fbstring &accessKey,

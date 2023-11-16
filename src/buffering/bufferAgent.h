@@ -135,13 +135,13 @@ public:
     ~BufferedFileHandle() override;
 
     folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) override;
+        off_t offset, std::size_t size) override;
 
-    folly::Future<folly::IOBufQueue> readContinuous(const off_t offset,
-        const std::size_t size, const std::size_t continuousSize) override;
+    folly::Future<folly::IOBufQueue> readContinuous(
+        off_t offset, std::size_t size, std::size_t continuousSize) override;
 
-    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
-        WriteCallback &&writeCb) override;
+    folly::Future<std::size_t> write(
+        off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) override;
 
     folly::Future<folly::Unit> fsync(bool isDataSync) override;
 
@@ -151,10 +151,9 @@ public:
 
     const Timeout &timeout() override;
 
-    bool needsDataConsistencyCheck();
+    bool needsDataConsistencyCheck() override;
 
-    std::size_t wouldPrefetch(
-        const off_t offset, const std::size_t size) override;
+    std::size_t wouldPrefetch(off_t offset, std::size_t size) override;
 
     folly::Future<folly::Unit> flushUnderlying() override;
 
