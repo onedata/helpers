@@ -30,6 +30,11 @@ public:
         std::shared_ptr<folly::Executor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
+    StorageFanInHelper(const StorageFanInHelper &) = delete;
+    StorageFanInHelper &operator=(const StorageFanInHelper &) = delete;
+    StorageFanInHelper(StorageFanInHelper &&) = delete;
+    StorageFanInHelper &operator=(StorageFanInHelper &&) = delete;
+
     /**
      * Destructor.
      * Closes connection to FanIn storage cluster and destroys internal
@@ -79,12 +84,9 @@ public:
      * @param service @c io_service that will be used for some async
      * operations.
      */
-    StorageFanInHelperFactory() { LOG_FCALL(); }
+    explicit StorageFanInHelperFactory() { LOG_FCALL(); }
 
-    virtual folly::fbstring name() const override
-    {
-        return STORAGE_FANIN_HELPER_NAME;
-    }
+    folly::fbstring name() const override { return STORAGE_FANIN_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {

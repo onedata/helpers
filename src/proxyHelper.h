@@ -185,6 +185,13 @@ public:
                             .count());
     }
 
+    ProxyHelper(const ProxyHelper &) = delete;
+    ProxyHelper &operator=(const ProxyHelper &) = delete;
+    ProxyHelper(ProxyHelper &&) = delete;
+    ProxyHelper &operator=(ProxyHelper &&) = delete;
+
+    virtual ~ProxyHelper() = default;
+
     folly::fbstring name() const override { return PROXY_HELPER_NAME; };
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
@@ -229,12 +236,12 @@ public:
      * @param communicator Communicator that will be used for communication
      * with a provider.
      */
-    ProxyHelperFactory(CommunicatorT &communicator)
+    explicit ProxyHelperFactory(CommunicatorT &communicator)
         : m_communicator{communicator}
     {
     }
 
-    virtual folly::fbstring name() const override { return PROXY_HELPER_NAME; }
+    folly::fbstring name() const override { return PROXY_HELPER_NAME; }
 
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
@@ -244,8 +251,7 @@ public:
             parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         return std::make_shared<ProxyHelper<CommunicatorT>>(
-            std::move(storageId), m_communicator, std::move(timeout),
-            executionContext);
+            std::move(storageId), m_communicator, timeout, executionContext);
     }
 
 private:

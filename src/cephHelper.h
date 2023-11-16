@@ -69,6 +69,11 @@ public:
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
+    CephHelper(const CephHelper &) = delete;
+    CephHelper &operator=(const CephHelper &) = delete;
+    CephHelper(CephHelper &&) = delete;
+    CephHelper &operator=(CephHelper &&) = delete;
+
     /**
      * Destructor.
      * Closes connection to Ceph storage cluster and destroys internal context
@@ -78,8 +83,8 @@ public:
 
     folly::fbstring name() const override { return CEPH_HELPER_NAME; };
 
-    folly::Future<FileHandlePtr> open(
-        const folly::fbstring &fileId, const int, const Params &) override;
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+        const int /*flags*/, const Params & /*openParams*/) override;
 
     folly::Future<folly::Unit> unlink(
         const folly::fbstring &fileId, const size_t currentSize) override;
@@ -169,13 +174,13 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    CephHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit CephHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
         LOG_FCALL();
     }
 
-    virtual folly::fbstring name() const override { return CEPH_HELPER_NAME; }
+    folly::fbstring name() const override { return CEPH_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {
@@ -198,7 +203,7 @@ public:
                     << LOG_FARG(key);
 
         return std::make_shared<CephHelper>(clusterName, monHost, poolName,
-            userName, key, m_executor, std::move(timeout), executionContext);
+            userName, key, m_executor, timeout, executionContext);
     }
 
 private:

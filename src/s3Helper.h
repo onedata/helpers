@@ -40,12 +40,12 @@ public:
      * Constructor.
      * @param executor executor that will be used for some async operations.
      */
-    S3HelperFactory(std::shared_ptr<folly::IOExecutor> executor)
-        : m_executor{executor}
+    explicit S3HelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override { return S3_HELPER_NAME; }
+    folly::fbstring name() const override { return S3_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {
@@ -61,12 +61,12 @@ public:
         // objects in place.
         // Writes to larger objects will be ignored.
         const std::size_t kDefaultMaximumCanonicalObjectSize =
-            64ul * 1024 * 1024;
+            64UL * 1024 * 1024;
 
         const int kDefaultMaxConnections{25};
 
-        const auto kDefaultFileMode = "0664";
-        const auto kDefaultDirMode = "0775";
+        const auto *kDefaultFileMode = "0664";
+        const auto *kDefaultDirMode = "0775";
 
         const auto &scheme = getParam(parameters, "scheme", "https");
         const auto &hostname = getParam(parameters, "hostname");
@@ -110,7 +110,7 @@ public:
                 enableClockSkewAdjustment, maxConnections,
                 maximumCanonicalObjectSize, parsePosixPermissions(fileMode),
                 parsePosixPermissions(dirMode), scheme == "https", region,
-                std::move(timeout), storagePathType),
+                timeout, storagePathType),
             m_executor, blockSize, executionContext);
     }
 
@@ -143,6 +143,13 @@ public:
         folly::fbstring region = "us-east-1",
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
+
+    S3Helper(const S3Helper &) = delete;
+    S3Helper &operator=(const S3Helper &) = delete;
+    S3Helper(S3Helper &&) = delete;
+    S3Helper &operator=(S3Helper &&) = delete;
+
+    virtual ~S3Helper() = default;
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
 
@@ -201,6 +208,11 @@ private:
 class S3HelperApiInit {
 public:
     S3HelperApiInit() { Aws::InitAPI(m_options); }
+
+    S3HelperApiInit(const S3HelperApiInit &) = delete;
+    S3HelperApiInit &operator=(const S3HelperApiInit &) = delete;
+    S3HelperApiInit(S3HelperApiInit &&) = delete;
+    S3HelperApiInit &operator=(S3HelperApiInit &&) = delete;
 
     ~S3HelperApiInit() { Aws::ShutdownAPI(m_options); }
 

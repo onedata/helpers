@@ -58,6 +58,11 @@ public:
         std::shared_ptr<folly::Executor> executor,
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
 
+    NullDeviceFileHandle(const NullDeviceFileHandle &) = delete;
+    NullDeviceFileHandle &operator=(const NullDeviceFileHandle &) = delete;
+    NullDeviceFileHandle(NullDeviceFileHandle &&) = delete;
+    NullDeviceFileHandle &operator=(NullDeviceFileHandle &&) = delete;
+
     /**
      * Destructor.
      * Synchronously releases the file if @c sh_release or @c ash_release have
@@ -126,7 +131,7 @@ private:
 
     friend struct OpExec;
     struct OpExec : public boost::static_visitor<> {
-        OpExec(const std::shared_ptr<NullDeviceFileHandle> &handle);
+        explicit OpExec(const std::shared_ptr<NullDeviceFileHandle> &handle);
         std::unique_ptr<folly::Unit> startDrain() const;
         void operator()(ReadOp &op) const;
         void operator()(WriteOp &op) const;
@@ -192,6 +197,13 @@ public:
         bool enableDataVerification, std::shared_ptr<folly::Executor> executor,
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
+
+    NullDeviceHelper(const NullDeviceHelper &) = delete;
+    NullDeviceHelper &operator=(const NullDeviceHelper &) = delete;
+    NullDeviceHelper(NullDeviceHelper &&) = delete;
+    NullDeviceHelper &operator=(NullDeviceHelper &&) = delete;
+
+    virtual ~NullDeviceHelper() = default;
 
     folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; };
 
@@ -444,15 +456,13 @@ public:
      * Constructor.
      * @param executor executor that will be used for some async operations.
      */
-    NullDeviceHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit NullDeviceHelperFactory(
+        std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override
-    {
-        return NULL_DEVICE_HELPER_NAME;
-    }
+    folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {
@@ -470,7 +480,7 @@ public:
         const auto latencyMin = getParam<int>(parameters, "latencyMin", 0);
         const auto latencyMax = getParam<int>(parameters, "latencyMax", 0);
         const auto timeoutProbability =
-            getParam<double>(parameters, "timeoutProbability", (double)0.0);
+            getParam<double>(parameters, "timeoutProbability", 0.0);
         const auto &filter = getParam<folly::fbstring, folly::fbstring>(
             parameters, "filter", "*");
         const auto &simulatedFilesystemParameters =
@@ -495,8 +505,7 @@ public:
             simulatedFilesystemGrowSpeed,
             std::get<1>(simulatedFilesystemParametersParsed)
                 .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            enableDataVerification, m_executor, std::move(timeout),
-            executionContext);
+            enableDataVerification, m_executor, timeout, executionContext);
     }
 
 private:
