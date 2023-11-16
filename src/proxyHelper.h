@@ -44,7 +44,7 @@ public:
      * @param helper Shared ptr to underlying helper.
      */
     ProxyFileHandle(const folly::fbstring &fileId, folly::fbstring storageId,
-        const Params &openParams, communication::Communicator &communicator,
+        const Params &openParams, CommunicatorT &communicator,
         std::shared_ptr<ProxyHelper<CommunicatorT>> helper, Timeout timeout)
         : FileHandle{fileId, openParams, std::move(helper)}
         , m_storageId{std::move(storageId)}

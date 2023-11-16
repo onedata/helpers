@@ -9,10 +9,10 @@
 #ifndef HELPERS_BUFFERING_BUFFER_AGENT_H
 #define HELPERS_BUFFERING_BUFFER_AGENT_H
 
+#include "buffering/bufferLimits.h"
 #include "communication/communicator.h"
 #include "helpers/logging.h"
 #include "helpers/storageHelper.h"
-#include "helpers/storageHelperCreator.h"
 #include "readCache.h"
 #include "scheduler.h"
 #include "writeBuffer.h"
@@ -132,107 +132,36 @@ public:
     BufferedFileHandle(BufferedFileHandle &&) = default;
     BufferedFileHandle &operator=(BufferedFileHandle &&) = default;
 
-    ~BufferedFileHandle() override
-    {
-        LOG_FCALL();
-
-        if (m_bufferMemoryLimitGuard) {
-            m_bufferMemoryLimitGuard->releaseBuffers(
-                m_bufferLimits.readBufferMaxSize,
-                m_bufferLimits.writeBufferMaxSize);
-        }
-    }
+    ~BufferedFileHandle() override;
 
     folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) override
-    {
-        return readContinuous(
-            offset, size, std::numeric_limits<off_t>::max() - offset);
-    }
+        const off_t offset, const std::size_t size) override;
 
     folly::Future<folly::IOBufQueue> readContinuous(const off_t offset,
-        const std::size_t size, const std::size_t continuousSize) override
-    {
-        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
-                    << LOG_FARG(continuousSize);
-
-        DCHECK(continuousSize >= size);
-
-        // Push all changes so we'll always read data that we just wrote. A
-        // mechanism in `WriteBuffer` will trigger a clear of the readCache if
-        // needed. This might be optimized in the future by modifying readcache
-        // on write.
-        return m_writeBuffer->fsync().thenValue([=](auto && /*unit*/) {
-            return m_readCache->read(offset, size, continuousSize);
-        });
-    }
+        const std::size_t size, const std::size_t continuousSize) override;
 
     folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
-        WriteCallback &&writeCb) override
-    {
-        LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+        WriteCallback &&writeCb) override;
 
-        return m_writeBuffer->write(offset, std::move(buf), std::move(writeCb));
-    }
+    folly::Future<folly::Unit> fsync(bool isDataSync) override;
 
-    folly::Future<folly::Unit> fsync(bool isDataSync) override
-    {
-        LOG_FCALL() << LOG_FARG(isDataSync);
+    folly::Future<folly::Unit> flush() override;
 
-        return m_writeBuffer->fsync().thenValue(
-            [readCache = m_readCache, wrappedHandle = m_wrappedHandle,
-                isDataSync](auto && /*unit*/) {
-                readCache->clear();
-                return wrappedHandle->fsync(isDataSync);
-            });
-    }
+    folly::Future<folly::Unit> release() override;
 
-    folly::Future<folly::Unit> flush() override
-    {
-        LOG_FCALL();
+    const Timeout &timeout() override;
 
-        return m_writeBuffer->fsync().thenValue(
-            [readCache = m_readCache, wrappedHandle = m_wrappedHandle](
-                auto && /*unit*/) {
-                readCache->clear();
-                return wrappedHandle->flush();
-            });
-    }
-
-    folly::Future<folly::Unit> release() override
-    {
-        LOG_FCALL();
-
-        return m_writeBuffer->fsync().thenValue(
-            [wrappedHandle = m_wrappedHandle](
-                auto && /*unit*/) { wrappedHandle->release(); });
-    }
-
-    const Timeout &timeout() override { return m_wrappedHandle->timeout(); }
-
-    bool needsDataConsistencyCheck() override
-    {
-        return m_wrappedHandle->needsDataConsistencyCheck();
-    }
+    bool needsDataConsistencyCheck();
 
     std::size_t wouldPrefetch(
-        const off_t offset, const std::size_t size) override
-    {
-        return m_readCache->wouldPrefetch(offset, size);
-    }
+        const off_t offset, const std::size_t size) override;
 
-    folly::Future<folly::Unit> flushUnderlying() override
-    {
-        return m_wrappedHandle->flush();
-    }
+    folly::Future<folly::Unit> flushUnderlying() override;
 
-    FileHandlePtr wrappedHandle() { return m_wrappedHandle; }
+    FileHandlePtr wrappedHandle();
 
     folly::Future<folly::Unit> refreshHelperParams(
-        std::shared_ptr<StorageHelperParams> params) override
-    {
-        return m_wrappedHandle->refreshHelperParams(std::move(params));
-    }
+        std::shared_ptr<StorageHelperParams> params) override;
 
 private:
     FileHandlePtr m_wrappedHandle;

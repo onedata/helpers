@@ -11,6 +11,47 @@
 
 #include "storageHelper.h"
 
+#include "bufferedStorageHelper.h"
+#include "buffering/bufferAgent.h"
+#include "buffering/bufferLimits.h"
+#include "helpers/logging.h"
+#include "nullDeviceHelper.h"
+#include "posixHelper.h"
+#include "proxyHelper.h"
+#include "scheduler.h"
+#include "storageFanInHelper.h"
+#include "storageRouterHelper.h"
+
+#if WITH_CEPH
+#include "cephHelper.h"
+#include "cephRadosHelper.h"
+#endif
+
+#if WITH_S3
+#include "s3Helper.h"
+#endif
+
+#if WITH_SWIFT
+#include "swiftHelper.h"
+#endif
+
+#if WITH_GLUSTERFS
+#include "glusterfsHelper.h"
+#endif
+
+#if WITH_WEBDAV
+#include "httpHelper.h"
+#include "webDAVHelper.h"
+#endif
+
+#if WITH_XROOTD
+#include "xrootdHelper.h"
+#endif
+
+#if WITH_NFS
+#include "nfsHelper.h"
+#endif
+
 #ifdef BUILD_PROXY_IO
 #include "communication/communicator.h"
 #endif
@@ -28,87 +69,7 @@ class Scheduler;
 
 namespace helpers {
 namespace buffering {
-
 class BufferAgentsMemoryLimitGuard;
-
-namespace constants {
-constexpr std::size_t kMB = 1024 * 1024;
-constexpr std::size_t kReadBufferMinSize = 5 * kMB;
-constexpr std::size_t kReadBufferMaxSize = 10 * kMB;
-constexpr std::size_t kWriteBufferMinSize = 20 * kMB;
-constexpr std::size_t kWriteBufferMaxSize = 50 * kMB;
-constexpr int kWriteBufferFlushDelaySeconds = 5;
-constexpr int kTargetLatencyNanoSeconds = 1000;
-constexpr double kPrefetchPowerBase = 1.3;
-} // namespace constants
-
-struct BufferLimits {
-    explicit BufferLimits(
-        std::size_t readBufferMinSize_ = constants::kReadBufferMinSize,
-        std::size_t readBufferMaxSize_ = constants::kReadBufferMaxSize,
-        std::chrono::seconds readBufferPrefetchDuration_ =
-            std::chrono::seconds{1},
-        std::size_t writeBufferMinSize_ = constants::kWriteBufferMinSize,
-        std::size_t writeBufferMaxSize_ = constants::kWriteBufferMaxSize,
-        std::chrono::seconds writeBufferFlushDelay_ =
-            std::chrono::seconds{constants::kWriteBufferFlushDelaySeconds},
-        std::chrono::nanoseconds targetLatency_ =
-            std::chrono::nanoseconds{constants::kTargetLatencyNanoSeconds},
-        double prefetchPowerBase_ = constants::kPrefetchPowerBase,
-        std::size_t readBuffersTotalSize_ = 0,
-        std::size_t writeBuffersTotalSize_ = 0)
-        : readBufferMinSize{readBufferMinSize_}
-        , readBufferMaxSize{readBufferMaxSize_}
-        , readBuffersTotalSize{readBuffersTotalSize_}
-        , prefetchPowerBase{prefetchPowerBase_}
-        , targetLatency{targetLatency_}
-        , readBufferPrefetchDuration{readBufferPrefetchDuration_}
-        , writeBufferMinSize{writeBufferMinSize_}
-        , writeBufferMaxSize{writeBufferMaxSize_}
-        , writeBuffersTotalSize{writeBuffersTotalSize_}
-        , writeBufferFlushDelay{writeBufferFlushDelay_}
-    {
-    }
-
-    /**
-     * @name Variables impacting prefetching.
-     * The prefetched block size is never smaller than @c readBufferMinSize or
-     * bigger than @c readBufferMaxSize . The actual formula for prefetched
-     * block size is:
-     * @code
-     * readBufferMinSize * prefetchPowerBase ^ number_of_subsequent_hits
-     * @endcode
-     * When the number of subsequent hits (i.e. subsequent requested blocks for
-     * reading) is 0, no prefetching is done.
-     * The latency between first request to read from a prefetched block and
-     * the actual reading from the prefetched block is also measured, and once
-     * the latency falls below @c targetLatency the block size is no longer
-     * expanded.
-     * The data is kept in the cache at most 2 * @c readBufferPrefetchDuration
-     * after which the whole cache is considered stale and dropped. Each time a
-     * block starts to be used (i.e. switches state from "prefetched" to "used")
-     * the staleness timer is reset.
-     */
-    ///@{
-    std::size_t readBufferMinSize;
-    std::size_t readBufferMaxSize;
-    std::size_t readBuffersTotalSize;
-    double prefetchPowerBase;
-    std::chrono::nanoseconds targetLatency;
-    std::chrono::seconds readBufferPrefetchDuration;
-    ///@}
-
-    /**
-     * @name Variables impacting output buffering.
-     */
-    ///@{
-    std::size_t writeBufferMinSize;
-    std::size_t writeBufferMaxSize;
-    std::size_t writeBuffersTotalSize;
-    std::chrono::seconds writeBufferFlushDelay;
-    ///@}
-};
-
 } // namespace buffering
 
 /**
@@ -237,6 +198,402 @@ private:
 
     ExecutionContext m_executionContext;
 };
+
+constexpr std::size_t kProxyHelperMaximumReadBufferSize = 52'428'800;
+constexpr std::size_t kProxyHelperMaximumWriteBufferSize = 52'428'800;
+
+#ifdef BUILD_PROXY_IO
+
+template <typename CommunicatorT>
+StorageHelperCreator<CommunicatorT>::StorageHelperCreator(
+#if WITH_CEPH
+    std::shared_ptr<folly::IOExecutor> cephExecutor,
+    std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
+#endif
+    std::shared_ptr<folly::IOExecutor> dioExecutor,
+#if WITH_S3
+    std::shared_ptr<folly::IOExecutor> s3Executor,
+#endif
+#if WITH_SWIFT
+    std::shared_ptr<folly::IOExecutor> swiftExecutor,
+#endif
+#if WITH_GLUSTERFS
+    std::shared_ptr<folly::IOExecutor> glusterfsExecutor,
+#endif
+#if WITH_WEBDAV
+    std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
+#if WITH_XROOTD
+    std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
+#if WITH_NFS
+    std::shared_ptr<folly::IOExecutor> nfsExecutor,
+#endif
+    std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
+    CommunicatorT &communicator, std::size_t bufferSchedulerWorkers,
+    buffering::BufferLimits bufferLimits, ExecutionContext executionContext)
+    :
+#if WITH_CEPH
+    m_cephExecutor{std::move(cephExecutor)}
+    , m_cephRadosExecutor{std::move(cephRadosExecutor)}
+    ,
+#endif
+    m_dioExecutor{std::move(dioExecutor)}
+    ,
+#if WITH_S3
+    m_s3Executor{std::move(s3Executor)}
+    ,
+#endif
+#if WITH_SWIFT
+    m_swiftExecutor{std::move(swiftExecutor)}
+    ,
+#endif
+#if WITH_GLUSTERFS
+    m_glusterfsExecutor{std::move(glusterfsExecutor)}
+    ,
+#endif
+#if WITH_WEBDAV
+    m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_XROOTD
+    m_xrootdExecutor{std::move(xrootdExecutor)}
+    ,
+#endif
+#if WITH_NFS
+    m_nfsExecutor{std::move(nfsExecutor)}
+    ,
+#endif
+    m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
+    , m_scheduler{std::make_unique<Scheduler>(bufferSchedulerWorkers)}
+    , m_bufferLimits{bufferLimits}
+    , m_bufferMemoryLimitGuard{std::make_shared<
+          buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
+    , m_communicator{communicator}
+    , m_executionContext{executionContext}
+{
+}
+#else
+
+StorageHelperCreator::StorageHelperCreator(
+#if WITH_CEPH
+    std::shared_ptr<folly::IOExecutor> cephExecutor,
+    std::shared_ptr<folly::IOExecutor> cephRadosExecutor,
+#endif
+    std::shared_ptr<folly::IOExecutor> dioExecutor,
+#if WITH_S3
+    std::shared_ptr<folly::IOExecutor> s3Executor,
+#endif
+#if WITH_SWIFT
+    std::shared_ptr<folly::IOExecutor> swiftExecutor,
+#endif
+#if WITH_GLUSTERFS
+    std::shared_ptr<folly::IOExecutor> glusterfsExecutor,
+#endif
+#if WITH_WEBDAV
+    std::shared_ptr<folly::IOExecutor> webDAVExecutor,
+#endif
+#if WITH_XROOTD
+    std::shared_ptr<folly::IOExecutor> xrootdExecutor,
+#endif
+#if WITH_NFS
+    std::shared_ptr<folly::IOExecutor> nfsExecutor,
+#endif
+    std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
+    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
+    ExecutionContext executionContext)
+    :
+#if WITH_CEPH
+    m_cephExecutor{std::move(cephExecutor)}
+    , m_cephRadosExecutor{std::move(cephRadosExecutor)}
+    ,
+#endif
+    m_dioExecutor{std::move(dioExecutor)}
+    ,
+#if WITH_S3
+    m_s3Executor{std::move(s3Executor)}
+    ,
+#endif
+#if WITH_SWIFT
+    m_swiftExecutor{std::move(swiftExecutor)}
+    ,
+#endif
+#if WITH_GLUSTERFS
+    m_glusterfsExecutor{std::move(glusterfsExecutor)}
+    ,
+#endif
+#if WITH_WEBDAV
+    m_webDAVExecutor{std::move(webDAVExecutor)}
+    ,
+#endif
+#if WITH_XROOTD
+    m_xrootdExecutor{std::move(xrootdExecutor)}
+    ,
+#endif
+#if WITH_NFS
+    m_nfsExecutor{std::move(nfsExecutor)}
+    ,
+#endif
+    m_nullDeviceExecutor{std::move(nullDeviceExecutor)}
+    , m_scheduler{std::make_shared<Scheduler>(bufferSchedulerWorkers)}
+    , m_bufferLimits{bufferLimits}
+    , m_bufferMemoryLimitGuard{std::make_shared<
+          buffering::BufferAgentsMemoryLimitGuard>(bufferLimits)}
+    , m_executionContext{executionContext}
+{
+}
+#endif
+
+template <typename CommunicatorT>
+std::shared_ptr<StorageHelper>
+StorageHelperCreator<CommunicatorT>::getStorageHelper(
+    const folly::fbstring &name,
+    const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+    const bool buffered,
+    const std::unordered_map<folly::fbstring, folly::fbstring> &overrideParams)
+{
+    LOG_FCALL() << LOG_FARG(name) << LOG_FARGM(args) << LOG_FARG(buffered);
+
+    StorageHelperPtr helper;
+
+    if (name == STORAGE_ROUTER_HELPER_NAME) {
+        helper = StorageRouterHelperFactory{}.createStorageHelper(
+            args, m_executionContext);
+    }
+
+    if (name == POSIX_HELPER_NAME) {
+        auto mountPoint = getParam<folly::fbstring>(args, "mountPoint");
+        if (mountPoint.find(':') == std::string::npos) {
+            // This is a regular posix helper
+            helper = PosixHelperFactory{m_dioExecutor}
+                         .createStorageHelperWithOverride(
+                             args, overrideParams, m_executionContext);
+        }
+        else {
+            // This is a multi-posix helper which handles multiple mountpoints
+            // in parallel
+            if (overrideParams.find("mountPoint") != overrideParams.cend())
+                mountPoint =
+                    getParam<folly::fbstring>(overrideParams, "mountPoint");
+
+            std::vector<std::string> mountPoints;
+            folly::split(":", mountPoint, mountPoints, true);
+            std::vector<StorageHelperPtr> storages;
+            auto factory = PosixHelperFactory{m_dioExecutor};
+            for (const auto &mp : mountPoints) {
+                Params argsCopy;
+                argsCopy["mountPoint"] = mp;
+                storages.emplace_back(factory.createStorageHelperWithOverride(
+                    argsCopy, overrideParams, m_executionContext));
+            }
+            helper = std::make_shared<StorageFanInHelper>(
+                std::move(storages), m_dioExecutor, m_executionContext);
+        }
+    }
+
+#if WITH_CEPH
+    if (name == CEPH_HELPER_NAME)
+        helper =
+            CephHelperFactory{m_cephExecutor}.createStorageHelperWithOverride(
+                args, overrideParams, m_executionContext);
+
+    if (name == CEPHRADOS_HELPER_NAME)
+        helper = CephRadosHelperFactory{m_cephRadosExecutor}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
+#endif
+
+#ifdef BUILD_PROXY_IO
+    if (name == PROXY_HELPER_NAME)
+        helper = ProxyHelperFactory<CommunicatorT>{m_communicator}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
+#endif
+
+#if WITH_S3
+    if (name == S3_HELPER_NAME) {
+        if (getParam<bool>(args, "archiveStorage", false)) {
+            const auto kDefaultBufferStorageBlockSizeMultiplier = 5UL;
+            auto bufferArgs{args};
+            auto mainArgs{args};
+            auto bufferedArgs{args};
+            bufferArgs["blockSize"] = std::to_string(
+                kDefaultBufferStorageBlockSizeMultiplier *
+                getParam<std::size_t>(args, "blockSize", DEFAULT_BLOCK_SIZE));
+            mainArgs["storagePathType"] = "canonical";
+            bufferedArgs["bufferPath"] = ".__onedata__buffer";
+            bufferedArgs["bufferDepth"] = "2";
+
+            auto bufferHelper =
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
+                    bufferArgs, overrideParams, m_executionContext);
+            auto mainHelper =
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
+                    mainArgs, overrideParams, m_executionContext);
+            auto bufferedHelper =
+                BufferedStorageHelperFactory{}.createStorageHelper(
+                    std::move(bufferHelper), std::move(mainHelper),
+                    bufferedArgs, m_executionContext);
+
+            std::map<folly::fbstring, StorageHelperPtr> routes;
+            routes["/.__onedata__archive"] = std::move(bufferedHelper);
+            routes["/"] =
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+            helper = std::make_shared<StorageRouterHelper>(
+                std::move(routes), m_executionContext);
+        }
+        else
+            helper =
+                S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+    }
+#endif
+
+#if WITH_SWIFT
+    if (name == SWIFT_HELPER_NAME)
+        helper =
+            SwiftHelperFactory{m_swiftExecutor}.createStorageHelperWithOverride(
+                args, overrideParams, m_executionContext);
+#endif
+
+#if WITH_GLUSTERFS
+    if (name == GLUSTERFS_HELPER_NAME)
+        helper = GlusterFSHelperFactory{m_glusterfsExecutor}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
+#endif
+
+#if WITH_WEBDAV
+    if (name == WEBDAV_HELPER_NAME)
+        helper = WebDAVHelperFactory{m_webDAVExecutor}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
+
+    if (name == HTTP_HELPER_NAME)
+        helper =
+            HTTPHelperFactory{m_webDAVExecutor}.createStorageHelperWithOverride(
+                args, overrideParams, m_executionContext);
+#endif
+
+#if WITH_XROOTD
+    if (name == XROOTD_HELPER_NAME)
+        helper = XRootDHelperFactory{m_xrootdExecutor}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
+#endif
+
+#if WITH_NFS
+    if (name == NFS_HELPER_NAME) {
+        auto host = getParam<folly::fbstring>(args, "host");
+        auto volume = getParam<folly::fbstring>(args, "volume");
+        if (volume.find(';') == std::string::npos) {
+            helper =
+                NFSHelperFactory{m_nfsExecutor}.createStorageHelperWithOverride(
+                    args, overrideParams, m_executionContext);
+        }
+        else {
+            // This is a multisupport NFS helper which handles multiple NFS
+            // volumes in parallel
+            if (overrideParams.find("host") != overrideParams.cend())
+                host = getParam<folly::fbstring>(overrideParams, "host");
+
+            if (overrideParams.find("volume") != overrideParams.cend())
+                volume = getParam<folly::fbstring>(overrideParams, "volume");
+
+            std::vector<std::string> hosts;
+            std::vector<std::string> volumes;
+            folly::split(";", host, hosts, true);
+            folly::split(";", volume, volumes, true);
+
+            if (hosts.empty())
+                throw std::system_error{
+                    std::make_error_code(std::errc::invalid_argument),
+                    "Invalid NFS host specification"};
+
+            if (volumes.empty())
+                throw std::system_error{
+                    std::make_error_code(std::errc::invalid_argument),
+                    "Invalid NFS volume specification"};
+
+            if ((hosts.size() > 1) && (hosts.size() != volumes.size())) {
+                throw std::system_error{
+                    std::make_error_code(std::errc::invalid_argument),
+                    "NFS host count must match NFS volume count in "
+                    "multisupport NFS helper"};
+            }
+
+            std::vector<StorageHelperPtr> storages;
+            auto factory = NFSHelperFactory{m_nfsExecutor};
+            for (auto i = 0U; i < volumes.size(); i++) {
+                Params argsCopy;
+                if (hosts.size() == 1)
+                    argsCopy["host"] = hosts[0];
+                else
+                    argsCopy["host"] = hosts[i];
+
+                argsCopy["volume"] = volumes[i];
+
+                storages.emplace_back(factory.createStorageHelperWithOverride(
+                    argsCopy, overrideParams, m_executionContext));
+            }
+
+            helper = std::make_shared<StorageFanInHelper>(
+                std::move(storages), m_nfsExecutor, m_executionContext);
+        }
+    }
+#endif
+
+    if (name == NULL_DEVICE_HELPER_NAME)
+        helper = NullDeviceHelperFactory{m_nullDeviceExecutor}
+                     .createStorageHelperWithOverride(
+                         args, overrideParams, m_executionContext);
+
+    if (!helper) {
+        LOG(ERROR) << "Invalid storage helper name: " << name.toStdString();
+        throw std::system_error{
+            std::make_error_code(std::errc::invalid_argument),
+            "Invalid storage helper name: '" + name.toStdString() + "'"};
+    }
+
+    if (buffered
+#if WITH_WEBDAV
+        && !(name == WEBDAV_HELPER_NAME)
+#endif
+    ) {
+        LOG_DBG(1) << "Created buffered helper of type: " << name;
+
+        if (name == PROXY_HELPER_NAME) {
+            // For proxy helper, limit the maximum read/write buffer size
+            // to set an upper bound for Protobuf message
+            auto proxyBufferLimits = m_bufferLimits;
+            proxyBufferLimits.readBufferMaxSize =
+                std::min(kProxyHelperMaximumReadBufferSize,
+                    proxyBufferLimits.readBufferMaxSize);
+            proxyBufferLimits.writeBufferMaxSize =
+                std::min(kProxyHelperMaximumWriteBufferSize,
+                    proxyBufferLimits.writeBufferMaxSize);
+
+            // Make sure minimum buffer sizes aren't larger than maximum sizes
+            proxyBufferLimits.readBufferMinSize =
+                std::min(proxyBufferLimits.readBufferMinSize,
+                    proxyBufferLimits.readBufferMaxSize);
+            proxyBufferLimits.writeBufferMinSize =
+                std::min(proxyBufferLimits.writeBufferMinSize,
+                    proxyBufferLimits.writeBufferMaxSize);
+
+            return std::make_shared<buffering::BufferAgent>(proxyBufferLimits,
+                std::move(helper), m_scheduler, m_bufferMemoryLimitGuard);
+        }
+
+        return std::make_shared<buffering::BufferAgent>(m_bufferLimits,
+            std::move(helper), m_scheduler, m_bufferMemoryLimitGuard);
+    }
+
+    LOG_DBG(1) << "Created non-buffered helper of type: " << name;
+
+    return helper;
+}
 
 } // namespace helpers
 } // namespace one
