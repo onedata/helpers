@@ -11,8 +11,14 @@
 
 #include "storageHelper.h"
 
-#include "bufferedStorageHelper.h"
+#ifndef WITH_BUFFERING
 #ifdef BUILD_PROXY_IO
+#define WITH_BUFFERING
+#endif
+#endif
+
+#include "bufferedStorageHelper.h"
+#ifdef WITH_BUFFERING
 #include "buffering/bufferAgent.h"
 #include "buffering/bufferLimits.h"
 #endif
@@ -72,7 +78,7 @@ namespace one {
 class Scheduler;
 
 namespace helpers {
-#ifdef BUILD_PROXY_IO
+#ifdef WITH_BUFFERING
 namespace buffering {
 class BufferAgentsMemoryLimitGuard;
 } // namespace buffering
@@ -109,8 +115,11 @@ public:
         std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
         std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
-        CommunicatorT &m_communicator, std::size_t bufferSchedulerWorkers = 1,
+        CommunicatorT &m_communicator,
+#ifdef WITH_BUFFERING
+        std::size_t bufferSchedulerWorkers = 1,
         buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
+#endif // WITH_BUFFERING
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #else // BUILD_PROXY_IO
     StorageHelperCreator(
@@ -138,6 +147,10 @@ public:
         std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
         std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
+#ifdef WITH_BUFFERING
+        std::size_t bufferSchedulerWorkers = 1,
+        buffering::BufferLimits bufferLimits = buffering::BufferLimits{},
+#endif // WITH_BUFFERING
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 #endif
 
@@ -192,11 +205,13 @@ private:
     std::shared_ptr<folly::IOExecutor> m_nullDeviceExecutor;
     std::shared_ptr<Scheduler> m_scheduler;
 
-#ifdef BUILD_PROXY_IO
+#ifdef WITH_BUFFERING
     buffering::BufferLimits m_bufferLimits;
     std::shared_ptr<buffering::BufferAgentsMemoryLimitGuard>
         m_bufferMemoryLimitGuard;
+#endif
 
+#ifdef BUILD_PROXY_IO
     CommunicatorT &m_communicator;
 #endif
 
@@ -304,6 +319,9 @@ StorageHelperCreator<CommunicatorT>::StorageHelperCreator(
     std::shared_ptr<folly::IOExecutor> nfsExecutor,
 #endif
     std::shared_ptr<folly::IOExecutor> nullDeviceExecutor,
+#ifdef WITH_BUFFERING
+    std::size_t bufferSchedulerWorkers, buffering::BufferLimits bufferLimits,
+#endif
     ExecutionContext executionContext)
     :
 #if WITH_CEPH
@@ -555,14 +573,15 @@ StorageHelperCreator<CommunicatorT>::getStorageHelper(
             "Invalid storage helper name: '" + name.toStdString() + "'"};
     }
 
-#ifdef BUILD_PROXY_IO
+#ifdef WITH_BUFFERING
     if (buffered
 #if WITH_WEBDAV
         && !(name == WEBDAV_HELPER_NAME)
-#endif
+#endif // WITH_WEBDAV
     ) {
         LOG_DBG(1) << "Created buffered helper of type: " << name;
 
+#ifdef BUILD_PROXY_IO
         if (name == PROXY_HELPER_NAME) {
             // For proxy helper, limit the maximum read/write buffer size
             // to set an upper bound for Protobuf message
@@ -585,11 +604,11 @@ StorageHelperCreator<CommunicatorT>::getStorageHelper(
             return std::make_shared<buffering::BufferAgent>(proxyBufferLimits,
                 std::move(helper), m_scheduler, m_bufferMemoryLimitGuard);
         }
-
+#endif // BUILD_PROXY_IO
         return std::make_shared<buffering::BufferAgent>(m_bufferLimits,
             std::move(helper), m_scheduler, m_bufferMemoryLimitGuard);
     }
-#endif
+#endif // WITH_BUFFERING
 
     LOG_DBG(1) << "Created non-buffered helper of type: " << name;
 

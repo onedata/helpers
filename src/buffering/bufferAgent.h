@@ -10,12 +10,9 @@
 #define HELPERS_BUFFERING_BUFFER_AGENT_H
 
 #include "buffering/bufferLimits.h"
-#include "communication/communicator.h"
 #include "helpers/logging.h"
 #include "helpers/storageHelper.h"
-#include "readCache.h"
 #include "scheduler.h"
-#include "writeBuffer.h"
 
 #include <chrono>
 #include <memory>
@@ -24,6 +21,9 @@
 namespace one {
 namespace helpers {
 namespace buffering {
+
+class ReadCache;
+class WriteBuffer;
 
 /**
  * This class maintains a counter for global read and write helper buffers
@@ -35,12 +35,7 @@ public:
      * Constructor
      * @param bufferLimits Reference to application buffer limits
      */
-    explicit BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits)
-        : m_bufferLimits{bufferLimits}
-        , m_readBuffersReservedSize{0}
-        , m_writeBuffersReservedSize{0}
-    {
-    }
+    explicit BufferAgentsMemoryLimitGuard(const BufferLimits &bufferLimits);
 
     /**
      * This function tries to mark readSize and writeSize bytes as reserved with
@@ -55,30 +50,7 @@ public:
      * @param writeSize The size in bytes of maximum memory needed by the write
      *                  buffer
      */
-    bool reserveBuffers(size_t readSize, size_t writeSize)
-    {
-        std::lock_guard<std::mutex> lock{m_mutex};
-
-        if (((m_bufferLimits.readBuffersTotalSize == 0) ||
-                (m_readBuffersReservedSize + readSize <=
-                    m_bufferLimits.readBuffersTotalSize)) &&
-            ((m_bufferLimits.writeBuffersTotalSize == 0) ||
-                (m_writeBuffersReservedSize + writeSize <=
-                    m_bufferLimits.writeBuffersTotalSize))) {
-            m_readBuffersReservedSize += readSize;
-            m_writeBuffersReservedSize += writeSize;
-
-            LOG_DBG(3) << "Reserved helper buffers - read: " << readSize
-                       << " write: " << writeSize;
-
-            return true;
-        }
-
-        LOG_DBG(3)
-            << "Couldn't reserve buffers for helper - memory limits exhausted";
-
-        return false;
-    }
+    bool reserveBuffers(size_t readSize, size_t writeSize);
 
     /**
      * This function tries to release the readSize and writeSize bytes from the
@@ -89,25 +61,7 @@ public:
      * @param writeSize The size in bytes of maximum memory used by the write
      *                  buffer
      */
-    bool releaseBuffers(size_t readSize, size_t writeSize)
-    {
-        std::lock_guard<std::mutex> lock{m_mutex};
-
-        LOG_DBG(3) << "Releasing memory for helper buffer - read: " << readSize
-                   << " write: " << writeSize;
-
-        if (m_readBuffersReservedSize - readSize >= 0)
-            m_readBuffersReservedSize -= readSize;
-        else
-            m_readBuffersReservedSize = 0;
-
-        if (m_writeBuffersReservedSize - writeSize >= 0)
-            m_writeBuffersReservedSize -= writeSize;
-        else
-            m_writeBuffersReservedSize = 0;
-
-        return true;
-    }
+    bool releaseBuffers(size_t readSize, size_t writeSize);
 
 private:
     const BufferLimits m_bufferLimits;
@@ -176,217 +130,77 @@ class BufferAgent : public StorageHelper,
 public:
     BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
         std::shared_ptr<Scheduler> scheduler,
-        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard)
-        : m_bufferLimits{bufferLimits}
-        , m_helper{std::move(helper)}
-        , m_scheduler{std::move(scheduler)}
-        , m_bufferMemoryLimitGuard{std::move(bufferMemoryLimitGuard)}
-    {
-        LOG_FCALL() << LOG_FARG(bufferLimits.readBufferMinSize)
-                    << LOG_FARG(bufferLimits.readBufferMaxSize)
-                    << LOG_FARG(bufferLimits.readBufferPrefetchDuration.count())
-                    << LOG_FARG(bufferLimits.writeBufferMinSize)
-                    << LOG_FARG(bufferLimits.writeBufferMaxSize)
-                    << LOG_FARG(bufferLimits.writeBufferFlushDelay.count());
-    }
+        std::shared_ptr<BufferAgentsMemoryLimitGuard> bufferMemoryLimitGuard);
 
-    folly::fbstring name() const override { return m_helper->name(); }
+    folly::fbstring name() const override;
 
-    std::shared_ptr<folly::Executor> executor() override
-    {
-        return m_helper->executor();
-    }
+    std::shared_ptr<folly::Executor> executor() override;
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &params) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(flags)
-                    << LOG_FARGM(params);
+        const int flags, const Params &params) override;
 
-        return m_helper->open(fileId, flags, params)
-            .thenValue(
-                [fileId, agent = shared_from_this(), bl = m_bufferLimits,
-                    memoryLimitGuard = m_bufferMemoryLimitGuard,
-                    scheduler = m_scheduler](FileHandlePtr &&handle) mutable {
-                    if (memoryLimitGuard->reserveBuffers(
-                            bl.readBufferMaxSize, bl.writeBufferMaxSize)) {
-                        return static_cast<FileHandlePtr>(
-                            std::make_shared<BufferedFileHandle>(fileId,
-                                std::move(handle), bl, scheduler,
-                                std::move(agent), memoryLimitGuard));
-                    }
-
-                    LOG_DBG(1)
-                        << "Couldn't create buffered file handle for file "
-                        << fileId
-                        << " due to exhausted overall buffer limit by already "
-                           "opened files.";
-
-                    return std::move(handle);
-                });
-    }
-
-    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId);
-
-        return m_helper->getattr(fileId);
-    }
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mask);
-
-        return m_helper->access(fileId, mask);
-    }
+        const folly::fbstring &fileId, const int mask) override;
 
     folly::Future<folly::fbstring> readlink(
-        const folly::fbstring &fileId) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId);
-
-        return m_helper->readlink(fileId);
-    }
+        const folly::fbstring &fileId) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> readdir(
         const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
-
-        return m_helper->readdir(fileId, offset, count);
-    }
+        const std::size_t count) override;
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mode);
-
-        return m_helper->mknod(fileId, mode, flags, rdev);
-    }
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
 
     folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mode);
-
-        return m_helper->mkdir(fileId, mode);
-    }
+        const folly::fbstring &fileId, const mode_t mode) override;
 
     folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(currentSize);
+        const folly::fbstring &fileId, const size_t currentSize) override;
 
-        return m_helper->unlink(fileId, currentSize);
-    }
-
-    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId);
-
-        return m_helper->rmdir(fileId);
-    }
+    folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> symlink(
-        const folly::fbstring &from, const folly::fbstring &to) override
-    {
-        LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
-
-        return m_helper->symlink(from, to);
-    }
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> rename(
-        const folly::fbstring &from, const folly::fbstring &to) override
-    {
-        LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
-
-        return m_helper->rename(from, to);
-    }
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> link(
-        const folly::fbstring &from, const folly::fbstring &to) override
-    {
-        LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to);
-
-        return m_helper->link(from, to);
-    }
+        const folly::fbstring &from, const folly::fbstring &to) override;
 
     folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGO(mode);
-
-        return m_helper->chmod(fileId, mode);
-    }
+        const folly::fbstring &fileId, const mode_t mode) override;
 
     folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
-        const uid_t uid, const gid_t gid) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(uid) << LOG_FARG(gid);
-
-        return m_helper->chown(fileId, uid, gid);
-    }
+        const uid_t uid, const gid_t gid) override;
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize) override
-    {
-        LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size)
-                    << LOG_FARG(currentSize);
-
-        return m_helper->truncate(fileId, size, currentSize);
-    }
+        const off_t size, const size_t currentSize) override;
 
     folly::Future<folly::fbstring> getxattr(
-        const folly::fbstring &uuid, const folly::fbstring &name) override
-    {
-        LOG_FCALL() << LOG_FARG(uuid) << LOG_FARG(name);
-
-        return m_helper->getxattr(uuid, name);
-    }
+        const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     folly::Future<folly::Unit> setxattr(const folly::fbstring &uuid,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace) override
-    {
-        LOG_FCALL() << LOG_FARG(uuid) << LOG_FARG(name) << LOG_FARG(value)
-                    << LOG_FARG(create) << LOG_FARG(replace);
-
-        return m_helper->setxattr(uuid, name, value, create, replace);
-    }
+        bool replace) override;
 
     folly::Future<folly::Unit> removexattr(
-        const folly::fbstring &uuid, const folly::fbstring &name) override
-    {
-        LOG_FCALL() << LOG_FARG(uuid) << LOG_FARG(name);
-
-        return m_helper->removexattr(uuid, name);
-    }
+        const folly::fbstring &uuid, const folly::fbstring &name) override;
 
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &uuid) override
-    {
-        LOG_FCALL() << LOG_FARG(uuid);
+        const folly::fbstring &uuid) override;
 
-        return m_helper->listxattr(uuid);
-    }
-
-    folly::Future<std::shared_ptr<StorageHelperParams>> params() const override
-    {
-        return m_helper->params();
-    }
+    folly::Future<std::shared_ptr<StorageHelperParams>> params() const override;
 
     folly::Future<folly::Unit> refreshParams(
-        std::shared_ptr<StorageHelperParams> params) override
-    {
-        LOG_FCALL();
-        return m_helper->refreshParams(std::move(params));
-    }
+        std::shared_ptr<StorageHelperParams> params) override;
 
-    StorageHelperPtr helper() { return m_helper; }
+    StorageHelperPtr helper();
 
-    const Timeout &timeout() override { return m_helper->timeout(); }
+    const Timeout &timeout() override;
 
 private:
     BufferLimits m_bufferLimits;
