@@ -197,6 +197,13 @@ public:
         std::shared_ptr<folly::Executor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
+    PosixHelper(const PosixHelper &) = delete;
+    PosixHelper &operator=(const PosixHelper &) = delete;
+    PosixHelper(PosixHelper &&) = delete;
+    PosixHelper &operator=(PosixHelper &&) = delete;
+
+    virtual ~PosixHelper() = default;
+
     folly::fbstring name() const override { return POSIX_HELPER_NAME; };
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;

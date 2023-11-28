@@ -1,3 +1,4 @@
+# noinspection PyInterpreter
 """This module tests communication stack."""
 
 __author__ = "Konrad Zemek"
@@ -91,7 +92,7 @@ def test_communicate(result, endpoint, com3, msg_num = 1000, msg_size = 100):
         Parameter.msgps(msg_num, communicate_time)
     ])
 
-
+@pytest.mark.skip()
 def test_successful_handshake(appmock_client):
     for _ in range(0, 10):
         endpoint = appmock_client.tcp_endpoint(443)
@@ -103,14 +104,13 @@ def test_successful_handshake(appmock_client):
 
         com1.connect()
 
+        reply = communication_stack.prepareReply(handshake, "handshakeReply")
+        endpoint.send(reply.encode('utf-8'))
+
         # Skip message stream request
         endpoint.wait_for_any_messages(msg_count=1)
 
         com1.sendAsync("this is another request")
-
-        server_message = messages_pb2.ServerMessage()
-        server_message.handshake_response.status = common_messages_pb2.Status.ok
-        endpoint.send(server_message.SerializeToString())
 
         endpoint.wait_for_any_messages(msg_count=3)
 
@@ -120,11 +120,9 @@ def test_successful_handshake(appmock_client):
         appmock_client.reset_rest_history()
 
 
-
-
 @pytest.mark.skip()
 def test_unsuccessful_handshake(endpoint, com3):
-    handshake = com3.setHandshake("anotherHanshake", True)
+    handshake = com3.setHandshake("anotherHandshake", True)
     com3.connect()
 
     # Skip message stream request

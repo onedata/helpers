@@ -56,11 +56,11 @@ public:
         std::shared_ptr<Locks> locks,
         std::shared_ptr<folly::Executor> executor);
 
-    virtual folly::Future<folly::IOBufQueue> read(
+    folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    virtual folly::Future<std::size_t> write(const off_t offset,
-        folly::IOBufQueue buf, WriteCallback &&writeCb) override;
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        WriteCallback &&writeCb) override;
 
     const Timeout &timeout() override;
 
@@ -119,57 +119,60 @@ public:
         std::size_t blockSize = DEFAULT_BLOCK_SIZE,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
-    virtual folly::fbstring name() const override;
+    KeyValueAdapter(const KeyValueAdapter &) = delete;
+    KeyValueAdapter &operator=(const KeyValueAdapter &) = delete;
+    KeyValueAdapter(KeyValueAdapter &&) = delete;
+    KeyValueAdapter &operator=(KeyValueAdapter &&) = delete;
 
-    virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+    virtual ~KeyValueAdapter() = default;
+
+    folly::fbstring name() const override;
+
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    virtual folly::Future<folly::Unit> unlink(
+    folly::Future<folly::Unit> unlink(
         const folly::fbstring &fileId, const size_t currentSize) override;
 
-    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
         const off_t size, const size_t currentSize) override;
 
-    virtual folly::Future<struct stat> getattr(
-        const folly::fbstring &fileId) override;
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
-    virtual folly::Future<folly::Unit> access(
+    folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, const int mask) override;
 
-    virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
+    folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
 
-    virtual folly::Future<folly::Unit> mkdir(
+    folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override
     {
         return folly::makeFuture();
     }
 
-    virtual folly::Future<folly::Unit> chmod(
+    folly::Future<folly::Unit> chmod(
         const folly::fbstring &fileId, const mode_t mode) override
     {
         return folly::makeFuture();
     }
 
-    virtual folly::Future<folly::Unit> multipartCopy(
-        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
-        const std::size_t blockSize, const std::size_t size) override;
+    folly::Future<folly::Unit> multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size) override;
 
-    virtual folly::Future<ListObjectsResult> listobjects(
-        const folly::fbstring &prefix, const folly::fbstring &marker,
-        const off_t offset, const size_t count) override;
+    folly::Future<ListObjectsResult> listobjects(const folly::fbstring &prefix,
+        const folly::fbstring &marker, const off_t offset,
+        const size_t count) override;
 
     virtual folly::Future<folly::Unit> fillMissingFileBlocks(
         const folly::fbstring &fileId, std::size_t size);
 
-    virtual bool isObjectStorage() const override { return true; }
+    bool isObjectStorage() const override { return true; }
 
-    virtual std::size_t blockSize() const noexcept override
-    {
-        return m_blockSize;
-    }
+    std::size_t blockSize() const noexcept override { return m_blockSize; }
 
-    virtual StoragePathType storagePathType() const override;
+    StoragePathType storagePathType() const override;
 
     const Timeout &timeout() override;
 

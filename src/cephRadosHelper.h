@@ -33,15 +33,12 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    CephRadosHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit CephRadosHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override
-    {
-        return CEPHRADOS_HELPER_NAME;
-    }
+    folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {
@@ -65,7 +62,7 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
-                userName, key, std::move(timeout), storagePathType),
+                userName, key, timeout, storagePathType),
             m_executor, blockSize, executionContext);
     }
 
@@ -98,6 +95,13 @@ public:
         folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
+
+    CephRadosHelper(const CephRadosHelper &) = delete;
+    CephRadosHelper &operator=(const CephRadosHelper &) = delete;
+    CephRadosHelper(CephRadosHelper &&) = delete;
+    CephRadosHelper &operator=(CephRadosHelper &&) = delete;
+
+    ~CephRadosHelper() = default;
 
     folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };
 

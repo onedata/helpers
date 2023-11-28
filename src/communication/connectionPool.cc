@@ -74,7 +74,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     : m_connectionsNumber{connectionsNumber}
     , m_minConnectionsNumber{connectionsNumber == 0ULL
               ? 0ULL
-              : std::min<std::size_t>(connectionsNumber, 2)}
+              : std::min<std::size_t>(connectionsNumber, 1)}
     , m_host{std::move(host)}
     , m_port{port}
     , m_verifyServerCertificate{verifyServerCertificate}
@@ -109,20 +109,27 @@ void ConnectionPool::addConnection(int connectionId)
     client->group(m_executor);
     client->pipelineFactory(m_pipelineFactory);
     client->sslContext(createSSLContext());
-    client->setEOFCallback([this, connectionId]() {
-        // Report to upper layers that all connections have been lost
-        LOG_DBG(1) << "Connection " << connectionId
-                   << " entered EOF callback...";
+    client->setEOFCallback(
+        [this, connectionId,
+            clientPtr = std::weak_ptr<CLProtoClientBootstrap>{client}]() {
+            // Report to upper layers that all connections have been lost
+            LOG_DBG(1) << "Connection " << connectionId
+                       << " entered EOF callback...";
 
-        if ((m_connectionState == State::CONNECTED ||
-                m_connectionState == State::CONNECTION_LOST) &&
-            areAllConnectionsDown()) {
-            m_idleConnections.clear();
+            auto maybeClient = clientPtr.lock();
+            if (maybeClient) {
+                maybeClient->setEOFCallbackCalled(true);
+            }
 
-            std::lock_guard<std::mutex> guard{m_connectionsMutex};
-            m_connections.clear();
-        }
-    });
+            if ((m_connectionState == State::CONNECTED ||
+                    m_connectionState == State::CONNECTION_LOST) &&
+                areAllConnectionsDown()) {
+                m_idleConnections.clear();
+
+                std::lock_guard<std::mutex> guard{m_connectionsMutex};
+                m_connections.clear();
+            }
+        });
 
     std::lock_guard<std::mutex> guard{m_connectionsMutex};
     m_connections.emplace_back(std::move(client));
@@ -228,7 +235,8 @@ void ConnectionPool::connect()
 
         if ((std::chrono::system_clock::now() - connectStart >
                 m_providerTimeout) ||
-            (m_connectionState == State::STOPPED)) {
+            (m_connectionState == State::STOPPED ||
+                m_connectionState == State::HANDSHAKE_FAILED)) {
 
             if (m_lastException) {
                 rethrow_exception(m_lastException);
@@ -296,7 +304,8 @@ void ConnectionPool::connectionMonitorTask()
     while (m_connectionState == State::CREATED) {
         std::this_thread::sleep_for(100ms);
 
-        if (m_connectionState == State::STOPPED)
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED)
             return;
     }
 
@@ -313,7 +322,8 @@ void ConnectionPool::connectionMonitorTask()
     // Loop until connection pool is forcibly stopped using stop()
     // i.e. as long as m_connectionState != State::STOPPED
     while (true) {
-        if (m_connectionState == State::STOPPED)
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED)
             break;
 
         // This condition variable is responsible for controlling loop
@@ -355,7 +365,8 @@ void ConnectionPool::connectionMonitorTask()
             {
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
                 for (auto &client : m_connections) {
-                    if (m_connectionState == State::STOPPED)
+                    if (m_connectionState == State::STOPPED ||
+                        m_connectionState == State::HANDSHAKE_FAILED)
                         break;
 
                     LOG_DBG(3)
@@ -394,7 +405,7 @@ void ConnectionPool::connectionMonitorTask()
                             << e.what() << " - stopping connection pool";
 
                         m_lastException = std::current_exception();
-                        m_connectionState = State::STOPPED;
+                        m_connectionState = State::HANDSHAKE_FAILED;
                         break;
                     }
 
@@ -421,7 +432,8 @@ void ConnectionPool::connectionMonitorTask()
                         m_onReconnectCallback();
                 }
 
-                if (m_connectionState == State::STOPPED)
+                if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::HANDSHAKE_FAILED)
                     break;
 
                 m_connectionState = State::CONNECTED;
@@ -429,7 +441,8 @@ void ConnectionPool::connectionMonitorTask()
                 monitorSleepDuration = kConnectedMonitorSleepDuration;
             }
 
-            if (m_connectionState == State::STOPPED)
+            if (m_connectionState == State::STOPPED ||
+                m_connectionState == State::HANDSHAKE_FAILED)
                 break;
 
             if (m_connectionState == State::CONNECTION_LOST)
@@ -519,7 +532,8 @@ ConnectionPool::getIdleClient(
     while ((client == nullptr) || !client->connected()) {
         // First, check if the connection pool has been stopped
         // intentionally client-side
-        if (m_connectionState == State::STOPPED) {
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED) {
             LOG_DBG(1) << "Connection pool stopped - cannot send message...";
 
             folly::via(folly::getCPUExecutor().get(), [callback] {
@@ -580,7 +594,12 @@ ConnectionPool::getIdleClient(
                     });
         }
 
-        if (client != nullptr) {
+        if (m_connectionState == State::STOPPED ||
+            m_connectionState == State::HANDSHAKE_FAILED) {
+            break;
+        }
+
+        if (client != nullptr && client->connected()) {
             idleConnectionGuard.setClient(client);
             client->idle(false);
 
@@ -603,7 +622,8 @@ folly::Future<folly::Unit> ConnectionPool::send(
 
     LOG_FCALL() << LOG_FARG(message.size());
 
-    if (m_connectionState == State::STOPPED) {
+    if (m_connectionState == State::STOPPED ||
+        m_connectionState == State::HANDSHAKE_FAILED) {
         LOG_DBG(1) << "Connection pool stopped - cannot send message...";
 
         callback(std::make_error_code(std::errc::connection_aborted));
@@ -631,7 +651,8 @@ folly::Future<folly::Unit> ConnectionPool::send(
             .via(m_executor.get())
             .thenValue([this, message, callback](
                            IdleConnectionGuard &&idleConnectionGuard) {
-                if (m_connectionState == State::STOPPED) {
+                if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::HANDSHAKE_FAILED) {
                     LOG_DBG(1)
                         << "Connection pool stopped - ignoring send message...";
 
@@ -656,7 +677,8 @@ folly::Future<folly::Unit> ConnectionPool::send(
 
                 auto *client = idleConnectionGuard.client();
 
-                if (m_connectionState == State::STOPPED) {
+                if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::HANDSHAKE_FAILED) {
                     LOG_DBG(1) << "Got null connection - aborting...";
 
                     callback(
@@ -777,7 +799,8 @@ try {
     if (m_connectionState == State::STOPPED)
         return;
 
-    if (m_connectionState == State::CREATED) {
+    if (m_connectionState == State::CREATED ||
+        m_connectionState == State::HANDSHAKE_FAILED) {
         m_connectionState = State::STOPPED;
 
         connectionMonitorTick();

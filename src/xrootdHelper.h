@@ -40,24 +40,24 @@ public:
         std::shared_ptr<XRootDHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) override;
+        off_t offset, std::size_t size) override;
 
     folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size, const int retryCount);
+        off_t offset, std::size_t size, const int retryCount);
 
     folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
         WriteCallback &&writeCb) override;
 
     folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf, const int retryCount);
+        off_t offset, folly::IOBufQueue buf, int retryCount);
 
     folly::Future<folly::Unit> release() override;
 
-    folly::Future<folly::Unit> release(const int retryCount);
+    folly::Future<folly::Unit> release(int retryCount);
 
     folly::Future<folly::Unit> fsync(bool isDataSync) override;
 
-    folly::Future<folly::Unit> fsync(bool isDataSync, const int retryCount);
+    folly::Future<folly::Unit> fsync(bool isDataSync, int retryCount);
 
     const Timeout &timeout() override;
 
@@ -82,6 +82,11 @@ public:
         std::shared_ptr<folly::IOExecutor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
+    XRootDHelper(const XRootDHelper &) = delete;
+    XRootDHelper &operator=(const XRootDHelper &) = delete;
+    XRootDHelper(XRootDHelper &&) = delete;
+    XRootDHelper &operator=(XRootDHelper &&) = delete;
+
     /**
      * Destructor.
      * Closes connection to XRootD storage cluster and destroys internal
@@ -92,18 +97,18 @@ public:
     folly::fbstring name() const override { return XROOTD_HELPER_NAME; };
 
     folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask) override;
+        const folly::fbstring &fileId, int mask) override;
 
     folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask, const int retryCount);
+        const folly::fbstring &fileId, int mask, const int retryCount);
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<struct stat> getattr(
-        const folly::fbstring &fileId, const int retryCount);
+        const folly::fbstring &fileId, int retryCount);
 
-    folly::Future<FileHandlePtr> open(
-        const folly::fbstring &fileId, const int, const Params &) override;
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+        int /*flags*/, const Params & /*openParams*/) override;
 
     folly::Future<folly::Unit> unlink(
         const folly::fbstring &fileId, const size_t currentSize) override;
@@ -114,13 +119,13 @@ public:
     folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> rmdir(
-        const folly::fbstring &fileId, const int retryCount);
+        const folly::fbstring &fileId, int retryCount);
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
         const off_t size, const size_t currentSize) override;
 
     folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize, const int retryCount);
+        const off_t size, const size_t currentSize, int retryCount);
 
     folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
         const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
@@ -130,25 +135,25 @@ public:
         const int retryCount);
 
     folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode) override;
+        const folly::fbstring &fileId, mode_t mode) override;
 
     folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode, const int retryCount);
+        const folly::fbstring &fileId, mode_t mode, int retryCount);
 
     folly::Future<folly::Unit> rename(
         const folly::fbstring &from, const folly::fbstring &to) override;
 
-    folly::Future<folly::Unit> rename(const folly::fbstring &from,
-        const folly::fbstring &to, const int retryCount);
+    folly::Future<folly::Unit> rename(
+        const folly::fbstring &from, const folly::fbstring &to, int retryCount);
 
     folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode) override
+        const folly::fbstring &fileId, mode_t mode) override
     {
         return folly::makeFuture();
     }
 
-    folly::Future<folly::Unit> chown(const folly::fbstring &fileId,
-        const uid_t uid, const gid_t gid) override
+    folly::Future<folly::Unit> chown(
+        const folly::fbstring &fileId, uid_t uid, gid_t gid) override
     {
         return folly::makeFuture();
     }
@@ -196,13 +201,13 @@ public:
      * @param service @c io_service that will be used for some async
      * operations.
      */
-    XRootDHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit XRootDHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
         LOG_FCALL();
     }
 
-    virtual folly::fbstring name() const override { return XROOTD_HELPER_NAME; }
+    folly::fbstring name() const override { return XROOTD_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {

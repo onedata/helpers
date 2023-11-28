@@ -39,7 +39,8 @@ public:
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
         , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
               one::helpers::buffering::BufferLimits{},
-              std::make_shared<one::helpers::ProxyHelper>(
+              std::make_shared<
+                  one::helpers::ProxyHelper<one::communication::Communicator>>(
                   storageId, m_communicator),
               m_scheduler,
               std::make_shared<

@@ -43,12 +43,21 @@ public:
     CLProtoClientBootstrap(
         uint32_t id, bool performCLProtoUpgrade, bool performCLProtoHandshake);
 
+    CLProtoClientBootstrap(const CLProtoClientBootstrap &) = delete;
+    CLProtoClientBootstrap(CLProtoClientBootstrap &&) = delete;
+    CLProtoClientBootstrap &operator=(const CLProtoClientBootstrap &) = delete;
+    CLProtoClientBootstrap &operator=(CLProtoClientBootstrap &&) = delete;
+
+    ~CLProtoClientBootstrap() override;
+
     void makePipeline(std::shared_ptr<folly::AsyncTransport> socket) override;
 
     folly::Future<folly::Unit> connect(
         const folly::fbstring &host, int port, size_t reconnectAttempt = 0);
 
     bool connected();
+
+    void setEOFCallbackCalled(bool v);
 
     bool handshakeDone() const;
 
@@ -73,6 +82,8 @@ private:
     bool m_firstConnection{true};
 
     std::function<void(void)> m_eofCallback;
+    bool m_eofCallbackCalled{false};
+    bool m_stopping{false};
 };
 } // namespace communication
 } // namespace one

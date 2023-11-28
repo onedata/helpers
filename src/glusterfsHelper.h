@@ -58,8 +58,8 @@ struct GlusterFSConnection {
     std::shared_ptr<glfs_t> glfsCtx{nullptr};
     bool connected = false;
 
-    static folly::fbstring generateCtxId(
-        folly::fbstring hostname, int port, folly::fbstring volume)
+    static folly::fbstring generateCtxId(const folly::fbstring &hostname,
+        int port, const folly::fbstring &volume)
     {
         return hostname + "::" + folly::fbstring(std::to_string(port)) +
             "::" + volume;
@@ -83,6 +83,11 @@ public:
     GlusterFSFileHandle(const folly::fbstring &fileId,
         std::shared_ptr<GlusterFSHelper> helper,
         std::shared_ptr<glfs_fd_t> glfsFd, uid_t uid, gid_t gid);
+
+    GlusterFSFileHandle(const GlusterFSFileHandle &) = delete;
+    GlusterFSFileHandle &operator=(const GlusterFSFileHandle &) = delete;
+    GlusterFSFileHandle(GlusterFSFileHandle &&) = delete;
+    GlusterFSFileHandle &operator=(GlusterFSFileHandle &&) = delete;
 
     ~GlusterFSFileHandle();
 
@@ -141,7 +146,12 @@ public:
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
-    virtual ~GlusterFSHelper() = default;
+    GlusterFSHelper(const GlusterFSHelper &) = delete;
+    GlusterFSHelper &operator=(const GlusterFSHelper &) = delete;
+    GlusterFSHelper(GlusterFSHelper &&) = delete;
+    GlusterFSHelper &operator=(GlusterFSHelper &&) = delete;
+
+    ~GlusterFSHelper() override = default;
 
     folly::fbstring name() const override { return GLUSTERFS_HELPER_NAME; };
 
@@ -255,15 +265,12 @@ public:
      * Constructor.
      * @param executor executor that will be used for some async operations.
      */
-    GlusterFSHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit GlusterFSHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override
-    {
-        return GLUSTERFS_HELPER_NAME;
-    }
+    folly::fbstring name() const override { return GLUSTERFS_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {
@@ -273,12 +280,15 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
     {
+        constexpr int kGlusterFSDefaultPort{24007};
+
         const auto &mountPoint =
             getParam<std::string>(parameters, "mountPoint", "");
         const auto &uid = getParam<int>(parameters, "uid", -1);
         const auto &gid = getParam<int>(parameters, "gid", -1);
         const auto &hostname = getParam<std::string>(parameters, "hostname");
-        const auto &port = getParam<int>(parameters, "port", 24007);
+        const auto &port =
+            getParam<int>(parameters, "port", kGlusterFSDefaultPort);
         const auto &volume = getParam<std::string>(parameters, "volume");
         const auto &transport =
             getParam<std::string>(parameters, "transport", "tcp");
@@ -289,8 +299,8 @@ public:
             parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
         return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
-            port, volume, transport, xlatorOptions, m_executor,
-            std::move(timeout), executionContext);
+            port, volume, transport, xlatorOptions, m_executor, timeout,
+            executionContext);
     }
 
 private:

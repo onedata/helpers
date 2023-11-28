@@ -13,6 +13,7 @@
 #include "helpers/logging.h"
 #include "scheduler.h"
 
+#include <folly/futures/Future.h>
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/concurrent_priority_queue.h>
 
@@ -188,7 +189,7 @@ public:
 
     void schedulePeriodicMessageRequest();
 
-    void sendMessageStreamReset();
+    folly::Future<folly::Unit> sendMessageStreamReset();
 
 private:
     void sendMessageRequest(
@@ -261,15 +262,17 @@ template <class LowerLayer, class Scheduler>
 void Sequencer<LowerLayer, Scheduler>::connect()
 {
     LowerLayer::connect();
-    sendMessageStreamReset();
+    if (LowerLayer::isConnected())
+        sendMessageStreamReset().get();
 }
 
 template <class LowerLayer, class Scheduler>
-void Sequencer<LowerLayer, Scheduler>::sendMessageStreamReset()
+folly::Future<folly::Unit>
+Sequencer<LowerLayer, Scheduler>::sendMessageStreamReset()
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
     clientMsg->mutable_message_stream_reset();
-    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
+    return LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>

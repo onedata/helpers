@@ -25,6 +25,13 @@ class NFSHelper;
 
 class NFSConnection {
 public:
+    NFSConnection() = default;
+
+    NFSConnection(const NFSConnection &) = delete;
+    NFSConnection &operator=(const NFSConnection &) = delete;
+    NFSConnection(NFSConnection &&) = default;
+    NFSConnection &operator=(NFSConnection &&) = default;
+
     ~NFSConnection()
     {
         if (nfs != nullptr)
@@ -106,7 +113,12 @@ public:
         std::shared_ptr<folly::Executor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
-    virtual ~NFSHelper() { stop(); }
+    NFSHelper(const NFSHelper &) = delete;
+    NFSHelper &operator=(const NFSHelper &) = delete;
+    NFSHelper(NFSHelper &&) = delete;
+    NFSHelper &operator=(NFSHelper &&) = delete;
+
+    ~NFSHelper() override { stop(); }
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -209,7 +221,7 @@ public:
      */
     explicit NFSHelperFactory(std::shared_ptr<folly::IOExecutor> executor);
 
-    folly::fbstring name() const;
+    folly::fbstring name() const override;
 
     std::vector<folly::fbstring> overridableParams() const override;
     std::shared_ptr<StorageHelper> createStorageHelper(

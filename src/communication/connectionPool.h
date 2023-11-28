@@ -50,7 +50,8 @@ public:
         CONNECTED, /*< Connection pool is connected or connecting */
         CONNECTION_LOST, /*< Connection has been lost for a time longer than
                             timeout period */
-        STOPPED /*< Connection pool has been stopped, clean up resources */
+        STOPPED, /*< Connection pool has been stopped, clean up resources */
+        HANDSHAKE_FAILED /*< Handshake failed, the connection can be stopped */
     };
 
     /**

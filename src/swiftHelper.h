@@ -36,12 +36,12 @@ public:
      * Constructor.
      * @param executor executor that will be used for some async operations.
      */
-    SwiftHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit SwiftHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override { return SWIFT_HELPER_NAME; }
+    folly::fbstring name() const override { return SWIFT_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {
@@ -65,7 +65,7 @@ public:
 
         return std::make_shared<KeyValueAdapter>(
             std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
-                userName, password, std::move(timeout), storagePathType),
+                userName, password, timeout, storagePathType),
             m_executor, blockSize, executionContext);
     }
 
@@ -91,6 +91,13 @@ public:
         const folly::fbstring &password,
         Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         StoragePathType storagePathType = StoragePathType::FLAT);
+
+    SwiftHelper(const SwiftHelper &) = delete;
+    SwiftHelper &operator=(const SwiftHelper &) = delete;
+    SwiftHelper(SwiftHelper &&) = delete;
+    SwiftHelper &operator=(SwiftHelper &&) = delete;
+
+    virtual ~SwiftHelper() = default;
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
 

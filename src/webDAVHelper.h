@@ -49,7 +49,7 @@ constexpr auto kWebDAVHTTPVersionMajor = 1;
 constexpr auto kWebDAVHTTPVersionMinor = 1;
 
 constexpr auto kWebDAVRetryCount = 6;
-const auto kWebDAVRetryMinimumDelay = std::chrono::milliseconds{5};
+const auto kWebDAVRetryMinimumDelay = std::chrono::milliseconds{5}; // NOLINT
 
 constexpr auto kNSDAV = "DAV:";
 constexpr auto kNSOnedata = "http://onedata.org/metadata";
@@ -127,7 +127,7 @@ using WebDAVSessionPoolKey = std::tuple<folly::fbstring, uint16_t>;
  */
 class WebDAVFoundException : public proxygen::HTTPException {
 public:
-    WebDAVFoundException(const std::string &locationHeader)
+    explicit WebDAVFoundException(const std::string &locationHeader)
         : proxygen::HTTPException(proxygen::HTTPException::Direction::INGRESS,
               "302 redirect to " + locationHeader)
         , location{locationHeader}
@@ -188,7 +188,7 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
      * \defgroup proxygen::HTTPSession::InfoCallback methods
      * @{
      */
-    void onCreate(const proxygen::HTTPSessionBase &) override { }
+    void onCreate(const proxygen::HTTPSessionBase & /*base*/) override { }
     void onIngressError(
         const proxygen::HTTPSessionBase &s, proxygen::ProxygenError e) override
     {
@@ -201,49 +201,68 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
         LOG_DBG(4) << "Ingress EOF - restarting HTTP session";
         sessionValid = false;
     }
-    void onRead(const proxygen::HTTPSessionBase &, size_t bytesRead) override {
-    }
-    void onWrite(
-        const proxygen::HTTPSessionBase &, size_t bytesWritten) override
+    void onRead(
+        const proxygen::HTTPSessionBase & /*base*/, size_t bytesRead) override
     {
     }
-    void onRequestBegin(const proxygen::HTTPSessionBase &) override { }
-    void onRequestEnd(const proxygen::HTTPSessionBase &,
+    void onWrite(const proxygen::HTTPSessionBase & /*base*/,
+        size_t bytesWritten) override
+    {
+    }
+    void onRequestBegin(const proxygen::HTTPSessionBase & /*base*/) override { }
+    void onRequestEnd(const proxygen::HTTPSessionBase & /*base*/,
         uint32_t maxIngressQueueSize) override
     {
     }
-    void onActivateConnection(const proxygen::HTTPSessionBase &) override { }
-    void onDeactivateConnection(const proxygen::HTTPSessionBase &) override
+    void onActivateConnection(
+        const proxygen::HTTPSessionBase & /*base*/) override
+    {
+    }
+    void onDeactivateConnection(
+        const proxygen::HTTPSessionBase & /*base*/) override
     {
         LOG_DBG(4) << "Connection deactivated - restarting HTTP session";
     }
-    void onDestroy(const proxygen::HTTPSessionBase &) override
+    void onDestroy(const proxygen::HTTPSessionBase & /*base*/) override
     {
         LOG_DBG(4) << "Connection destroyed - restarting HTTP session";
         sessionValid = false;
     }
-    void onIngressMessage(const proxygen::HTTPSessionBase &,
-        const proxygen::HTTPMessage &) override
+    void onIngressMessage(const proxygen::HTTPSessionBase & /*base*/,
+        const proxygen::HTTPMessage & /*base*/) override
     {
     }
-    void onIngressLimitExceeded(const proxygen::HTTPSessionBase &) override { }
-    void onIngressPaused(const proxygen::HTTPSessionBase &) override { }
-    void onTransactionDetached(const proxygen::HTTPSessionBase &) override { }
+    void onIngressLimitExceeded(
+        const proxygen::HTTPSessionBase & /*base*/) override
+    {
+    }
+    void onIngressPaused(const proxygen::HTTPSessionBase & /*base*/) override {
+    }
+    void onTransactionDetached(
+        const proxygen::HTTPSessionBase & /*base*/) override
+    {
+    }
     void onPingReplySent(int64_t latency) override { }
     void onPingReplyReceived() override { }
     void onSettingsOutgoingStreamsFull(
-        const proxygen::HTTPSessionBase &) override
+        const proxygen::HTTPSessionBase & /*base*/) override
     {
     }
     void onSettingsOutgoingStreamsNotFull(
-        const proxygen::HTTPSessionBase &) override
+        const proxygen::HTTPSessionBase & /*base*/) override
     {
     }
-    void onFlowControlWindowClosed(const proxygen::HTTPSessionBase &) override
+    void onFlowControlWindowClosed(
+        const proxygen::HTTPSessionBase & /*base*/) override
     {
     }
-    void onEgressBuffered(const proxygen::HTTPSessionBase &) override { }
-    void onEgressBufferCleared(const proxygen::HTTPSessionBase &) override { }
+    void onEgressBuffered(const proxygen::HTTPSessionBase & /*base*/) override
+    {
+    }
+    void onEgressBufferCleared(
+        const proxygen::HTTPSessionBase & /*base*/) override
+    {
+    }
     /**@}*/
 };
 
@@ -255,7 +274,8 @@ struct WebDAVSession : public proxygen::HTTPSession::InfoCallback,
 struct WebDAVSessionPriorityCompare {
     bool operator()(const WebDAVSession *a, const WebDAVSession *b) const
     {
-        return a->sessionValid < b->sessionValid;
+        return static_cast<int>(a->sessionValid) <
+            static_cast<int>(b->sessionValid);
     }
 };
 
@@ -274,6 +294,11 @@ public:
     WebDAVHelper(std::shared_ptr<WebDAVHelperParams>,
         std::shared_ptr<folly::IOExecutor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
+
+    WebDAVHelper(const WebDAVHelper &) = delete;
+    WebDAVHelper &operator=(const WebDAVHelper &) = delete;
+    WebDAVHelper(WebDAVHelper &&) = delete;
+    WebDAVHelper &operator=(WebDAVHelper &&) = delete;
 
     /**
      * Destructor.
@@ -296,8 +321,8 @@ public:
     folly::Future<struct stat> getattr(const folly::fbstring &fileId,
         const int retryCount, const Poco::URI &redirectURL = {});
 
-    folly::Future<FileHandlePtr> open(
-        const folly::fbstring &fileId, const int, const Params &) override;
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+        const int /*flags*/, const Params & /*openParams*/) override;
 
     folly::Future<folly::Unit> unlink(
         const folly::fbstring &fileId, const size_t currentSize) override;
@@ -428,7 +453,7 @@ public:
     {
         decltype(m_idleSessionPool)::accessor ispAcc;
         if (m_idleSessionPool.find(ispAcc, session->key))
-            ispAcc->second.emplace(std::move(session));
+            ispAcc->second.emplace(session);
     };
 
     static bool setupOpenSSLCABundlePath(SSL_CTX *ctx);
@@ -461,7 +486,7 @@ private:
 
         m_idleSessionPool.insert(ispAcc, key);
 
-        for (auto i = 0u; i < P()->connectionPoolSize(); i++) {
+        for (auto i = 0U; i < P()->connectionPoolSize(); i++) {
             auto webDAVSession = std::make_unique<WebDAVSession>();
             webDAVSession->helper = this;
             webDAVSession->key = key;
@@ -504,12 +529,18 @@ class WebDAVRequest : public proxygen::HTTPTransactionHandler {
 public:
     WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session);
 
-    virtual ~WebDAVRequest()
+    WebDAVRequest(const WebDAVRequest &) = delete;
+    WebDAVRequest &operator=(const WebDAVRequest &) = delete;
+    WebDAVRequest(WebDAVRequest &&) = delete;
+    WebDAVRequest &operator=(WebDAVRequest &&) = delete;
+
+    virtual ~WebDAVRequest() // NOLINT
     {
         // In case the session was not released after completion of request or
         // in error callback - release it here
         if (m_session != nullptr) {
-            m_helper->releaseSession(std::move(m_session));
+            m_helper->releaseSession(m_session);
+            m_session = nullptr;
         }
     };
 
@@ -530,21 +561,18 @@ public:
      * \defgroup proxygen::HTTPTransactionHandler methods
      * @{
      */
-    virtual void setTransaction(
-        proxygen::HTTPTransaction *txn) noexcept override;
-    virtual void detachTransaction() noexcept override;
-    virtual void onHeadersComplete(
+    void setTransaction(proxygen::HTTPTransaction *txn) noexcept override;
+    void detachTransaction() noexcept override;
+    void onHeadersComplete(
         std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override;
-    virtual void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
-    virtual void onTrailers(
+    void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
+    void onTrailers(
         std::unique_ptr<proxygen::HTTPHeaders> trailers) noexcept override;
-    virtual void onEOM() noexcept override;
-    virtual void onUpgrade(
-        proxygen::UpgradeProtocol protocol) noexcept override;
-    virtual void onError(
-        const proxygen::HTTPException &error) noexcept override = 0;
-    virtual void onEgressPaused() noexcept override;
-    virtual void onEgressResumed() noexcept override;
+    void onEOM() noexcept override;
+    void onUpgrade(proxygen::UpgradeProtocol protocol) noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override = 0;
+    void onEgressPaused() noexcept override;
+    void onEgressResumed() noexcept override;
     /**@{*/
 
 protected:
@@ -816,13 +844,13 @@ public:
      * @param service @c io_service that will be used for some async
      * operations.
      */
-    WebDAVHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+    explicit WebDAVHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
         : m_executor{std::move(executor)}
     {
         LOG_FCALL();
     }
 
-    virtual folly::fbstring name() const override { return WEBDAV_HELPER_NAME; }
+    folly::fbstring name() const override { return WEBDAV_HELPER_NAME; }
 
     std::vector<folly::fbstring> overridableParams() const override
     {

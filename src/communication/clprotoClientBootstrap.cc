@@ -42,6 +42,8 @@ CLProtoClientBootstrap::CLProtoClientBootstrap(const uint32_t id,
 {
 }
 
+CLProtoClientBootstrap::~CLProtoClientBootstrap() { m_stopping = true; }
+
 void CLProtoClientBootstrap::makePipeline(
     std::shared_ptr<folly::AsyncTransport> socket)
 {
@@ -285,13 +287,36 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
 
 bool CLProtoClientBootstrap::connected()
 {
+    if (m_eofCallbackCalled || m_stopping)
+        return false;
+
+    if (m_performCLProtoHandshake && !m_handshakeDone)
+        return false;
+
+    if (!pipeline_ || pipeline_.use_count() == 0)
+        return false;
+
+    if (m_eofCallbackCalled || m_stopping)
+        return false;
+
     if (getPipeline() == nullptr)
+        return false;
+
+    if (m_eofCallbackCalled || m_stopping)
         return false;
 
     if (!getPipeline()->getTransport())
         return false;
 
+    if (m_eofCallbackCalled || m_stopping)
+        return false;
+
     return getPipeline()->getTransport()->good();
+}
+
+void CLProtoClientBootstrap::setEOFCallbackCalled(bool v)
+{
+    m_eofCallbackCalled = v;
 }
 
 bool CLProtoClientBootstrap::handshakeDone() const { return m_handshakeDone; }

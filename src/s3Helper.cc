@@ -123,6 +123,14 @@ bool S3RetryCondition(const T &outcome, const std::string &operation)
 namespace one {
 namespace helpers {
 
+namespace {
+long to_ms(const Timeout &duration)
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(duration)
+        .count();
+}
+} // namespace
+
 S3Helper::S3Helper(const folly::fbstring &hostname,
     const folly::fbstring &bucketName, const folly::fbstring &accessKey,
     const folly::fbstring &secretKey, const bool verifyServerCertificate,
@@ -165,6 +173,8 @@ S3Helper::S3Helper(const folly::fbstring &hostname,
     configuration.verifySSL = verifyServerCertificate;
     configuration.disableExpectHeader = disableExpectHeader;
     configuration.maxConnections = maxConnections;
+    configuration.connectTimeoutMs = to_ms(m_timeout);
+    configuration.requestTimeoutMs = to_ms(m_timeout);
 
     configuration.region = getRegion(hostname).c_str();
     configuration.endpointOverride = hostname.c_str();

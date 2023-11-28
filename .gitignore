@@ -58,3 +58,5 @@ valgrind-*.txt
 performance-tests-results.xml
 
 cmake-build-debug/
+
+.gdb_history
