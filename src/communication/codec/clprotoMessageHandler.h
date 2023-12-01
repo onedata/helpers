@@ -45,7 +45,7 @@ public:
 
     void readEOF(Context * /*ctx*/) override
     {
-        LOG(ERROR) << "EOF on clproto socket - closing pipeline...";
+        LOG(INFO) << "EOF on clproto socket - closing pipeline...";
         if (m_eofCallback)
             m_eofCallback();
     }
