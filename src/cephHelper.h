@@ -11,6 +11,7 @@
 
 #include "helpers/storageHelper.h"
 
+#include "cephHelperParams.h"
 #include "helpers/logging.h"
 
 #include <folly/executors/IOExecutor.h>
@@ -54,19 +55,15 @@ public:
 class CephHelper : public StorageHelper,
                    public std::enable_shared_from_this<CephHelper> {
 public:
+    using params_type = CephHelperParams;
+
     /**
      * Constructor.
-     * @param clusterName Name of the Ceph cluster to connect to.
-     * @param monHost Name of the Ceph monitor host.
-     * @param poolName Name of the Ceph pool to use.
-     * @param userName Name of the Ceph user.
-     * @param key Secret key of the Ceph user.
+     * @param params
      * @param executor Executor that will drive the helper's async operations.
      */
-    CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
-        folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
+    CephHelper(std::shared_ptr<CephHelperParams> params,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     CephHelper(const CephHelper &) = delete;
@@ -123,7 +120,11 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const Timeout &timeout() override { return m_timeout; }
+    HELPER_PARAM_GETTER(clusterName);
+    HELPER_PARAM_GETTER(monitorHostname);
+    HELPER_PARAM_GETTER(poolName);
+    HELPER_PARAM_GETTER(username);
+    HELPER_PARAM_GETTER(key);
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
@@ -145,15 +146,9 @@ private:
      */
     int removeStriperLocks(const folly::fbstring &fileId);
 
-    folly::fbstring m_clusterName;
-    folly::fbstring m_monHost;
-    folly::fbstring m_poolName;
-    folly::fbstring m_userName;
-    folly::fbstring m_key;
-
-    const size_t m_stripeUnit = 4 * 1024 * 1024;
-    const size_t m_stripeCount = 8;
-    const size_t m_objectSize = 16 * 1024 * 1024;
+    const size_t m_stripeUnit{4 * 1024 * 1024};
+    const size_t m_stripeCount{8};
+    const size_t m_objectSize{16 * 1024 * 1024};
 
     std::shared_ptr<folly::Executor> m_executor;
     Timeout m_timeout;
@@ -190,20 +185,9 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto &clusterName = getParam(parameters, "clusterName");
-        const auto &monHost = getParam(parameters, "monitorHostname");
-        const auto &poolName = getParam(parameters, "poolName");
-        const auto &userName = getParam(parameters, "username");
-        const auto &key = getParam(parameters, "key");
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
-
-        LOG_FCALL() << LOG_FARG(clusterName) << LOG_FARG(monHost)
-                    << LOG_FARG(poolName) << LOG_FARG(userName)
-                    << LOG_FARG(key);
-
-        return std::make_shared<CephHelper>(clusterName, monHost, poolName,
-            userName, key, m_executor, timeout, executionContext);
+        auto params = CephHelperParams::create(parameters);
+        return std::make_shared<CephHelper>(
+            std::move(params), m_executor, executionContext);
     }
 
 private:

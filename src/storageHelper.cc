@@ -513,7 +513,7 @@ folly::Future<std::size_t> StorageHelper::blockSizeForPath(
 }
 
 folly::Future<std::shared_ptr<StorageHelperParams>>
-StorageHelper::params() const
+StorageHelperParamsHandler::params() const
 {
     std::lock_guard<std::mutex> m_lock{m_paramsMutex};
     return m_params->getFuture();
@@ -565,7 +565,7 @@ ExecutionContext StorageHelper::executionContext() const
 }
 
 std::shared_ptr<StorageHelper::StorageHelperParamsPromise>
-StorageHelper::invalidateParams()
+StorageHelperParamsHandler::invalidateParams()
 {
     std::lock_guard<std::mutex> m_lock{m_paramsMutex};
     m_params = std::make_shared<StorageHelper::StorageHelperParamsPromise>();

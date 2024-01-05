@@ -434,9 +434,10 @@ StorageHelperCreator<CommunicatorT>::getStorageHelper(
             auto bufferArgs{args};
             auto mainArgs{args};
             auto bufferedArgs{args};
-            bufferArgs["blockSize"] = std::to_string(
-                kDefaultBufferStorageBlockSizeMultiplier *
-                getParam<std::size_t>(args, "blockSize", DEFAULT_BLOCK_SIZE));
+            bufferArgs["blockSize"] =
+                std::to_string(kDefaultBufferStorageBlockSizeMultiplier *
+                    getParam<std::size_t>(
+                        args, "blockSize", constants::DEFAULT_BLOCK_SIZE));
             mainArgs["storagePathType"] = "canonical";
             bufferedArgs["bufferPath"] = ".__onedata__buffer";
             bufferedArgs["bufferDepth"] = "2";

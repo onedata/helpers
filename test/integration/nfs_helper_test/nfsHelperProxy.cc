@@ -53,7 +53,7 @@ public:
               NFS_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("nfs_t"))}
     {
-        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        one::helpers::Params params;
         params["type"] = "nfs";
         params["host"] = host;
         params["volume"] = volume;

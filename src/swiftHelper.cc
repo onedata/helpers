@@ -128,18 +128,13 @@ bool SWIFTRetryCondition(const Outcome &outcome, const std::string &operation)
 }
 } // namespace
 
-SwiftHelper::SwiftHelper(folly::fbstring containerName,
-    const folly::fbstring &authUrl, const folly::fbstring &tenantName,
-    const folly::fbstring &userName, const folly::fbstring &password,
-    Timeout timeout, StoragePathType storagePathType)
-    : KeyValueHelper{false, storagePathType}
-    , m_auth{authUrl, tenantName, userName, password}
-    , m_containerName{std::move(containerName)}
-    , m_timeout{timeout}
+SwiftHelper::SwiftHelper(std::shared_ptr<SwiftHelperParams> params)
+    : KeyValueHelper{params, false}
 {
-    LOG_FCALL() << LOG_FARG(m_containerName) << LOG_FARG(authUrl)
-                << LOG_FARG(tenantName) << LOG_FARG(userName)
-                << LOG_FARG(password);
+    invalidateParams()->setValue(std::move(params));
+
+    m_auth = std::make_unique<Authentication>(
+        authUrl(), tenantName(), username(), password());
 }
 
 folly::IOBufQueue SwiftHelper::getObject(
@@ -147,7 +142,7 @@ folly::IOBufQueue SwiftHelper::getObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
-    auto &account = m_auth.getAccount();
+    auto &account = m_auth->getAccount();
 
     Swift::Container container(&account, m_containerName.toStdString());
     Swift::Object object(&container, key.toStdString());
@@ -198,7 +193,7 @@ std::size_t SwiftHelper::putObject(
     assert(offset == 0);
 
     std::size_t writtenBytes = 0;
-    auto &account = m_auth.getAccount();
+    auto &account = m_auth->getAccount();
 
     Swift::Container container(&account, m_containerName.toStdString());
     Swift::Object object(&container, key.toStdString());
@@ -246,7 +241,7 @@ void SwiftHelper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
 {
     LOG_FCALL() << LOG_FARGV(keys);
 
-    auto &account = m_auth.getAccount();
+    auto &account = m_auth->getAccount();
 
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 

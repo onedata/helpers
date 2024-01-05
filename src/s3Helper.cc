@@ -131,63 +131,53 @@ long to_ms(const Timeout &duration)
 }
 } // namespace
 
-S3Helper::S3Helper(const folly::fbstring &hostname,
-    const folly::fbstring &bucketName, const folly::fbstring &accessKey,
-    const folly::fbstring &secretKey, const bool verifyServerCertificate,
-    const bool disableExpectHeader, const bool enableClockSkewAdjustment,
-    const int maxConnections, const std::size_t maximumCanonicalObjectSize,
-    const mode_t fileMode, const mode_t dirMode, const bool useHttps,
-    folly::fbstring region, Timeout timeout, StoragePathType storagePathType)
-    : KeyValueHelper{false, storagePathType, maximumCanonicalObjectSize}
-    , m_timeout{timeout}
-    , m_fileMode{fileMode}
-    , m_dirMode{dirMode}
-    , m_defaultRegion{std::move(region)}
+S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
+    : KeyValueHelper{params, false}
 {
-    LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
-                << LOG_FARG(accessKey) << LOG_FARG(secretKey)
-                << LOG_FARG(useHttps) << LOG_FARG(timeout.count());
+    LOG_FCALL();
+
+    invalidateParams()->setValue(std::move(params));
 
     static S3HelperApiInit init;
 
     // Split bucket and prefix
     std::vector<folly::fbstring> pathComponents;
-    folly::split('/', bucketName, pathComponents, true);
+    folly::split('/', bucketName(), pathComponents, true);
     if (pathComponents.empty())
         throw std::invalid_argument("Invalid bucket name.");
 
     if (pathComponents.size() == 1) {
-        m_bucket = pathComponents[0];
+        bucketName() = pathComponents[0];
         m_prefix = "";
     }
     else {
-        m_bucket = pathComponents[0];
+        bucketName() = pathComponents[0];
         folly::join(
             '/', ++pathComponents.begin(), pathComponents.end(), m_prefix);
     }
 
     Aws::Client::ClientConfiguration configuration;
-    configuration.connectTimeoutMs = m_timeout.count();
-    configuration.requestTimeoutMs = m_timeout.count();
-    configuration.enableClockSkewAdjustment = enableClockSkewAdjustment;
-    configuration.verifySSL = verifyServerCertificate;
-    configuration.disableExpectHeader = disableExpectHeader;
-    configuration.maxConnections = maxConnections;
-    configuration.connectTimeoutMs = to_ms(m_timeout);
-    configuration.requestTimeoutMs = to_ms(m_timeout);
+    configuration.connectTimeoutMs = timeout().count();
+    configuration.requestTimeoutMs = timeout().count();
+    configuration.enableClockSkewAdjustment = enableClockSkewAdjustment();
+    configuration.verifySSL = verifyServerCertificate();
+    configuration.disableExpectHeader = disableExpectHeader();
+    configuration.maxConnections = maxConnections();
+    configuration.connectTimeoutMs = to_ms(timeout());
+    configuration.requestTimeoutMs = to_ms(timeout());
 
-    configuration.region = getRegion(hostname).c_str();
-    configuration.endpointOverride = hostname.c_str();
-    if (!useHttps)
+    configuration.region = getRegion(hostname()).c_str();
+    configuration.endpointOverride = hostname().c_str();
+    if (scheme() != std::string{"https"})
         configuration.scheme = Aws::Http::Scheme::HTTP;
 
-    if (accessKey.empty() && secretKey.empty()) {
+    if (accessKey().empty() && secretKey().empty()) {
         m_client = std::make_unique<Aws::S3::S3Client>(configuration,
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
     }
     else {
         Aws::Auth::AWSCredentials credentials{
-            accessKey.c_str(), secretKey.c_str()};
+            accessKey().c_str(), secretKey().c_str()};
         m_client = std::make_unique<Aws::S3::S3Client>(credentials,
             configuration,
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
@@ -215,9 +205,9 @@ folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
         }
     }
 
-    LOG_DBG(1) << "Using default S3 region " << m_defaultRegion;
+    LOG_DBG(1) << "Using default S3 region " << region();
 
-    return m_defaultRegion;
+    return region();
 }
 
 folly::fbstring S3Helper::toEffectiveKey(const folly::fbstring &key) const
@@ -279,7 +269,7 @@ folly::IOBufQueue S3Helper::getObject(
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
     Aws::S3::Model::GetObjectRequest request;
-    request.SetBucket(m_bucket.c_str());
+    request.SetBucket(bucketName().c_str());
     request.SetKey(effectiveKey.c_str());
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
@@ -397,7 +387,7 @@ std::size_t S3Helper::putObject(
         size);
 #endif
     PutObjectRequest request;
-    request.SetBucket(m_bucket.toStdString());
+    request.SetBucket(bucketName().toStdString());
     request.SetKey(effectiveKey.toStdString());
     request.SetContentLength(size);
     request.SetBody(stream);
@@ -553,7 +543,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         del.SetObjects(std::move(keyBatch));
 
         DeleteObjectsRequest request;
-        request.SetBucket(m_bucket.toStdString());
+        request.SetBucket(bucketName().toStdString());
         request.SetDelete(del);
 
         auto outcome = retry(
@@ -613,7 +603,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
     const auto effectiveDestinationKey = toEffectiveKey(destinationKey);
 
     CreateMultipartUploadRequest createRequest;
-    createRequest.SetBucket(m_bucket.toStdString());
+    createRequest.SetBucket(bucketName().toStdString());
     createRequest.SetKey(effectiveDestinationKey.toStdString());
     auto createOutcome = m_client->CreateMultipartUpload(createRequest);
     auto uploadId = createOutcome.GetResult().GetUploadId();
@@ -621,7 +611,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
     throwOnError("CreateMultipartUploadrequest", createOutcome);
 
     LOG_DBG(3) << "Multipart upload id: " << uploadId;
-    LOG_DBG(3) << "Bucket is: " << m_bucket;
+    LOG_DBG(3) << "Bucket is: " << bucketName();
 
     auto partNumber = 1UL;
     CompletedMultipartUpload completedMultipartUpload;
@@ -639,14 +629,15 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
         folly::fbstring key{
             fmt::format("{}/{}", effectiveSourceKey, MAX_OBJECT_ID - blockIt)};
         UploadPartCopyRequest request;
-        request.SetBucket(m_bucket.toStdString());
+        request.SetBucket(bucketName().toStdString());
         request.SetKey(effectiveDestinationKey.toStdString());
         request.SetPartNumber(partNumber);
         request.SetUploadId(uploadId);
 
         try {
             keyStat = getObjectInfo(key);
-            request.SetCopySource(m_bucket.toStdString() + key.toStdString());
+            request.SetCopySource(
+                bucketName().toStdString() + key.toStdString());
             request.SetCopySourceRange(
                 fmt::format("bytes={}-{}", 0, keyStat.st_size - 1));
         }
@@ -657,8 +648,8 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
             size_t endRange = blockIt * blockSize + blockSize - 1;
             endRange = std::min(endRange, size - 1);
 
-            request.SetCopySource(
-                m_bucket.toStdString() + effectiveDestinationKey.toStdString());
+            request.SetCopySource(bucketName().toStdString() +
+                effectiveDestinationKey.toStdString());
             request.SetCopySourceRange(
                 fmt::format("bytes={}-{}", startRange, endRange));
         }
@@ -690,7 +681,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
 
     CompleteMultipartUploadRequest completeRequest;
     completeRequest.SetKey(effectiveDestinationKey.toStdString());
-    completeRequest.SetBucket(m_bucket.toStdString());
+    completeRequest.SetBucket(bucketName().toStdString());
     completeRequest.SetUploadId(uploadId);
     completeRequest.SetMultipartUpload(completedMultipartUpload);
 
@@ -717,7 +708,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 
     // For the root directory always return the defaults
     if (effectiveKey.empty() || effectiveKey == "/") {
-        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mode = S_IFDIR | dirMode();
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now())
@@ -742,13 +733,13 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         normalizedKey = "";
 
     ListObjectsRequest request;
-    request.SetBucket(m_bucket.c_str());
+    request.SetBucket(bucketName().c_str());
     request.SetPrefix(normalizedKey.c_str());
     request.SetMaxKeys(1);
     request.SetDelimiter("/");
 
     LOG_DBG(2) << "Attempting to get object info for " << normalizedKey
-               << " in bucket " << m_bucket;
+               << " in bucket " << bucketName();
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
@@ -790,7 +781,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                    << " directories for key " << normalizedKey << " -- "
                    << commonPrefixList.cbegin()->GetPrefix().c_str();
 
-        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mode = S_IFDIR | dirMode();
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now())
@@ -809,7 +800,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         auto object = outcome.GetResult().GetContents().cbegin();
 
         attr.st_size = object->GetSize();
-        attr.st_mode = S_IFREG | m_fileMode;
+        attr.st_mode = S_IFREG | fileMode();
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 object->GetLastModified().UnderlyingTimestamp())
@@ -860,14 +851,15 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         normalizedMarker.erase(0, 1);
 
     ListObjectsRequest request;
-    request.SetBucket(m_bucket.c_str());
+    request.SetBucket(bucketName().c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
     request.SetMaxKeys(size);
     request.SetMarker(normalizedMarker.c_str());
 
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
-               << " in bucket " << m_bucket << " after " << normalizedMarker;
+               << " in bucket " << bucketName() << " after "
+               << normalizedMarker;
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
@@ -918,7 +910,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         };
         if (object.GetKey().back() == '/') {
             attr.st_mode = S_IFDIR;
-            attr.st_mode = S_IFDIR | m_dirMode;
+            attr.st_mode = S_IFDIR | dirMode();
             attr.st_size = 0;
             name.pop_back();
             if (name.empty())
@@ -926,7 +918,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         }
         else {
             attr.st_mode = S_IFREG;
-            attr.st_mode = S_IFREG | m_fileMode;
+            attr.st_mode = S_IFREG | fileMode();
             attr.st_size = object.GetSize();
         }
         attr.st_mtim.tv_sec =

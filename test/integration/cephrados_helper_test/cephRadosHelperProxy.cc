@@ -39,15 +39,28 @@ class CephRadosHelperProxy {
 public:
     CephRadosHelperProxy(std::string monHost, std::string username,
         std::string key, std::string poolName, int threadNumber,
-        std::size_t blockSize, StoragePathType storagePathType)
+        std::size_t blockSize, std::string storagePathType)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("rados_t"))}
-        , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::CephRadosHelper>("ceph", monHost,
-                  poolName, username, key, std::chrono::seconds{20},
-                  storagePathType),
-              m_executor, blockSize)}
+
     {
+        using namespace one::helpers;
+
+        Params params;
+        params["clusterName"] = "ceph";
+        params["monitorHostname"] = monHost;
+        params["poolName"] = poolName;
+        params["username"] = username;
+        params["key"] = key;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = storagePathType;
+
+        auto parameters = CephRadosHelperParams::create(params);
+
+        m_helper = std::make_shared<KeyValueAdapter>(
+            std::make_shared<CephRadosHelper>(parameters), parameters,
+            m_executor);
     }
 
     ~CephRadosHelperProxy() { }
@@ -107,9 +120,7 @@ boost::shared_ptr<CephRadosHelperProxy> create(std::string monHost,
 {
     return boost::make_shared<CephRadosHelperProxy>(std::move(monHost),
         std::move(username), std::move(key), std::move(poolName), threadNumber,
-        blockSize,
-        storagePathType == "canonical" ? StoragePathType::CANONICAL
-                                       : StoragePathType::FLAT);
+        blockSize, storagePathType);
 }
 } // namespace
 

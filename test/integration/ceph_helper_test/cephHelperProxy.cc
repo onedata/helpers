@@ -39,9 +39,19 @@ public:
         std::string poolName)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               8, std::make_shared<StorageWorkerFactory>("ceph"))}
-        , m_helper{std::make_shared<one::helpers::CephHelper>(
-              "ceph", monHost, poolName, username, key, m_executor)}
     {
+        using namespace one::helpers;
+
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params["clusterName"] = "ceph";
+        params["monitorHostname"] = monHost;
+        params["poolName"] = poolName;
+        params["username"] = username;
+        params["key"] = key;
+
+        m_helper =
+            std::make_shared<CephHelper>(CephHelperParams::create(params),
+                m_executor, ExecutionContext::ONECLIENT);
     }
 
     ~CephHelperProxy() { }

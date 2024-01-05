@@ -520,12 +520,12 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count);
 
-    return connect().thenValue([this, fileId, offset, count,
+    return connect().thenValue([this, fileId, offset, /*count,*/
                                    s = std::weak_ptr<NFSHelper>{
                                        shared_from_this()}](auto &&conn) {
         return folly::futures::retrying(
             NFSRetryPolicy(constants::IO_RETRY_COUNT),
-            [fileId, offset, count, s, conn](size_t retryCount) {
+            [fileId, offset, /*count, */ s, conn](size_t retryCount) {
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<
@@ -546,7 +546,6 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
                 }
 
                 int offset_ = offset;
-                int count_ = count;
                 while (
                     (nfsdirent = nfs_readdir(conn->nfs, nfsdir)) != nullptr) {
                     if ((strcmp(nfsdirent->name, ".") != 0) &&
@@ -556,7 +555,6 @@ folly::Future<folly::fbvector<folly::fbstring>> NFSHelper::readdir(
                         }
                         else {
                             result.push_back(folly::fbstring(nfsdirent->name));
-                            --count_;
                         }
                     }
                 }

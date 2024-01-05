@@ -78,18 +78,28 @@ class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
-        int threadNumber, std::size_t blockSize,
-        StoragePathType storagePathType)
+        int threadNumber, std::size_t blockSize, std::string storagePathType)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("s3_t"))}
-        , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::S3Helper>(std::move(hostName),
-                  std::move(bucketName), std::move(accessKey),
-                  std::move(secretKey), false, false, false, 25,
-                  2 * 1024 * 1024, 0664, 0775, scheme == "https", "us-east-1",
-                  std::chrono::seconds{20}, storagePathType),
-              m_executor, blockSize)}
     {
+        using namespace one::helpers;
+
+        Params params;
+        params["hostname"] = hostName;
+        params["bucketName"] = bucketName;
+        params["accessKey"] = accessKey;
+        params["secretKey"] = secretKey;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = storagePathType;
+        params["maxCanonicalObjectSize"] =
+            std::to_string(kMaxCanonicakObjectSize);
+        params["maxConnections"] = "25";
+
+        auto parameters = S3HelperParams::create(params);
+
+        m_helper = std::make_shared<KeyValueAdapter>(
+            std::make_shared<S3Helper>(parameters), parameters, m_executor);
     }
 
     ~S3HelperProxy() { }
@@ -191,9 +201,7 @@ boost::shared_ptr<S3HelperProxy> create(std::string scheme,
 {
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize,
-        storagePathType == "canonical" ? StoragePathType::CANONICAL
-                                       : StoragePathType::FLAT);
+        std::move(secretKey), threadNumber, blockSize, storagePathType);
 }
 }
 

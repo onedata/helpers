@@ -83,23 +83,30 @@ public:
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("buffer_t"))}
     {
+        Params params;
+        params["hostname"] = hostName;
+        params["bucketName"] = bucketName;
+        params["accessKey"] = accessKey;
+        params["secretKey"] = secretKey;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = "flat";
+        params["maxCanonicalObjectSize"] = std::to_string(2 * 1024 * 1024);
+        params["maxConnections"] = "25";
+
+        auto parametersFlat = S3HelperParams::create(params);
+
         auto bufferStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
-                std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
-                    accessKey, secretKey, false, false, false, 25,
-                    std::numeric_limits<size_t>::max(), 0664, 0775,
-                    scheme == "https", "us-east-1", std::chrono::seconds{20},
-                    StoragePathType::FLAT),
-                m_executor, blockSize);
+                std::make_shared<one::helpers::S3Helper>(parametersFlat),
+                parametersFlat, m_executor);
+
+        auto parametersCanonical = S3HelperParams::create(params);
 
         auto mainStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
-                std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
-                    accessKey, secretKey, false, false, false, 25,
-                    std::numeric_limits<size_t>::max(), 0664, 0775,
-                    scheme == "https", "us-east-1", std::chrono::seconds{20},
-                    StoragePathType::CANONICAL),
-                m_executor, 0);
+                std::make_shared<one::helpers::S3Helper>(parametersCanonical),
+                parametersFlat, m_executor);
 
         m_helper = std::make_shared<one::helpers::BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),

@@ -11,6 +11,8 @@
 
 #include "helpers/storageHelper.h"
 
+#include "keyValueAdapterParams.h"
+
 #include <folly/Executor.h>
 #include <folly/Hash.h>
 #include <tbb/concurrent_hash_map.h>
@@ -21,8 +23,6 @@
 
 namespace one {
 namespace helpers {
-
-constexpr std::size_t DEFAULT_BLOCK_SIZE = 10 * 1024 * 1024;
 
 template <typename T> struct StdHashCompare {
     bool equal(const T &a, const T &b) const { return a == b; }
@@ -105,6 +105,8 @@ class KeyValueAdapter : public StorageHelper,
         StdHashCompare<folly::fbstring>>;
 
 public:
+    using params_type = KeyValueAdapterParams;
+
     /**
      * Constructor.
      * @param helper @c KeyValueHelper instance that provides low level storage
@@ -115,8 +117,8 @@ public:
      *                     provides random access read/write functionality.
      */
     KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
+        std::shared_ptr<KeyValueAdapterParams> params,
         std::shared_ptr<folly::Executor> executor,
-        std::size_t blockSize = DEFAULT_BLOCK_SIZE,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     KeyValueAdapter(const KeyValueAdapter &) = delete;
@@ -127,6 +129,8 @@ public:
     virtual ~KeyValueAdapter() = default;
 
     folly::fbstring name() const override;
+
+    HELPER_PARAM_GETTER(maxCanonicalObjectSize)
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
@@ -170,11 +174,7 @@ public:
 
     bool isObjectStorage() const override { return true; }
 
-    std::size_t blockSize() const noexcept override { return m_blockSize; }
-
-    StoragePathType storagePathType() const override;
-
-    const Timeout &timeout() override;
+    const Timeout &timeout() override { return params().get()->timeout(); }
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
@@ -186,7 +186,6 @@ private:
     std::shared_ptr<KeyValueHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
     std::shared_ptr<Locks> m_locks;
-    const std::size_t m_blockSize;
 };
 
 } // namespace helpers

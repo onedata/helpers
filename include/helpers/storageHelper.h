@@ -44,6 +44,12 @@
 #include <unordered_set>
 #include <vector>
 
+#define HELPER_PARAM_GETTER(NAME)                                              \
+    auto NAME() const                                                          \
+    {                                                                          \
+        return std::dynamic_pointer_cast<params_type>(params().get())->NAME(); \
+    }
+
 namespace one {
 namespace helpers {
 
@@ -94,8 +100,9 @@ const std::error_code SUCCESS_CODE{};
 constexpr int IO_RETRY_COUNT{4};
 constexpr std::chrono::milliseconds IO_RETRY_INITIAL_DELAY{10};
 constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
+constexpr std::size_t DEFAULT_BLOCK_SIZE = 10UL * 1024 * 1024;
+constexpr std::size_t MAX_CANONICAL_OBJECT_SIZE = 64UL * 1024 * 1024;
 } // namespace constants
-
 /**
  * Generic retry function wrapper.
  * @param op Function to repeat.
@@ -460,21 +467,46 @@ private:
     StoragePathType m_storagePathType;
 };
 
+class StorageHelperParamsHandler {
+public:
+    using StorageHelperParamsPromise =
+        folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
+
+    StorageHelperParamsHandler()
+        : m_params{std::make_shared<StorageHelperParamsPromise>()}
+    {
+    }
+
+    /**
+     * Returns a future to an instance of storage helper parameters.
+     * It allows for overriding for special helpers such as @c BufferAgent.
+     */
+    virtual folly::Future<std::shared_ptr<StorageHelperParams>> params() const;
+
+protected:
+    std::shared_ptr<StorageHelperParamsPromise> invalidateParams();
+
+    // Pointer to a promise of a shared pointers to helper parameters
+    // This allows the parameters to be safely updated as with
+    // existing handles and parallel read/write operations.
+    std::shared_ptr<StorageHelperParamsPromise> m_params;
+    mutable std::mutex m_paramsMutex;
+};
+
 /**
  * The StorageHelper interface.
  * Base class of all storage helpers. Unifies their interface.
  * All callback have their equivalent in FUSE API and should be used in that
  * matter.
  */
-class StorageHelper {
+class StorageHelper : public StorageHelperParamsHandler {
 public:
     using StorageHelperParamsPromise =
         folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
 
     explicit StorageHelper(
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
-        : m_params{std::make_shared<StorageHelperParamsPromise>()}
-        , m_executionContext{executionContext}
+        : m_executionContext{executionContext}
     {
     }
 
@@ -532,8 +564,9 @@ public:
     virtual folly::Future<FileHandlePtr> open(
         const folly::fbstring &fileId, int flags, const Params &openParams) = 0;
 
-    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId, int flags,
-        const Params &openParams, const Params &helperOverrideParams);
+    virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+        int flags, const Params &openParams,
+        const Params &helperOverrideParams);
 
     virtual folly::Future<ListObjectsResult> listobjects(
         const folly::fbstring &prefix, const folly::fbstring &marker,
@@ -565,22 +598,19 @@ public:
     virtual folly::Future<std::size_t> blockSizeForPath(
         const folly::fbstring &fileId);
 
-    /**
-     * Returns a future to an instance of storage helper parameters.
-     * It allows for overriding for special helpers such as @c BufferAgent.
-     */
-    virtual folly::Future<std::shared_ptr<StorageHelperParams>> params() const;
+    virtual const Timeout &timeout();
 
-    /**
-     * Updates the helper parameters by replacing the parameters promise
-     * stored in storage helper with a new one. In this way requests already
-     * created will be allowed to execute with the old set of parameters
-     * while all new requests will use the new set.
-     *
-     * @param params Shared instance of @c StorageHelperParams
-     */
-    virtual folly::Future<folly::Unit> refreshParams(
-        std::shared_ptr<StorageHelperParams> params);
+    virtual StoragePathType storagePathType() const;
+
+    bool isFlat() const;
+
+    virtual std::size_t blockSize() const noexcept;
+
+    virtual bool isObjectStorage() const;
+
+    virtual std::shared_ptr<folly::Executor> executor();
+
+    ExecutionContext executionContext() const;
 
     /**
      * Validates whether the 'params' set of override parameters can be
@@ -598,29 +628,18 @@ public:
      */
     virtual std::vector<folly::fbstring> handleOverridableParams() const;
 
-    virtual const Timeout &timeout();
-
-    virtual StoragePathType storagePathType() const;
-
-    bool isFlat() const;
-
-    virtual std::size_t blockSize() const noexcept;
-
-    virtual bool isObjectStorage() const;
-
-    virtual std::shared_ptr<folly::Executor> executor();
-
-    ExecutionContext executionContext() const;
-
-protected:
-    std::shared_ptr<StorageHelperParamsPromise> invalidateParams();
+    /**
+     * Updates the helper parameters by replacing the parameters promise
+     * stored in storage helper with a new one. In this way requests already
+     * created will be allowed to execute with the old set of parameters
+     * while all new requests will use the new set.
+     *
+     * @param params Shared instance of @c StorageHelperParams
+     */
+    virtual folly::Future<folly::Unit> refreshParams(
+        std::shared_ptr<StorageHelperParams> params);
 
 private:
-    // Pointer to a promise of a shared pointers to helper parameters
-    // This allows the parameters to be safely updated as with
-    // existing handles and parallel read/write operations.
-    std::shared_ptr<StorageHelperParamsPromise> m_params;
-    mutable std::mutex m_paramsMutex;
     const ExecutionContext m_executionContext;
 };
 

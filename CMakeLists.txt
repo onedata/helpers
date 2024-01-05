@@ -230,7 +230,7 @@ endif(APPLE)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -fdiagnostics-color")
 
-add_compile_options(${SECTION_FRAGMENTATION_FLAGS} -Werror -Wshadow -Wall -Wpedantic)
+add_compile_options(${SECTION_FRAGMENTATION_FLAGS} -Werror -Wshadow -Wall -Wpedantic -Wno-unused-private-field -Wno-deprecated-declarations)
 add_definitions(
     ${FUSE_DEFINITIONS}
     -DFUSE_USE_VERSION=${FUSE_USE_VERSION}
@@ -287,7 +287,7 @@ if(WITH_NFS)
 endif(WITH_NFS)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
-target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})
+target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES} atomic)
 target_include_directories(helpersShared SYSTEM PUBLIC ${HELPERS_SYSTEM_INCLUDE_DIRS})
 target_include_directories(helpersShared PUBLIC ${HELPERS_INCLUDE_DIRS})
 set_target_properties(helpersShared PROPERTIES OUTPUT_NAME helpers
