@@ -176,6 +176,8 @@ public:
 
     const Timeout &timeout() override { return params().get()->timeout(); }
 
+    std::size_t blockSize() const noexcept override;
+
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
     std::shared_ptr<KeyValueHelper> helper() const { return m_helper; };

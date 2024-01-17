@@ -27,6 +27,8 @@ public:
 
     void initializeFromParams(const Params &parameters) override
     {
+        KeyValueAdapterParams::initializeFromParams(parameters);
+
         const int kDefaultMaxConnections{25};
 
         const mode_t kDefaultFileMode = 0664;

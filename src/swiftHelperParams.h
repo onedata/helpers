@@ -27,6 +27,8 @@ public:
 
     void initializeFromParams(const Params &parameters) override
     {
+        KeyValueAdapterParams::initializeFromParams(parameters);
+
         m_authUrl = getParam(parameters, "authUrl");
         m_containerName = getParam(parameters, "containerName");
         m_tenantName = getParam(parameters, "tenantName");

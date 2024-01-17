@@ -154,6 +154,8 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
     return folly::via(m_executor.get(),
         [this, offset, locks = m_locks, writeCb = std::move(writeCb),
             helper = std::dynamic_pointer_cast<KeyValueAdapter>(this->helper())
@@ -193,6 +195,10 @@ folly::Future<std::size_t> KeyValueFileHandle::writeFlat(const off_t offset,
     folly::IOBufQueue buf, std::size_t storageBlockSize,
     WriteCallback &&writeCb)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
+    assert(storageBlockSize > 0);
+
     return folly::via(m_executor.get(),
         [this, offset, storageBlockSize, locks = m_locks,
             writeCb = std::move(writeCb),
@@ -439,6 +445,8 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                 }
             });
     }
+
+    assert(blockSize() > 0);
 
     auto currentLastBlockId = getBlockId(currentSize, blockSize());
     auto newLastBlockId = getBlockId(size, blockSize());
@@ -786,6 +794,13 @@ folly::Future<FileHandlePtr> KeyValueAdapter::open(
         fileId, shared_from_this(), blockSize(), m_locks, m_executor);
 
     return folly::makeFuture(std::move(handle));
+}
+
+std::size_t KeyValueAdapter::blockSize() const noexcept
+{
+    assert(m_helper.get() != nullptr);
+
+    return m_helper->blockSize();
 }
 
 std::vector<folly::fbstring> KeyValueAdapter::handleOverridableParams() const

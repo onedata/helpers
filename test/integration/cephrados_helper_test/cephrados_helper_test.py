@@ -60,6 +60,7 @@ def server(request):
 
     return  server
 
+
 @pytest.fixture
 def helper(server):
     return CephRadosHelperProxy(server.mon_host, server.username, server.key,

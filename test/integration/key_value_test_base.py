@@ -11,6 +11,7 @@ import pytest
 THREAD_NUMBER = 8
 BLOCK_SIZE = 1024
 
+
 def test_write_should_write_multiple_blocks(helper, file_id, server):
     block_num = 20
     seed = random_str(BLOCK_SIZE)

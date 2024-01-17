@@ -118,6 +118,8 @@ boost::shared_ptr<CephRadosHelperProxy> create(std::string monHost,
     std::size_t threadNumber, std::size_t blockSize,
     std::string storagePathType = "flat")
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<CephRadosHelperProxy>(std::move(monHost),
         std::move(username), std::move(key), std::move(poolName), threadNumber,
         blockSize, storagePathType);

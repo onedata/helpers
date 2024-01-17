@@ -49,12 +49,11 @@ public:
         params["containerName"] = containerName;
         params["authUrl"] = authUrl;
         params["tenantName"] = tenantName;
-        params["userName"] = userName;
+        params["username"] = userName;
         params["password"] = password;
         params["timeout"] = "20";
         params["blockSize"] = std::to_string(blockSize);
         params["storagePathType"] = storagePathType;
-        params["maxCanonicalObjectSize"] = std::to_string(2 * 1024 * 1024);
         params["maxConnections"] = "25";
 
         auto parameters = SwiftHelperParams::create(params);
@@ -118,6 +117,8 @@ boost::shared_ptr<SwiftHelperProxy> create(std::string authUrl,
     std::string password, std::size_t threadNumber, std::size_t blockSize,
     std::string storagePathType = "flat")
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<SwiftHelperProxy>(std::move(authUrl),
         std::move(containerName), std::move(tenantName), std::move(userName),
         std::move(password), threadNumber, blockSize, storagePathType);

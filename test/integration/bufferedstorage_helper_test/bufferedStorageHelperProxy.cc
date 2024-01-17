@@ -84,6 +84,7 @@ public:
               threadNumber, std::make_shared<StorageWorkerFactory>("buffer_t"))}
     {
         Params params;
+        params["scheme"] = scheme;
         params["hostname"] = hostName;
         params["bucketName"] = bucketName;
         params["accessKey"] = accessKey;
@@ -101,12 +102,14 @@ public:
                 std::make_shared<one::helpers::S3Helper>(parametersFlat),
                 parametersFlat, m_executor);
 
+        params["storagePathType"] = "canonical";
+        params["blockSize"] = "0";
         auto parametersCanonical = S3HelperParams::create(params);
 
         auto mainStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
                 std::make_shared<one::helpers::S3Helper>(parametersCanonical),
-                parametersFlat, m_executor);
+                parametersCanonical, m_executor);
 
         m_helper = std::make_shared<one::helpers::BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
@@ -222,6 +225,8 @@ boost::shared_ptr<BufferedStorageHelperProxy> create(std::string scheme,
     std::string hostName, std::string bucketName, std::string accessKey,
     std::string secretKey, int threadNumber, int blockSize)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<BufferedStorageHelperProxy>(scheme, hostName,
         bucketName, accessKey, secretKey, threadNumber, blockSize);
 }

@@ -69,7 +69,7 @@ namespace helpers {
 using std::placeholders::_1;
 
 CephRadosHelper::CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params)
-    : KeyValueHelper{params}
+    : KeyValueHelper{params, true}
 {
     invalidateParams()->setValue(std::move(params));
 }
@@ -94,7 +94,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.cephrados.read");
 
-    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
+    LOG_DBG(2) << "Attempting to get " << size << " bytes from object " << key
                << " at offset " << offset;
 
     auto ret = retry(

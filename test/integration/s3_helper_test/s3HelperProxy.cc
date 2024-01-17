@@ -85,6 +85,7 @@ public:
         using namespace one::helpers;
 
         Params params;
+        params["scheme"] = scheme;
         params["hostname"] = hostName;
         params["bucketName"] = bucketName;
         params["accessKey"] = accessKey;
@@ -199,6 +200,8 @@ boost::shared_ptr<S3HelperProxy> create(std::string scheme,
     std::string secretKey, std::size_t threadNumber, std::size_t blockSize,
     std::string storagePathType = "flat")
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
         std::move(secretKey), threadNumber, blockSize, storagePathType);

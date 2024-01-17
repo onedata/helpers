@@ -135,6 +135,7 @@ SwiftHelper::SwiftHelper(std::shared_ptr<SwiftHelperParams> params)
 
     m_auth = std::make_unique<Authentication>(
         authUrl(), tenantName(), username(), password());
+    m_containerName = containerName();
 }
 
 folly::IOBufQueue SwiftHelper::getObject(
