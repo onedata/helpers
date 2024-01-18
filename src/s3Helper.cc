@@ -184,7 +184,7 @@ S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
     }
 }
 
-folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
+folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname) const
 {
     LOG_FCALL() << LOG_FARG(hostname);
 

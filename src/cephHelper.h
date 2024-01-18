@@ -151,7 +151,6 @@ private:
     const size_t m_objectSize{16 * 1024 * 1024};
 
     std::shared_ptr<folly::Executor> m_executor;
-    Timeout m_timeout;
 
     librados::Rados m_cluster;
     librados::IoCtx m_ioCTX;

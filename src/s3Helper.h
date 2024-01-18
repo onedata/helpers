@@ -139,7 +139,7 @@ public:
     struct stat getObjectInfo(const folly::fbstring &key) override;
 
 private:
-    folly::fbstring getRegion(const folly::fbstring &hostname);
+    folly::fbstring getRegion(const folly::fbstring &hostname) const;
 
     folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
     folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;

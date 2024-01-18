@@ -8,8 +8,6 @@
 
 #include "s3HelperParams.h"
 
-#include <chrono>
-
 namespace one {
 namespace helpers {
 std::shared_ptr<S3HelperParams> S3HelperParams::create(const Params &parameters)
@@ -18,5 +16,5 @@ std::shared_ptr<S3HelperParams> S3HelperParams::create(const Params &parameters)
     result->initializeFromParams(parameters);
     return result;
 }
-} // helpers
-} // one
+} // namespace helpers
+} // namespace one

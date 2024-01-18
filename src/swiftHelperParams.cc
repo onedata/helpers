@@ -8,8 +8,6 @@
 
 #include "swiftHelperParams.h"
 
-#include <chrono>
-
 namespace one {
 namespace helpers {
 std::shared_ptr<SwiftHelperParams> SwiftHelperParams::create(
@@ -19,5 +17,5 @@ std::shared_ptr<SwiftHelperParams> SwiftHelperParams::create(
     result->initializeFromParams(parameters);
     return result;
 }
-} // helpers
-} // one
+} // namespace helpers
+} // namespace one
