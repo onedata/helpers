@@ -43,6 +43,7 @@ def server(request):
 
     return Server(mountpoint, os.geteuid(), os.getegid())
 
+
 @pytest.fixture
 def helper(server):
     return PosixHelperProxy(
@@ -50,14 +51,17 @@ def helper(server):
         server.uid,
         server.gid)
 
-def test_helper_should_refresh_params(helper, file_id):
+
+def test_helper_should_update_params(helper, file_id):
     data = random_str()
     offset = random_int()
 
-    helper.refresh_params("/tmp/invalid_mountpoint", -1, -1)
+    assert helper.mountpoint() == "/tmp/posix_helper_test"
+
+    helper.update_helper("/tmp/invalid_mountpoint", -1, -1)
 
     assert helper.mountpoint() == "/tmp/invalid_mountpoint"
 
-    helper.refresh_params("/tmp", -1, -1)
+    helper.update_helper("/tmp", -1, -1)
 
     assert helper.mountpoint() == "/tmp"

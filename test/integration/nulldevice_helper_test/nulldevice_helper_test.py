@@ -435,6 +435,22 @@ def test_simulated_filesystem_should_grow_at_specified_rate(simulatedGrowingFile
 
 
 @pytest.mark.simulated_filesystem_tests
+def test_simulated_filesystem_should_handle_parameter_update(simulatedFilesystemStorageHelper):
+    """
+    Test example specification defined in simulatedFilesystemServer fixture:
+
+        5-20:10-20:5-1:0-100:1000000
+    """
+    assert simulatedFilesystemStorageHelper.getattr("/6").st_size == 1000000
+
+    simulatedFilesystemStorageHelper.updateHelper('0', '0', '0.0', '*',
+                                                  '5-20:10-20:5-1:0-100:1024',
+                                                  '0', 'false')
+
+    assert simulatedFilesystemStorageHelper.getattr("/6").st_size == 1024
+
+
+@pytest.mark.simulated_filesystem_tests
 def test_data_verifying_null_helper(dataVerifyingFilesystemStorageHelper):
     file_id = random_str()
 

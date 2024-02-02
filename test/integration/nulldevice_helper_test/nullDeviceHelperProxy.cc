@@ -6,6 +6,8 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
 #include "nullDeviceHelper.h"
 
 #include <boost/make_shared.hpp>
@@ -49,21 +51,30 @@ public:
         const double timeoutProbability, std::string filter,
         std::string simulatedFilesystemParameters,
         float simulatedFilesystemGrowSpeed, bool enableDataVerification)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               NULL_DEVICE_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("null_t"))}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
-        auto simulatedFilesystemParams =
-            NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
-                simulatedFilesystemParameters);
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params.emplace("type", "nulldevice");
+        params.emplace("name", "someNullDevice");
+        params.emplace("latencyMin", std::to_string(latencyMin));
+        params.emplace("latencyMax", std::to_string(latencyMax));
+        params.emplace(
+            "timeoutProbability", std::to_string(timeoutProbability));
+        params.emplace("filter", filter);
+        params.emplace(
+            "simulatedFilesystemParameters", simulatedFilesystemParameters);
+        params.emplace("simulatedFilesystemGrowSpeed",
+            std::to_string(simulatedFilesystemGrowSpeed));
+        params.emplace("enableDataVerification",
+            enableDataVerification ? "true" : "false");
 
-        m_helper = std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
-            latencyMax, timeoutProbability, std::move(filter),
-            std::get<0>(simulatedFilesystemParams),
-            simulatedFilesystemGrowSpeed,
-            std::get<1>(simulatedFilesystemParams)
-                .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            enableDataVerification, m_executor);
+        m_helper = m_helperFactory.getStorageHelper(params, false);
     }
 
     ~NullDeviceHelperProxy() { }
@@ -247,9 +258,33 @@ public:
         return res;
     }
 
+    void updateHelper(std::string latencyMin, std::string latencyMax,
+        std::string timeoutProbability, std::string filter,
+        std::string simulatedFilesystemParameters,
+        std::string simulatedFilesystemGrowSpeed,
+        std::string enableDataVerification)
+    {
+        Params params;
+        params.emplace("type", "nulldevice");
+        params.emplace("latencyMin", latencyMin);
+        params.emplace("latencyMax", latencyMax);
+        params.emplace("timeoutProbability", timeoutProbability);
+        params.emplace("filter", filter);
+        params.emplace(
+            "simulatedFilesystemParameters", simulatedFilesystemParameters);
+        params.emplace(
+            "simulatedFilesystemGrowSpeed", simulatedFilesystemGrowSpeed);
+        params.emplace("enableDataVerification", enableDataVerification);
+
+        m_helper->updateHelper(params).get();
+    }
+
 private:
-    std::shared_ptr<folly::IOExecutor> m_executor;
-    std::shared_ptr<one::helpers::NullDeviceHelper> m_helper;
+    one::communication::Communicator m_communicator;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
+    StorageHelperPtr m_helper;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
 
 namespace {
@@ -290,5 +325,6 @@ BOOST_PYTHON_MODULE(nulldevice_helper)
         .def("getxattr", &NullDeviceHelperProxy::getxattr)
         .def("setxattr", &NullDeviceHelperProxy::setxattr)
         .def("removexattr", &NullDeviceHelperProxy::removexattr)
-        .def("listxattr", &NullDeviceHelperProxy::listxattr);
+        .def("listxattr", &NullDeviceHelperProxy::listxattr)
+        .def("updateHelper", &NullDeviceHelperProxy::updateHelper);
 }

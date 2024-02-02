@@ -45,7 +45,7 @@
 #include <vector>
 
 #define HELPER_PARAM_GETTER(NAME)                                              \
-    auto NAME() const                                                          \
+    decltype(auto) NAME() const                                                \
     {                                                                          \
         return std::dynamic_pointer_cast<params_type>(params().get())->NAME(); \
     }
@@ -316,6 +316,10 @@ folly::fbstring getParam<folly::fbstring>(
 template <>
 folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     const Params &params, const folly::fbstring &key, folly::fbstring &&def);
+
+template <>
+bool getParam<bool, bool>(
+    const Params &params, const folly::fbstring &key, bool &&def);
 
 template <>
 StoragePathType getParam<StoragePathType>(
@@ -628,6 +632,8 @@ public:
      */
     virtual std::vector<folly::fbstring> handleOverridableParams() const;
 
+    virtual bool isBuffered() const;
+
     /**
      * Updates the helper parameters by replacing the parameters promise
      * stored in storage helper with a new one. In this way requests already
@@ -638,6 +644,8 @@ public:
      */
     virtual folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params);
+
+    virtual folly::Future<folly::Unit> updateHelper(const Params &params);
 
 private:
     const ExecutionContext m_executionContext;

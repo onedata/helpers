@@ -395,6 +395,8 @@ folly::Future<std::shared_ptr<StorageHelperParams>> BufferAgent::params() const
     return m_helper->params();
 }
 
+bool BufferAgent::isBuffered() const { return true; }
+
 folly::Future<folly::Unit> BufferAgent::refreshParams(
     std::shared_ptr<StorageHelperParams> params)
 {

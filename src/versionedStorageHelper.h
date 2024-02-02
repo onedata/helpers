@@ -1,5 +1,5 @@
 /**
- * @file versionedStorageHelperStack.h
+ * @file versionedStorageHelper.h
  * @author Bartek Kryza
  * @copyright (C) 2024 ACK CYFRONET AGH
  * @copyright This software is released under the MIT license cited in
@@ -11,33 +11,26 @@
 #include "helpers/storageHelper.h"
 
 #include <deque>
+#include <typeinfo>
 
 namespace one {
 namespace helpers {
 
+template <typename T> class StorageHelperCreator;
+
+template <typename StorageHelperCreatorT>
 class VersionedStorageHelper : public StorageHelper {
 public:
-    template <typename T>
-    static std::shared_ptr<VersionedStorageHelper> create(
-        std::shared_ptr<StorageHelperParams> params,
-        std::shared_ptr<folly::Executor> executor,
-        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+    VersionedStorageHelper(
+        StorageHelperCreatorT &helperCreator, StorageHelperPtr helper)
+        : m_helper{std::move(helper)}
+        , m_helperCreator{helperCreator}
     {
-        auto helper = std::make_shared<T>(
-            std::dynamic_pointer_cast<typename T::params_type>(params),
-            executor, executionContext);
-
-        return std::make_shared<VersionedStorageHelper>(std::move(helper));
-    }
-
-    VersionedStorageHelper(StorageHelperPtr helper)
-    {
-        m_helpers.push_front(std::move(helper));
     }
 
     folly::fbstring name() const override { return getHelper()->name(); }
 
-    folly::Future<struct stat> getattr(const folly::fbstring &fileId)
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override
     {
         return getHelper()->getattr(fileId);
     }
@@ -206,22 +199,32 @@ public:
     folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params) override
     {
-        //        auto newHelper = create(params);
+        return folly::makeFuture();
+    }
+
+    folly::Future<folly::Unit> updateHelper(const Params &params) override
+    {
+        std::lock_guard<std::mutex> lock{m_helpersMutex};
+        m_helper =
+            m_helperCreator.getRawStorageHelper(params, m_helper->isBuffered());
+        return folly::makeFuture();
     }
 
     StorageHelperPtr getHelper() const
     {
         std::lock_guard<std::mutex> lock{m_helpersMutex};
+        return m_helper;
+    }
 
-        if (m_helpers.empty())
-            return {};
-
-        return m_helpers.front();
+    template <typename HelperT> std::shared_ptr<HelperT> getAs() const
+    {
+        return std::dynamic_pointer_cast<HelperT>(getHelper());
     }
 
 private:
     mutable std::mutex m_helpersMutex;
-    std::deque<StorageHelperPtr> m_helpers;
+    StorageHelperPtr m_helper;
+    StorageHelperCreatorT &m_helperCreator;
 };
 
 } // namespace helpers

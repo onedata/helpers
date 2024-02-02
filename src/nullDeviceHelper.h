@@ -1,5 +1,5 @@
 /**
- * @file NullDeviceHelper.h
+ * @file nullDeviceHelper.h
  * @author Bartek Kryza
  * @copyright (C) 2018 ACK CYFRONET AGH
  * @copyright This software is released under the MIT license cited in
@@ -13,6 +13,7 @@
 
 #include "flatOpScheduler.h"
 #include "monitoring/monitoring.h"
+#include "nullDeviceHelperParams.h"
 
 #include <boost/thread/once.hpp>
 #include <boost/variant.hpp>
@@ -32,7 +33,6 @@ namespace one {
 namespace helpers {
 
 constexpr auto NULL_DEVICE_HELPER_CHAR = 'x';
-constexpr auto NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE = 1024ULL;
 
 class NullDeviceHelper;
 class NullDeviceFileHandle;
@@ -171,6 +171,8 @@ private:
 class NullDeviceHelper : public StorageHelper,
                          public std::enable_shared_from_this<NullDeviceHelper> {
 public:
+    using params_type = NullDeviceHelperParams;
+
     /**
      * Constructor.
      * @param latencyMin Minimum latency for operations in ms
@@ -190,12 +192,8 @@ public:
      * predefined data pattern.
      * @param executor Executor for driving async file operations.
      */
-    NullDeviceHelper(int latencyMin, int latencyMax, double timeoutProbability,
-        const folly::fbstring &filter,
-        std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
-        double simulatedFilesystemGrowSpeed, size_t simulatedFileSize,
-        bool enableDataVerification, std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
+    NullDeviceHelper(std::shared_ptr<NullDeviceHelperParams> params,
+        std::shared_ptr<folly::Executor> executor,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     NullDeviceHelper(const NullDeviceHelper &) = delete;
@@ -264,11 +262,9 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
     std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
-    bool applies(const folly::fbstring &operationName);
+    bool applies(const folly::fbstring &operationName) const;
 
     bool randomTimeout();
 
@@ -281,22 +277,6 @@ public:
         const std::string &operationName);
 
     bool isSimulatedFilesystem() const;
-
-    /**
-     * Returns the simulated filesystem parameters
-     */
-    std::vector<std::pair<int64_t, int64_t>>
-    simulatedFilesystemParameters() const;
-
-    /**
-     * Return the simulated filesystem grow speed in files per second.
-     */
-    double simulatedFilesystemGrowSpeed() const;
-
-    /**
-     * Return the simulated file size configuration option.
-     */
-    size_t simulatedFileSize() const;
 
     /**
      * Returns the total number of entries (directories and files) on
@@ -353,7 +333,15 @@ public:
 
     bool storageIssuesEnabled() const noexcept;
 
-    bool enableDataVerification() const noexcept;
+    HELPER_PARAM_GETTER(latencyMin)
+    HELPER_PARAM_GETTER(latencyMax)
+    HELPER_PARAM_GETTER(timeoutProbability)
+    HELPER_PARAM_GETTER(filter)
+    HELPER_PARAM_GETTER(simulatedFilesystemParameters)
+    HELPER_PARAM_GETTER(simulatedFilesystemGrowSpeed)
+    HELPER_PARAM_GETTER(simulatedFileSize)
+    HELPER_PARAM_GETTER(enableDataVerification)
+    HELPER_PARAM_GETTER(applyToAllOperations)
 
     template <typename T, typename F>
     folly::Future<T> simulateStorageIssues(
@@ -415,34 +403,16 @@ private:
     folly::Future<folly::fbvector<folly::fbstring>> listxattrImpl(
         const folly::fbstring &fileId);
 
-    const int m_latencyMin;
-    const int m_latencyMax;
     std::mt19937 m_randomGenerator(std::random_device());
     std::function<int()> m_latencyGenerator;
     std::function<double()> m_timeoutGenerator;
-
-    double m_timeoutProbability;
-
-    std::vector<std::string> m_filter;
-
-    std::vector<std::pair<int64_t, int64_t>> m_simulatedFilesystemParameters;
-    double m_simulatedFilesystemGrowSpeed;
-    size_t m_simulatedFileSize;
-
     bool m_simulatedFilesystemLevelEntryCountReady;
     std::vector<size_t> m_simulatedFilesystemLevelEntryCount;
-
     bool m_simulatedFilesystemEntryCountReady;
     size_t m_simulatedFilesystemEntryCount{};
-
-    bool m_enableDataVerification;
-
     static std::chrono::time_point<std::chrono::system_clock> m_mountTime;
 
-    bool m_applyToAllOperations = false;
-
     std::shared_ptr<folly::Executor> m_executor;
-    Timeout m_timeout;
 
     static boost::once_flag m_nullMountTimeOnceFlag;
 };
@@ -470,42 +440,12 @@ public:
             "timeout", "enableDataVerification"};
     };
 
-    static std::pair<std::vector<std::pair<int64_t, int64_t>>,
-        folly::Optional<size_t>>
-    parseSimulatedFilesystemParameters(const std::string &params);
-
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto latencyMin = getParam<int>(parameters, "latencyMin", 0);
-        const auto latencyMax = getParam<int>(parameters, "latencyMax", 0);
-        const auto timeoutProbability =
-            getParam<double>(parameters, "timeoutProbability", 0.0);
-        const auto &filter = getParam<folly::fbstring, folly::fbstring>(
-            parameters, "filter", "*");
-        const auto &simulatedFilesystemParameters =
-            getParam<folly::fbstring, folly::fbstring>(
-                parameters, "simulatedFilesystemParameters", "");
-        const auto simulatedFilesystemGrowSpeed =
-            getParam<double>(parameters, "simulatedFilesystemGrowSpeed", 0.0);
-
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
-
-        auto simulatedFilesystemParametersParsed =
-            parseSimulatedFilesystemParameters(
-                simulatedFilesystemParameters.toStdString());
-
-        const auto enableDataVerification =
-            getParam<bool>(parameters, "enableDataVerification", false);
-
-        return std::make_shared<NullDeviceHelper>(latencyMin, latencyMax,
-            timeoutProbability, filter,
-            std::get<0>(simulatedFilesystemParametersParsed),
-            simulatedFilesystemGrowSpeed,
-            std::get<1>(simulatedFilesystemParametersParsed)
-                .value_or(NULL_DEVICE_DEFAULT_SIMULATED_FILE_SIZE),
-            enableDataVerification, m_executor, timeout, executionContext);
+        return std::make_shared<NullDeviceHelper>(
+            NullDeviceHelperParams::create(parameters), m_executor,
+            executionContext);
     }
 
 private:

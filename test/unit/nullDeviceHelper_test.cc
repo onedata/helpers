@@ -37,17 +37,18 @@ struct NullDeviceHelperTest : public ::testing::Test {
         std::make_shared<folly::ManualExecutor>();
 };
 
-TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
+auto createHelper(const Params &params)
 {
     NullDeviceHelperFactory factory{
         std::make_shared<folly::IOThreadPoolExecutor>(
             1, std::make_shared<StorageWorkerFactory>("null_t"))};
 
-    Params empty;
+    return std::dynamic_pointer_cast<NullDeviceHelper>(
+        factory.createStorageHelper(params, ExecutionContext::ONECLIENT));
+}
 
-    auto defaultNullHelper =
-        factory.createStorageHelper(empty, ExecutionContext::ONECLIENT);
-
+TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)
+{
     Params p1;
     p1.emplace("type", "nulldevice");
     p1.emplace("name", "someNullDevice");
@@ -58,35 +59,46 @@ TEST_F(NullDeviceHelperTest, nullDeviceHelperFactoryShouldParseStringParams)
     p1.emplace("simulatedFilesystemParameters", "");
     p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
 
-    auto nullHelper1 =
-        factory.createStorageHelper(p1, ExecutionContext::ONECLIENT);
-}
-
-TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)
-{
-    NullDeviceHelper helper(0, 0, 0.0, "*", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    auto helper = createHelper(p1);
 
     for (int i = 0; i < 1000; i++)
-        EXPECT_FALSE(helper.randomTimeout());
+        EXPECT_FALSE(helper->randomTimeout());
 }
 
 TEST_F(NullDeviceHelperTest, timeoutWithOneProbabilityShouldAlwaysBeTrue)
 {
-    NullDeviceHelper helper(0, 0, 1.0, "*", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+
+    auto helper = createHelper(p1);
 
     for (int i = 0; i < 1000; i++)
-        EXPECT_TRUE(helper.randomTimeout());
+        EXPECT_TRUE(helper->randomTimeout());
 }
 
 TEST_F(NullDeviceHelperTest, latencyShouldBeAlwaysInDefinedRange)
 {
-    NullDeviceHelper helper(250, 750, 1.0, "*", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "250");
+    p1.emplace("latencyMax", "750");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+
+    auto helper = createHelper(p1);
 
     for (int i = 0; i < 1000; i++) {
-        auto latency = helper.randomLatency();
+        auto latency = helper->randomLatency();
         EXPECT_TRUE(latency > 100);
         EXPECT_TRUE(latency < 1000);
     }
@@ -94,70 +106,147 @@ TEST_F(NullDeviceHelperTest, latencyShouldBeAlwaysInDefinedRange)
 
 TEST_F(NullDeviceHelperTest, latencyWithZeroRangeShouldBeAlwaysReturnZero)
 {
-    NullDeviceHelper helper(0, 0, 1.0, "*", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+
+    auto helper = createHelper(p1);
 
     for (int i = 0; i < 1000; i++)
-        EXPECT_EQ(helper.randomLatency(), 0);
+        EXPECT_EQ(helper->randomLatency(), 0);
 }
 
 TEST_F(NullDeviceHelperTest, emptyFilterShouldAllowAnyOperation)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    //    NullDeviceHelper helper(100, 1000, 1.0, "", {}, 0.0, 1024, false,
+    //        std::make_shared<folly::ManualExecutor>());
 
-    EXPECT_TRUE(helper.applies("whatever"));
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "100");
+    p1.emplace("latencyMax", "1000");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+
+    auto helper = createHelper(p1);
+
+    EXPECT_TRUE(helper->applies("whatever"));
 }
 
 TEST_F(NullDeviceHelperTest, wildcardFilterShouldAllowAnyOperation)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "*", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "100");
+    p1.emplace("latencyMax", "1000");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
 
-    EXPECT_TRUE(helper.applies("whatever"));
+    auto helper = createHelper(p1);
+
+    EXPECT_TRUE(helper->applies("whatever"));
 }
 
-TEST_F(NullDeviceHelperTest, singleWordFileterShouldAllowOnlyOneOperations)
+TEST_F(NullDeviceHelperTest, singleWordFileterShouldAllowOnlyOneOperation)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "truncate", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "100");
+    p1.emplace("latencyMax", "1000");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "truncate");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
 
-    EXPECT_FALSE(helper.applies("whatever"));
-    EXPECT_FALSE(helper.applies(""));
-    EXPECT_TRUE(helper.applies("truncate"));
+    auto helper = createHelper(p1);
+
+    EXPECT_TRUE(std::dynamic_pointer_cast<NullDeviceHelperParams>(
+                    helper->params().get())
+                    ->filter()
+                    .size() == 1);
+
+    EXPECT_TRUE(std::dynamic_pointer_cast<NullDeviceHelperParams>(
+                    helper->params().get())
+                    ->filter()
+                    .at(0) == "truncate");
+
+    EXPECT_FALSE(std::dynamic_pointer_cast<NullDeviceHelperParams>(
+        helper->params().get())
+                     ->applyToAllOperations());
+
+    EXPECT_FALSE(helper->applies("whatever"));
+    EXPECT_FALSE(helper->applies(""));
+    EXPECT_TRUE(helper->applies("truncate"));
 }
 
 TEST_F(NullDeviceHelperTest, multipleOpsShouldAllowOnlyTheseOperations)
 {
-    NullDeviceHelper helper(100, 1000, 1.0, "truncate,read,write", {}, 0.0,
-        1024, false, std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "100");
+    p1.emplace("latencyMax", "1000");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "truncate,read,write");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
 
-    EXPECT_FALSE(helper.applies("whatever"));
-    EXPECT_FALSE(helper.applies(""));
-    EXPECT_TRUE(helper.applies("truncate"));
-    EXPECT_TRUE(helper.applies("read"));
-    EXPECT_TRUE(helper.applies("write"));
+    auto helper = createHelper(p1);
+    EXPECT_FALSE(helper->applies("whatever"));
+    EXPECT_FALSE(helper->applies(""));
+    EXPECT_TRUE(helper->applies("truncate"));
+    EXPECT_TRUE(helper->applies("read"));
+    EXPECT_TRUE(helper->applies("write"));
 }
 
 TEST_F(
     NullDeviceHelperTest, multipleOpsWithSpacesShouldAllowOnlyTheseOperations)
 {
-    NullDeviceHelper helper(100, 1000, 1.0,
-        "\t\t\ntruncate,\nread,\n   write  ", {}, 0.0, 1024, false,
-        std::make_shared<folly::ManualExecutor>());
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "100");
+    p1.emplace("latencyMax", "1000");
+    p1.emplace("timeoutProbability", "1.0");
+    p1.emplace("filter", "\t\t\ntruncate,\nread,\n   write  ");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
 
-    EXPECT_FALSE(helper.applies("whatever"));
-    EXPECT_FALSE(helper.applies(""));
-    EXPECT_TRUE(helper.applies("truncate"));
-    EXPECT_TRUE(helper.applies("read"));
-    EXPECT_TRUE(helper.applies("write"));
+    auto helper = createHelper(p1);
+
+    EXPECT_FALSE(helper->applies("whatever"));
+    EXPECT_FALSE(helper->applies(""));
+    EXPECT_TRUE(helper->applies("truncate"));
+    EXPECT_TRUE(helper->applies("read"));
+    EXPECT_TRUE(helper->applies("write"));
 }
 
 TEST_F(NullDeviceHelperTest, readReturnsRequestedNumberOfBytes)
 {
-    auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, false,
-        m_executor);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+
+    auto helper = createHelper(p1);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -168,9 +257,18 @@ TEST_F(NullDeviceHelperTest, readReturnsRequestedNumberOfBytes)
 TEST_F(
     NullDeviceHelperTest, readWriteDataIsConsistentWhenEnabledDataVerification)
 {
-    auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, true,
-        m_executor);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+    p1.emplace("enableDataVerification", "true");
+
+    auto helper = createHelper(p1);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -226,9 +324,18 @@ TEST_F(
 
 TEST_F(NullDeviceHelperTest, writeReturnsWrittenNumberOfBytes)
 {
-    auto helper = std::make_shared<NullDeviceHelper>(0, 0, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, false,
-        m_executor);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+    p1.emplace("enableDataVerification", "false");
+
+    auto helper = createHelper(p1);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -247,9 +354,18 @@ TEST_F(NullDeviceHelperTest, writeReturnsWrittenNumberOfBytes)
 
 TEST_F(NullDeviceHelperTest, readTimesAreInLatencyBoundaries)
 {
-    auto helper = std::make_shared<NullDeviceHelper>(25, 75, 0.0, "*",
-        std::vector<std::pair<long int, long int>>{}, 0.0, 1024, false,
-        m_executor);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "25");
+    p1.emplace("latencyMax", "75");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+    p1.emplace("enableDataVerification", "false");
+
+    auto helper = createHelper(p1);
 
     auto handle = helper->open("whatever", O_RDWR, {}).getVia(m_executor.get());
 
@@ -267,12 +383,12 @@ TEST_F(NullDeviceHelperTest, readTimesAreInLatencyBoundaries)
 }
 
 TEST_F(NullDeviceHelperTest,
-    nullHelperFactoryShouldParseSimulatedFilesystemParameters)
+    nullHelperParamsShouldParseSimulatedFilesystemParameters)
 {
     auto empty = "";
 
     auto simulatedFilesystemParams =
-        NullDeviceHelperFactory::parseSimulatedFilesystemParameters(empty);
+        NullDeviceHelperParams::parseSimulatedFilesystemParameters(empty);
     EXPECT_TRUE(std::get<0>(simulatedFilesystemParams).empty());
     EXPECT_FALSE(std::get<1>(simulatedFilesystemParams));
 
@@ -280,17 +396,15 @@ TEST_F(NullDeviceHelperTest,
     auto oneLevel =
         std::vector<std::pair<long int, long int>>{std::make_pair(10, 0)};
     auto oneLevelResult =
-        std::get<0>(NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
+        std::get<0>(NullDeviceHelperParams::parseSimulatedFilesystemParameters(
             oneLevelStr));
 
     EXPECT_EQ(std::get<0>(oneLevel[0]), 10);
     EXPECT_EQ(std::get<1>(oneLevel[0]), 0);
 
     auto twoLevelsStr = "10-5:1-20";
-    auto twoLevels = std::vector<std::pair<long int, long int>>{
-        std::make_pair(10, 5), std::make_pair(1, 20)};
-    auto twoLevelsResult =
-        std::get<0>(NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
+    auto twoLevels =
+        std::get<0>(NullDeviceHelperParams::parseSimulatedFilesystemParameters(
             twoLevelsStr));
 
     EXPECT_EQ(std::get<0>(twoLevels[0]), 10);
@@ -299,67 +413,76 @@ TEST_F(NullDeviceHelperTest,
     EXPECT_EQ(std::get<1>(twoLevels[1]), 20);
 
     auto invalidFormat = "10:1-20";
-    EXPECT_THROW(NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
+    EXPECT_THROW(NullDeviceHelperParams::parseSimulatedFilesystemParameters(
                      invalidFormat),
         std::invalid_argument);
 
     auto invalidNumbers = "a10-1";
-    EXPECT_THROW(NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
+    EXPECT_THROW(NullDeviceHelperParams::parseSimulatedFilesystemParameters(
                      invalidNumbers),
         std::invalid_argument);
 }
 
 TEST_F(NullDeviceHelperTest, simulatedFilesystemEntryCountShouldWork)
 {
-    auto simulatedFilesystemParamsStr = "2-2:2-2:0-3";
-    auto simulatedFilesystemParams =
-        NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
-            simulatedFilesystemParamsStr);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace("simulatedFilesystemParameters", "2-2:2-2:0-3");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+    p1.emplace("enableDataVerification", "false");
 
-    NullDeviceHelper helper(0, 0, 0.0, "*",
-        std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024), false,
-        std::make_shared<folly::ManualExecutor>());
+    auto helper = createHelper(p1);
 
-    EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(0), 2 + 2);
-    EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(1), 2 * (2 + 2));
-    EXPECT_EQ(helper.simulatedFilesystemLevelEntryCount(2), 2 * 2 * (0 + 3));
+    EXPECT_EQ(helper->simulatedFilesystemLevelEntryCount(0), 2 + 2);
+    EXPECT_EQ(helper->simulatedFilesystemLevelEntryCount(1), 2 * (2 + 2));
+    EXPECT_EQ(helper->simulatedFilesystemLevelEntryCount(2), 2 * 2 * (0 + 3));
 
-    EXPECT_EQ(helper.simulatedFilesystemEntryCount(), 4 + 8 + 12);
+    EXPECT_EQ(helper->simulatedFilesystemEntryCount(), 4 + 8 + 12);
 }
 
 TEST_F(NullDeviceHelperTest, simulatedFilesystemFileDistShouldWork)
 {
-    auto simulatedFilesystemParamsStr = "10-20:10-20:8-1:0-100:1000000000";
-    auto simulatedFilesystemParams =
-        NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
-            simulatedFilesystemParamsStr);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace(
+        "simulatedFilesystemParameters", "10-20:10-20:8-1:0-100:1000000000");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+    p1.emplace("enableDataVerification", "false");
 
-    NullDeviceHelper helper(0, 0, 0.0, "*",
-        std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024), false,
-        std::make_shared<folly::ManualExecutor>());
+    auto helper = createHelper(p1);
 
-    EXPECT_EQ(helper.simulatedFilesystemFileDist({"1"}), 1);
-    EXPECT_EQ(helper.simulatedFilesystemFileDist({"25"}), 25);
-    EXPECT_EQ(helper.simulatedFilesystemFileDist({"1", "1"}), 31);
-    EXPECT_EQ(helper.simulatedFileSize(), 1'000'000'000);
+    EXPECT_EQ(helper->simulatedFilesystemFileDist({"1"}), 1);
+    EXPECT_EQ(helper->simulatedFilesystemFileDist({"25"}), 25);
+    EXPECT_EQ(helper->simulatedFilesystemFileDist({"1", "1"}), 31);
+    EXPECT_EQ(helper->simulatedFileSize(), 1'000'000'000);
 }
 
 TEST_F(NullDeviceHelperTest,
     simulatedFilesystemFileDistShouldWorkFromMultipleThreads)
 {
-    auto simulatedFilesystemParamsStr = "10000-0:10000-10000:0-10000:1024";
-    auto simulatedFilesystemParams =
-        NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
-            simulatedFilesystemParamsStr);
+    Params p1;
+    p1.emplace("type", "nulldevice");
+    p1.emplace("name", "someNullDevice");
+    p1.emplace("latencyMin", "0");
+    p1.emplace("latencyMax", "0");
+    p1.emplace("timeoutProbability", "0.0");
+    p1.emplace("filter", "*");
+    p1.emplace(
+        "simulatedFilesystemParameters", "10000-0:10000-10000:0-10000:1024");
+    p1.emplace("simulatedFilesystemGrowSpeed", "0.0");
+    p1.emplace("enableDataVerification", "false");
 
-    auto executor0 = std::make_shared<folly::CPUThreadPoolExecutor>(8);
-
-    NullDeviceHelper helper(0, 0, 0.0, "*",
-        std::get<0>(simulatedFilesystemParams), 0.0,
-        std::get<1>(simulatedFilesystemParams).value_or(1024), false,
-        executor0);
+    auto helper = createHelper(p1);
 
     auto executor = std::make_shared<folly::CPUThreadPoolExecutor>(50);
 
@@ -368,17 +491,17 @@ TEST_F(NullDeviceHelperTest,
 
     for (int di = 0; di < 2000; di++) {
         futs.emplace_back(folly::via(executor.get(), [&helper, di]() {
-            return helper.getattr(fmt::format("/{}", di));
+            return helper->getattr(fmt::format("/{}", di));
         }));
     }
 
     for (int di = 0; di < 1000; di++) {
         futs2.emplace_back(folly::via(executor.get(), [&helper, di]() {
-            return helper.readdir(fmt::format("/{}", di), 0, 2000);
+            return helper->readdir(fmt::format("/{}", di), 0, 2000);
         }));
         for (int fi = 10000; fi < 10000 + 100; fi++) {
             futs.emplace_back(folly::via(executor.get(), [&helper, di, fi]() {
-                return helper.getattr(
+                return helper->getattr(
                     fmt::format("/{}/{}/{}/{}", di, fi, fi, fi));
             }));
         }

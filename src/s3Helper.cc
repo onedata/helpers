@@ -147,11 +147,11 @@ S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
         throw std::invalid_argument("Invalid bucket name.");
 
     if (pathComponents.size() == 1) {
-        bucketName() = pathComponents[0];
+        m_bucket = pathComponents[0];
         m_prefix = "";
     }
     else {
-        bucketName() = pathComponents[0];
+        m_bucket = pathComponents[0];
         folly::join(
             '/', ++pathComponents.begin(), pathComponents.end(), m_prefix);
     }
@@ -269,7 +269,7 @@ folly::IOBufQueue S3Helper::getObject(
     char *data = static_cast<char *>(buf.preallocate(size, size).first);
 
     Aws::S3::Model::GetObjectRequest request;
-    request.SetBucket(bucketName().c_str());
+    request.SetBucket(m_bucket.c_str());
     request.SetKey(effectiveKey.c_str());
     request.SetRange(
         rangeToString(offset, static_cast<off_t>(offset + size - 1)).c_str());
@@ -387,7 +387,7 @@ std::size_t S3Helper::putObject(
         size);
 #endif
     PutObjectRequest request;
-    request.SetBucket(bucketName().toStdString());
+    request.SetBucket(m_bucket.toStdString());
     request.SetKey(effectiveKey.toStdString());
     request.SetContentLength(size);
     request.SetBody(stream);
@@ -459,7 +459,7 @@ std::size_t S3Helper::modifyObject(
         folly::IOBufQueue newObject{folly::IOBufQueue::cacheChainLength()};
 
         // Objects on S3 storage always start at offset zero, so cases where
-        // modify offset is smaller then object offset are not possible
+        // modify offset is smaller than object offset are not possible
         if (offset < originalSize) {
             auto left = originalObject.split(offset);
             // originalObject: [----------------------------------------]
@@ -543,7 +543,7 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
         del.SetObjects(std::move(keyBatch));
 
         DeleteObjectsRequest request;
-        request.SetBucket(bucketName().toStdString());
+        request.SetBucket(m_bucket.toStdString());
         request.SetDelete(del);
 
         auto outcome = retry(
@@ -603,7 +603,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
     const auto effectiveDestinationKey = toEffectiveKey(destinationKey);
 
     CreateMultipartUploadRequest createRequest;
-    createRequest.SetBucket(bucketName().toStdString());
+    createRequest.SetBucket(m_bucket.toStdString());
     createRequest.SetKey(effectiveDestinationKey.toStdString());
     auto createOutcome = m_client->CreateMultipartUpload(createRequest);
     auto uploadId = createOutcome.GetResult().GetUploadId();
@@ -611,7 +611,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
     throwOnError("CreateMultipartUploadrequest", createOutcome);
 
     LOG_DBG(3) << "Multipart upload id: " << uploadId;
-    LOG_DBG(3) << "Bucket is: " << bucketName();
+    LOG_DBG(3) << "Bucket is: " << m_bucket;
 
     auto partNumber = 1UL;
     CompletedMultipartUpload completedMultipartUpload;
@@ -629,15 +629,14 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
         folly::fbstring key{
             fmt::format("{}/{}", effectiveSourceKey, MAX_OBJECT_ID - blockIt)};
         UploadPartCopyRequest request;
-        request.SetBucket(bucketName().toStdString());
+        request.SetBucket(m_bucket.toStdString());
         request.SetKey(effectiveDestinationKey.toStdString());
         request.SetPartNumber(partNumber);
         request.SetUploadId(uploadId);
 
         try {
             keyStat = getObjectInfo(key);
-            request.SetCopySource(
-                bucketName().toStdString() + key.toStdString());
+            request.SetCopySource(m_bucket.toStdString() + key.toStdString());
             request.SetCopySourceRange(
                 fmt::format("bytes={}-{}", 0, keyStat.st_size - 1));
         }
@@ -648,8 +647,8 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
             size_t endRange = blockIt * blockSize + blockSize - 1;
             endRange = std::min(endRange, size - 1);
 
-            request.SetCopySource(bucketName().toStdString() +
-                effectiveDestinationKey.toStdString());
+            request.SetCopySource(
+                m_bucket.toStdString() + effectiveDestinationKey.toStdString());
             request.SetCopySourceRange(
                 fmt::format("bytes={}-{}", startRange, endRange));
         }
@@ -681,7 +680,7 @@ void S3Helper::multipartCopy(const folly::fbstring &sourceKey,
 
     CompleteMultipartUploadRequest completeRequest;
     completeRequest.SetKey(effectiveDestinationKey.toStdString());
-    completeRequest.SetBucket(bucketName().toStdString());
+    completeRequest.SetBucket(m_bucket.toStdString());
     completeRequest.SetUploadId(uploadId);
     completeRequest.SetMultipartUpload(completedMultipartUpload);
 
@@ -733,13 +732,13 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         normalizedKey = "";
 
     ListObjectsRequest request;
-    request.SetBucket(bucketName().c_str());
+    request.SetBucket(m_bucket.c_str());
     request.SetPrefix(normalizedKey.c_str());
     request.SetMaxKeys(1);
     request.SetDelimiter("/");
 
     LOG_DBG(2) << "Attempting to get object info for " << normalizedKey
-               << " in bucket " << bucketName();
+               << " in bucket " << m_bucket;
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
@@ -851,15 +850,14 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         normalizedMarker.erase(0, 1);
 
     ListObjectsRequest request;
-    request.SetBucket(bucketName().c_str());
+    request.SetBucket(m_bucket.c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
     request.SetMaxKeys(size);
     request.SetMarker(normalizedMarker.c_str());
 
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
-               << " in bucket " << bucketName() << " after "
-               << normalizedMarker;
+               << " in bucket " << m_bucket << " after " << normalizedMarker;
 
     auto outcome = retry(
         [&, request = std::move(request)]() {

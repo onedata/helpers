@@ -6,6 +6,8 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
 #include "posixHelper.h"
 
 #include <boost/make_shared.hpp>
@@ -46,19 +48,27 @@ private:
 class PosixHelperProxy {
 public:
     PosixHelperProxy(std::string mountPoint, uid_t uid, gid_t gid)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               POSIX_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("posix_t"))}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
-        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        Params params;
         params["type"] = "posix";
         params["mountPoint"] = mountPoint;
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
 
-        m_helper = std::make_shared<one::helpers::PosixHelper>(
-            PosixHelperParams::create(params), m_executor,
-            ExecutionContext::ONECLIENT);
+        m_helper = m_helperFactory.getStorageHelper(params, false);
+
+        assert(std::dynamic_pointer_cast<
+               one::helpers::VersionedStorageHelper<one::helpers::
+                       StorageHelperCreator<one::communication::Communicator>>>(
+            m_helper)
+                   ->getAs<one::helpers::PosixHelper>());
     }
 
     ~PosixHelperProxy() { m_executor->join(); }
@@ -242,24 +252,34 @@ public:
         return res;
     }
 
-    void refreshParams(std::string mountPoint, int uid, int gid)
+    void updateHelper(std::string mountPoint, int uid, int gid)
     {
-        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        Params params;
         params["type"] = "posix";
         params["mountPoint"] = mountPoint;
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
 
-        auto p = PosixHelperParams::create(params);
-
-        m_helper->refreshParams(std::move(p)).get();
+        m_helper->updateHelper(params).get();
     }
 
-    std::string mountpoint() { return m_helper->mountPoint().c_str(); }
+    std::string mountpoint()
+    {
+        return std::dynamic_pointer_cast<
+            one::helpers::VersionedStorageHelper<one::helpers::
+                    StorageHelperCreator<one::communication::Communicator>>>(
+            m_helper)
+            ->getAs<one::helpers::PosixHelper>()
+            ->mountPoint()
+            .c_str();
+    }
 
 private:
+    one::communication::Communicator m_communicator;
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
-    std::shared_ptr<one::helpers::PosixHelper> m_helper;
+    StorageHelperPtr m_helper;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
 
 BOOST_PYTHON_MODULE(posix_helper)
@@ -286,6 +306,6 @@ BOOST_PYTHON_MODULE(posix_helper)
         .def("setxattr", &PosixHelperProxy::setxattr)
         .def("removexattr", &PosixHelperProxy::removexattr)
         .def("listxattr", &PosixHelperProxy::listxattr)
-        .def("refresh_params", &PosixHelperProxy::refreshParams)
+        .def("update_helper", &PosixHelperProxy::updateHelper)
         .def("mountpoint", &PosixHelperProxy::mountpoint);
 }
