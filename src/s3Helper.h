@@ -86,7 +86,7 @@ public:
      * should be used to sign requests.
      * @param timeout Asynchronous operations timeout.
      */
-    S3Helper(std::shared_ptr<S3HelperParams> params);
+    explicit S3Helper(std::shared_ptr<S3HelperParams> params);
 
     S3Helper(const S3Helper &) = delete;
     S3Helper &operator=(const S3Helper &) = delete;

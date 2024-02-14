@@ -78,7 +78,7 @@ public:
      * @param userName Name of the Swift user.
      * @param password Password of the Swift user.
      */
-    SwiftHelper(std::shared_ptr<SwiftHelperParams> params);
+    explicit SwiftHelper(std::shared_ptr<SwiftHelperParams> params);
 
     SwiftHelper(const SwiftHelper &) = delete;
     SwiftHelper &operator=(const SwiftHelper &) = delete;

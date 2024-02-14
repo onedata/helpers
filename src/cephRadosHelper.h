@@ -83,7 +83,7 @@ public:
      * @param key Secret key of the Ceph user.
      * @param timeout Asynchronous operations timeout.
      */
-    CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params);
+    explicit CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params);
 
     CephRadosHelper(const CephRadosHelper &) = delete;
     CephRadosHelper &operator=(const CephRadosHelper &) = delete;
