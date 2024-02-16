@@ -27,25 +27,27 @@ using namespace one::testing;
 struct NullDeviceHelperTest : public ::testing::Test {
     NullDeviceHelperTest() { }
 
-    ~NullDeviceHelperTest() { }
+    ~NullDeviceHelperTest() { m_ioExecutor->join(); }
 
     void SetUp() override { }
 
     void TearDown() override { }
 
-    std::shared_ptr<folly::ManualExecutor> m_executor =
-        std::make_shared<folly::ManualExecutor>();
-};
+    auto createHelper(const Params &params)
+    {
+        return std::dynamic_pointer_cast<NullDeviceHelper>(
+            m_factory.createStorageHelper(params, ExecutionContext::ONECLIENT));
+    }
 
-auto createHelper(const Params &params)
-{
-    NullDeviceHelperFactory factory{
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_ioExecutor =
         std::make_shared<folly::IOThreadPoolExecutor>(
-            1, std::make_shared<StorageWorkerFactory>("null_t"))};
+            1, std::make_shared<StorageWorkerFactory>("null_t"));
 
-    return std::dynamic_pointer_cast<NullDeviceHelper>(
-        factory.createStorageHelper(params, ExecutionContext::ONECLIENT));
-}
+    NullDeviceHelperFactory m_factory{m_ioExecutor};
+
+    std::shared_ptr<folly::ManualExecutor> m_executor{
+        std::make_shared<folly::ManualExecutor>()};
+};
 
 TEST_F(NullDeviceHelperTest, timeoutWithZeroProbabilityShouldAlwaysBeFalse)
 {
@@ -124,9 +126,6 @@ TEST_F(NullDeviceHelperTest, latencyWithZeroRangeShouldBeAlwaysReturnZero)
 
 TEST_F(NullDeviceHelperTest, emptyFilterShouldAllowAnyOperation)
 {
-    //    NullDeviceHelper helper(100, 1000, 1.0, "", {}, 0.0, 1024, false,
-    //        std::make_shared<folly::ManualExecutor>());
-
     Params p1;
     p1.emplace("type", "nulldevice");
     p1.emplace("name", "someNullDevice");
@@ -512,4 +511,6 @@ TEST_F(NullDeviceHelperTest,
 
     EXPECT_EQ(dir_results.size(), 1000);
     EXPECT_EQ(file_results.size(), 102000);
+
+    executor->join();
 }
