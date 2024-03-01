@@ -70,6 +70,14 @@ def helper(server):
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          BLOCK_SIZE, "flat")
 
+
+@pytest.fixture
+def helper_invalid(server):
+    return S3HelperProxy(server.scheme, server.hostname, "no_such_bucket",
+                         server.access_key, server.secret_key, THREAD_NUMBER,
+                         BLOCK_SIZE, "flat")
+
+
 @pytest.fixture
 def helper_multipart(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,

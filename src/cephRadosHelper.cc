@@ -256,13 +256,13 @@ void CephRadosHelper::connect()
     ret = m_ctx->cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED)};
     }
 
     ret = m_ctx->cluster.ioctx_create(poolName().c_str(), m_ctx->ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED)};
     }
 
     m_ctx->connected = true;

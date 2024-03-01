@@ -42,9 +42,8 @@ const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
         {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
         {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
         {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-        {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
-        {Aws::S3::S3Errors::NO_SUCH_BUCKET,
-            std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::UNKNOWN, std::errc::invalid_argument},
+        {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::invalid_argument},
         {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
         {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
             std::errc::no_such_file_or_directory}};
@@ -69,6 +68,7 @@ template <typename Outcome>
 std::error_code getReturnCode(const Outcome &outcome)
 {
     LOG_FCALL();
+
     if (outcome.IsSuccess())
         return one::helpers::constants::SUCCESS_CODE;
 
@@ -90,7 +90,8 @@ void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
     auto msg =
         operation.toStdString() + "': " + outcome.GetError().GetMessage();
 
-    LOG_DBG(1) << "Operation " << operation << " failed with message " << msg;
+    LOG_DBG(1) << "Operation " << operation << " failed with error code "
+               << code << " and message " << msg;
 
     if (operation == "PutObject") {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3.errors.write");
@@ -109,9 +110,12 @@ bool S3RetryCondition(const T &outcome, const std::string &operation)
         !S3RetryErrors().count(outcome.GetError().GetErrorType());
 
     if (!result) {
-        LOG(WARNING) << "Retrying S3 helper operation '" << operation
-                     << "' due to error: "
-                     << outcome.GetError().GetMessage().c_str();
+        LOG(WARNING)
+            << "Retrying S3 helper operation '" << operation
+            << "' due to error ("
+            << static_cast<std::underlying_type<Aws::S3::S3Errors>::type>(
+                   outcome.GetError().GetErrorType())
+            << "): " << outcome.GetError().GetMessage().c_str();
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3." + operation + ".retries");
     }
 
@@ -519,6 +523,19 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     using Aws::S3::Model::ObjectIdentifier;
 
     LOG_FCALL() << LOG_FARGV(keys);
+
+    if (keys.empty())
+        return;
+
+    // Verify that the s3 bucket and params are valid, otherwise DeleteObjects
+    // will return success even if the helper parameters are invalid
+    try {
+        getObjectInfo(keys.front());
+    }
+    catch (const std::system_error &e) {
+        if (e.code().value() != ENOENT)
+            throw;
+    }
 
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
