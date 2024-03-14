@@ -921,7 +921,8 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         if (name.front() != '/')
             name = "/" + name;
 
-        struct stat attr { };
+        struct stat attr {
+        };
         if (object.GetKey().back() == '/') {
             attr.st_mode = S_IFDIR;
             attr.st_mode = S_IFDIR | dirMode();
