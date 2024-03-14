@@ -58,7 +58,7 @@ const std::set<Aws::S3::S3Errors> &S3RetryErrors()
         Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
         Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
         Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
-        Aws::S3::S3Errors::REQUEST_EXPIRED,
+        Aws::S3::S3Errors::REQUEST_EXPIRED, Aws::S3::S3Errors::UNKNOWN,
         Aws::S3::S3Errors::SERVICE_UNAVAILABLE, Aws::S3::S3Errors::SLOW_DOWN,
         Aws::S3::S3Errors::THROTTLING, Aws::S3::S3Errors::NETWORK_CONNECTION};
     return S3_RETRY_ERRORS;
@@ -921,8 +921,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         if (name.front() != '/')
             name = "/" + name;
 
-        struct stat attr {
-        };
+        struct stat attr { };
         if (object.GetKey().back() == '/') {
             attr.st_mode = S_IFDIR;
             attr.st_mode = S_IFDIR | dirMode();
