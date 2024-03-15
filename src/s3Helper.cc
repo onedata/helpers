@@ -42,7 +42,7 @@ const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
         {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
         {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
         {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-        {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::UNKNOWN, std::errc::invalid_argument},
         {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::invalid_argument},
         {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
         {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
