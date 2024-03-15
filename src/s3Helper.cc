@@ -43,7 +43,7 @@ const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
         {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
         {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
         {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
-        {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::invalid_argument},
         {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
         {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
             std::errc::no_such_file_or_directory}};
@@ -58,7 +58,7 @@ const std::set<Aws::S3::S3Errors> &S3RetryErrors()
         Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
         Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
         Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
-        Aws::S3::S3Errors::REQUEST_EXPIRED, Aws::S3::S3Errors::UNKNOWN,
+        Aws::S3::S3Errors::REQUEST_EXPIRED,
         Aws::S3::S3Errors::SERVICE_UNAVAILABLE, Aws::S3::S3Errors::SLOW_DOWN,
         Aws::S3::S3Errors::THROTTLING, Aws::S3::S3Errors::NETWORK_CONNECTION};
     return S3_RETRY_ERRORS;
