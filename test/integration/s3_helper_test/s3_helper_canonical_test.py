@@ -99,4 +99,5 @@ def test_read_should_throw_for_write_beyond_supported_range(helper, file_id):
 
 def test_helper_params(helper):
     assert helper.block_size() == 0
+    assert helper.block_size_for_path("/any") == 0
     assert helper.storage_path_type() == "canonical"

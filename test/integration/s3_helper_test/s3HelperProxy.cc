@@ -215,10 +215,22 @@ public:
         m_helper->updateHelper(params).get();
     }
 
+    bool isObjectStorage()
+    {
+        ReleaseGIL guard;
+        return m_helper->isObjectStorage();
+    }
+
     size_t blockSize()
     {
         ReleaseGIL guard;
         return m_helper->blockSize();
+    }
+
+    size_t blockSizeForPath(std::string path)
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSizeForPath(path).get();
     }
 
     std::string storagePathType()
@@ -276,6 +288,8 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("write", &S3HelperProxy::write)
         .def("truncate", &S3HelperProxy::truncate)
         .def("update_helper", &S3HelperProxy::updateHelper)
+        .def("is_object_storage", &S3HelperProxy::isObjectStorage)
         .def("block_size", &S3HelperProxy::blockSize)
+        .def("block_size_for_path", &S3HelperProxy::blockSizeForPath)
         .def("storage_path_type", &S3HelperProxy::storagePathType);
 }

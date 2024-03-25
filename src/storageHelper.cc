@@ -603,7 +603,6 @@ bool StorageHelper::isFlat() const
 
 std::size_t StorageHelper::blockSize() const
 {
-    assert(params().isReady());
     return params().get()->blockSize();
 }
 

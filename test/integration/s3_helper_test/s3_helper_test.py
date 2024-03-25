@@ -116,4 +116,6 @@ def test_parameters_update_new_bucket(helper, server, file_id):
 
 def test_helper_params(helper):
     assert helper.block_size() == BLOCK_SIZE
+    assert helper.block_size_for_path("/any") == BLOCK_SIZE
+    assert helper.is_object_storage() == True
     assert helper.storage_path_type() == "flat"

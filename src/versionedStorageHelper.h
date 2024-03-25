@@ -196,6 +196,13 @@ public:
         return getHelper()->blockSizeForPath(fileId);
     }
 
+    bool isObjectStorage() const override
+    {
+        return getHelper()->isObjectStorage();
+    }
+
+    bool isBuffered() const override { return getHelper()->isBuffered(); };
+
     folly::Future<std::shared_ptr<StorageHelperParams>> params() const override
     {
         return getHelper()->params();
