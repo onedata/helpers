@@ -196,6 +196,11 @@ public:
         return getHelper()->blockSizeForPath(fileId);
     }
 
+    folly::Future<std::shared_ptr<StorageHelperParams>> params() const override
+    {
+        return getHelper()->params();
+    }
+
     folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params) override
     {

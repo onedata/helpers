@@ -35,15 +35,9 @@ public:
         return m_maxCanonicalObjectSize;
     }
 
-    std::size_t blockSize() const { return m_blockSize; }
-
-    StoragePathType storagePathType() const { return m_storagePathType; }
-
 private:
     bool m_randomAccess;
     std::size_t m_maxCanonicalObjectSize;
-    std::size_t m_blockSize;
-    StoragePathType m_storagePathType;
 };
 } // namespace helpers
 } // namespace one

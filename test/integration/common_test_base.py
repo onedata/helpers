@@ -7,9 +7,11 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 from test_common import *
 import pytest
 
+
 @pytest.fixture
 def file_id():
     return random_str(32)
+
 
 def test_write_should_write_empty_data(helper, file_id):
     data = ''

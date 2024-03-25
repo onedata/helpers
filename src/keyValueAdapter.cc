@@ -798,6 +798,8 @@ folly::Future<FileHandlePtr> KeyValueAdapter::open(
 
 std::size_t KeyValueAdapter::blockSize() const noexcept
 {
+    LOG_FCALL();
+
     assert(m_helper.get() != nullptr);
 
     return m_helper->blockSize();

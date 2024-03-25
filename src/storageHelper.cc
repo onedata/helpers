@@ -601,7 +601,11 @@ bool StorageHelper::isFlat() const
     return storagePathType() == StoragePathType::FLAT;
 }
 
-std::size_t StorageHelper::blockSize() const noexcept { return 0; }
+std::size_t StorageHelper::blockSize() const
+{
+    assert(params().isReady());
+    return params().get()->blockSize();
+}
 
 bool StorageHelper::isObjectStorage() const { return false; }
 
@@ -615,6 +619,8 @@ ExecutionContext StorageHelper::executionContext() const
 std::shared_ptr<StorageHelper::StorageHelperParamsPromise>
 StorageHelperParamsHandler::invalidateParams()
 {
+    LOG_FCALL();
+
     std::lock_guard<std::mutex> m_lock{m_paramsMutex};
     m_params = std::make_shared<StorageHelper::StorageHelperParamsPromise>();
     return m_params;

@@ -215,6 +215,20 @@ public:
         m_helper->updateHelper(params).get();
     }
 
+    size_t blockSize()
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSize();
+    }
+
+    std::string storagePathType()
+    {
+        ReleaseGIL guard;
+        return m_helper->storagePathType() == StoragePathType::CANONICAL
+            ? "canonical"
+            : "flat";
+    }
+
 private:
     one::communication::Communicator m_communicator;
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
@@ -261,5 +275,7 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)
         .def("truncate", &S3HelperProxy::truncate)
-        .def("update_helper", &S3HelperProxy::updateHelper);
+        .def("update_helper", &S3HelperProxy::updateHelper)
+        .def("block_size", &S3HelperProxy::blockSize)
+        .def("storage_path_type", &S3HelperProxy::storagePathType);
 }

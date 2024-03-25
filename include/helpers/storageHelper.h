@@ -448,6 +448,8 @@ public:
 
     virtual void initializeFromParams(const Params &parameters)
     {
+        LOG_FCALL();
+
         m_timeout = Timeout{getParam<std::size_t>(
             parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
 
@@ -460,14 +462,19 @@ public:
         else
             throw BadParameterException{
                 "storagePathType", storagePathTypeString};
+
+        m_blockSize = getParam<std::size_t>(parameters, "blockSize", 0);
     }
 
     const Timeout &timeout() const { return m_timeout; }
+
+    std::size_t blockSize() const { return m_blockSize; }
 
     StoragePathType storagePathType() const { return m_storagePathType; }
 
 private:
     Timeout m_timeout;
+    std::size_t m_blockSize;
     StoragePathType m_storagePathType;
 };
 
@@ -608,7 +615,7 @@ public:
 
     bool isFlat() const;
 
-    virtual std::size_t blockSize() const noexcept;
+    virtual std::size_t blockSize() const;
 
     virtual bool isObjectStorage() const;
 
