@@ -469,6 +469,7 @@ StorageHelperCreator<CommunicatorT>::getStorageHelperInternal(
             bufferedArgs["bufferPath"] = ".__onedata__buffer";
             bufferedArgs["bufferDepth"] = "2";
             bufferedArgs["storagePathType"] = "flat";
+            bufferArgs["storagePathType"] = "flat";
             mainArgs["storagePathType"] = "canonical";
             mainArgs["blockSize"] = "0";
 
