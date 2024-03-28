@@ -27,11 +27,14 @@ BufferedStorageFileHandle::BufferedStorageFileHandle(folly::fbstring fileId,
     , m_bufferStorageHandle{std::move(bufferStorageHandle)}
     , m_mainStorageHandle{std::move(mainStorageHandle)}
 {
+    LOG_FCALL() << LOG_FARG(fileId);
 }
 
 folly::Future<folly::IOBufQueue> BufferedStorageFileHandle::read(
     const off_t offset, const std::size_t size)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
     return m_bufferStorageHandle->helper()
         ->getattr(m_bufferStorageHandle->fileId())
         .thenValue([this, offset, size](const auto && /*attr*/) {
@@ -46,6 +49,8 @@ folly::Future<folly::IOBufQueue> BufferedStorageFileHandle::read(
 folly::Future<std::size_t> BufferedStorageFileHandle::write(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
     return loadBufferBlocks(offset, buf.chainLength())
         .thenValue([this, offset, buf = std::move(buf),
                        writeCb = std::move(writeCb)](auto && /*unit*/) mutable {
@@ -56,22 +61,30 @@ folly::Future<std::size_t> BufferedStorageFileHandle::write(
 
 folly::Future<folly::Unit> BufferedStorageFileHandle::release()
 {
+    LOG_FCALL();
+
     return m_bufferStorageHandle->release();
 }
 
 folly::Future<folly::Unit> BufferedStorageFileHandle::flush()
 {
+    LOG_FCALL();
+
     return m_bufferStorageHandle->flush();
 }
 
 folly::Future<folly::Unit> BufferedStorageFileHandle::fsync(bool isDataSync)
 {
+    LOG_FCALL();
+
     return m_bufferStorageHandle->fsync(isDataSync);
 }
 
 folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
     const off_t offset, const std::size_t size)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
+
     // Load blocks coincident with the offset+size from the main storage
     // to the buffer storage
     const auto blockSize = m_bufferStorageHelper->blockSize();
