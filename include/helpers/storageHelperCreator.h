@@ -458,6 +458,10 @@ StorageHelperCreator<CommunicatorT>::getStorageHelperInternal(
 #if WITH_S3
     if (name == S3_HELPER_NAME) {
         if (getParam<bool>(args, "archiveStorage", false)) {
+            LOG_DBG(3) << "Creating archive storage with the following default "
+                          "parameters: "
+                       << LOG_MAP(args);
+
             const auto kDefaultBufferStorageBlockSizeMultiplier = 5UL;
             auto bufferArgs{args};
             auto mainArgs{args};
@@ -466,9 +470,11 @@ StorageHelperCreator<CommunicatorT>::getStorageHelperInternal(
                 std::to_string(kDefaultBufferStorageBlockSizeMultiplier *
                     getParam<std::size_t>(
                         args, "blockSize", constants::DEFAULT_BLOCK_SIZE));
-            mainArgs["storagePathType"] = "canonical";
             bufferedArgs["bufferPath"] = ".__onedata__buffer";
             bufferedArgs["bufferDepth"] = "2";
+            bufferedArgs["storagePathType"] = "flat";
+            mainArgs["storagePathType"] = "canonical";
+            mainArgs["blockSize"] = "0";
 
             auto bufferHelper =
                 S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
