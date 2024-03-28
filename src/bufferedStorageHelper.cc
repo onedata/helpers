@@ -27,7 +27,7 @@ BufferedStorageFileHandle::BufferedStorageFileHandle(folly::fbstring fileId,
     , m_bufferStorageHandle{std::move(bufferStorageHandle)}
     , m_mainStorageHandle{std::move(mainStorageHandle)}
 {
-    LOG_FCALL();
+    LOG_FCALL() << LOG_FARG(helper->blockSize());
 }
 
 folly::Future<folly::IOBufQueue> BufferedStorageFileHandle::read(
@@ -404,6 +404,21 @@ folly::Future<std::size_t> BufferedStorageHelper::blockSizeForPath(
     const folly::fbstring &fileId)
 {
     return m_bufferStorage->blockSizeForPath(fileId);
+}
+
+std::size_t BufferedStorageHelper::blockSize() const
+{
+    return m_bufferStorage->blockSize();
+}
+
+const Timeout &BufferedStorageHelper::timeout()
+{
+    return m_bufferStorage->timeout();
+}
+
+StoragePathType BufferedStorageHelper::storagePathType() const
+{
+    return m_bufferStorage->storagePathType();
 }
 
 bool BufferedStorageHelper::isObjectStorage() const

@@ -215,6 +215,20 @@ public:
         m_helper->flushBuffer(fileId, size).get();
     }
 
+    size_t blockSize()
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSize();
+    }
+
+    std::string storagePathType()
+    {
+        ReleaseGIL guard;
+        return m_helper->storagePathType() == StoragePathType::FLAT
+            ? "flat"
+            : "canonical";
+    }
+
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::BufferedStorageHelper> m_helper;
@@ -256,5 +270,7 @@ BOOST_PYTHON_MODULE(bufferedstorage_helper)
         .def("read", &BufferedStorageHelperProxy::read)
         .def("write", &BufferedStorageHelperProxy::write)
         .def("flushBuffer", &BufferedStorageHelperProxy::flushBuffer)
-        .def("truncate", &BufferedStorageHelperProxy::truncate);
+        .def("truncate", &BufferedStorageHelperProxy::truncate)
+        .def("blockSize", &BufferedStorageHelperProxy::blockSize)
+        .def("storagePathType", &BufferedStorageHelperProxy::storagePathType);
 }

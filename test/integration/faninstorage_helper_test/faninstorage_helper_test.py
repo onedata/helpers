@@ -138,3 +138,9 @@ def test_readdir_should_list_files_in_directory(helper, dir_id):
         offset += step
 
     assert dirs == dirs_paging
+
+
+def test_helper_params(helper):
+    assert helper.blockSize() == 0
+    assert helper.storagePathType() == "canonical"
+

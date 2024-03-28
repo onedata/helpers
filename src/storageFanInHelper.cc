@@ -239,5 +239,20 @@ folly::Future<folly::fbvector<folly::fbstring>> StorageFanInHelper::listxattr(
 }
 
 bool StorageFanInHelper::isObjectStorage() const { return false; }
+
+std::size_t StorageFanInHelper::blockSize() const
+{
+    return m_storages.front()->blockSize();
+}
+
+const Timeout &StorageFanInHelper::timeout()
+{
+    return m_storages.front()->timeout();
+}
+
+StoragePathType StorageFanInHelper::storagePathType() const
+{
+    return m_storages.front()->storagePathType();
+}
 } // namespace helpers
 } // namespace one

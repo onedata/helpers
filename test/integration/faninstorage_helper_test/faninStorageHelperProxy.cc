@@ -181,6 +181,20 @@ public:
         return res;
     }
 
+    size_t blockSize()
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSize();
+    }
+
+    std::string storagePathType()
+    {
+        ReleaseGIL guard;
+        return m_helper->storagePathType() == StoragePathType::FLAT
+            ? "flat"
+            : "canonical";
+    }
+
 private:
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
     std::shared_ptr<one::helpers::StorageFanInHelper> m_helper;
@@ -213,5 +227,7 @@ BOOST_PYTHON_MODULE(faninstorage_helper)
         .def("getattr", &FanInStorageHelperProxy::getattr)
         .def("readdir", &FanInStorageHelperProxy::readdir)
         .def("read", &FanInStorageHelperProxy::read)
-        .def("readlink", &FanInStorageHelperProxy::readlink);
+        .def("readlink", &FanInStorageHelperProxy::readlink)
+        .def("blockSize", &FanInStorageHelperProxy::blockSize)
+        .def("storagePathType", &FanInStorageHelperProxy::storagePathType);
 }

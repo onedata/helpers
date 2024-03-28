@@ -278,9 +278,14 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
     if (buf.empty())
         return folly::makeFuture<std::size_t>(0);
 
-    if (helper()->storagePathType() == StoragePathType::FLAT)
+    if (helper()->storagePathType() == StoragePathType::FLAT) {
+        assert(m_blockSize > 0);
+
         return writeFlat(
             offset, std::move(buf), m_blockSize, std::move(writeCb));
+    }
+
+    assert(m_blockSize == 0);
 
     return writeCanonical(offset, std::move(buf), std::move(writeCb));
 }

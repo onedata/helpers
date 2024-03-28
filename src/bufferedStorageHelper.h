@@ -153,6 +153,12 @@ public:
     folly::Future<std::size_t> blockSizeForPath(
         const folly::fbstring &fileId) override;
 
+    std::size_t blockSize() const override;
+
+    const Timeout &timeout() override;
+
+    StoragePathType storagePathType() const override;
+
     bool isObjectStorage() const override;
 
     StorageHelperPtr bufferHelper() { return m_bufferStorage; };
