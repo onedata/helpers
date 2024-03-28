@@ -268,6 +268,7 @@ FileHandle::FileHandle(folly::fbstring fileId, Params openParams,
     , m_openParams{std::move(openParams)}
     , m_helper{std::move(helper)}
 {
+    LOG_FCALL() << LOG_FARG(fileId);
 }
 
 std::shared_ptr<StorageHelper> FileHandle::helper() { return m_helper; }

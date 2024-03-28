@@ -27,7 +27,7 @@ BufferedStorageFileHandle::BufferedStorageFileHandle(folly::fbstring fileId,
     , m_bufferStorageHandle{std::move(bufferStorageHandle)}
     , m_mainStorageHandle{std::move(mainStorageHandle)}
 {
-    LOG_FCALL() << LOG_FARG(fileId);
+    LOG_FCALL();
 }
 
 folly::Future<folly::IOBufQueue> BufferedStorageFileHandle::read(
@@ -195,6 +195,8 @@ folly::Future<folly::Unit> BufferedStorageHelper::loadBuffer(
 folly::Future<folly::Unit> BufferedStorageHelper::flushBuffer(
     const folly::fbstring &fileId, const std::size_t size)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size);
+
     if (m_bufferStorage->storagePathType() == StoragePathType::FLAT &&
         m_mainStorage->storagePathType() == StoragePathType::CANONICAL) {
         // Move the objects from the buffer to the canonical storage
@@ -337,14 +339,23 @@ folly::Future<folly::Unit> BufferedStorageHelper::truncate(
 folly::Future<FileHandlePtr> BufferedStorageHelper::open(
     const folly::fbstring &fileId, const int flags, const Params &openParams)
 {
+    LOG_FCALL() << LOG_FARG(fileId);
+
     return applyAsync<FileHandlePtr>(
         m_bufferStorage->open(toBufferPath(fileId), flags, openParams),
         m_mainStorage->open(fileId, flags, openParams))
-        .thenValue(
-            [this, fileId](std::pair<FileHandlePtr, FileHandlePtr> &&handles) {
+        .thenTry(
+            [this, fileId](folly::Try<std::pair<FileHandlePtr, FileHandlePtr>>
+                    &&maybeHandles) {
+                if (maybeHandles.hasException())
+                    maybeHandles.throwIfFailed();
+
+                LOG_DBG(3) << "Got buffered storage handles";
+
                 return std::make_shared<BufferedStorageFileHandle>(fileId,
-                    shared_from_this(), std::move(std::get<0>(handles)),
-                    std::move(std::get<1>(handles)));
+                    shared_from_this(),
+                    std::move(std::get<0>(maybeHandles.value())),
+                    std::move(std::get<1>(maybeHandles.value())));
             });
 }
 

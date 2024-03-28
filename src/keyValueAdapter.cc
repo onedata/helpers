@@ -82,7 +82,7 @@ KeyValueFileHandle::KeyValueFileHandle(folly::fbstring fileId,
     , m_locks{std::move(locks)}
     , m_executor{std::move(executor)}
 {
-    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(blockSize);
+    LOG_FCALL() << LOG_FARG(blockSize);
 }
 
 folly::Future<folly::IOBufQueue> KeyValueFileHandle::readFlat(
