@@ -30,6 +30,11 @@ public:
 
     folly::fbstring name() const override { return getHelper()->name(); }
 
+    folly::Future<folly::Unit> checkStorageAvailability() override
+    {
+        return getHelper()->checkStorageAvailability();
+    }
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override
     {
         return getHelper()->getattr(fileId);

@@ -525,6 +525,8 @@ public:
 
     virtual folly::fbstring name() const = 0;
 
+    virtual folly::Future<folly::Unit> checkStorageAvailability();
+
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
 
     virtual folly::Future<folly::Unit> access(

@@ -56,6 +56,8 @@ public:
               m_executor, m_executor, m_executor, m_executor, m_executor,
               m_executor, m_communicator}
     {
+        FLAGS_v = 0;
+
         Params params;
         params["type"] = "posix";
         params["mountPoint"] = mountPoint;
@@ -72,6 +74,12 @@ public:
     }
 
     ~PosixHelperProxy() { m_executor->join(); }
+
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
 
     void open(std::string fileId, int flags)
     {
@@ -307,5 +315,7 @@ BOOST_PYTHON_MODULE(posix_helper)
         .def("removexattr", &PosixHelperProxy::removexattr)
         .def("listxattr", &PosixHelperProxy::listxattr)
         .def("update_helper", &PosixHelperProxy::updateHelper)
-        .def("mountpoint", &PosixHelperProxy::mountpoint);
+        .def("mountpoint", &PosixHelperProxy::mountpoint)
+        .def("check_storage_availability",
+            &PosixHelperProxy::checkStorageAvailability);
 }

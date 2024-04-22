@@ -789,6 +789,15 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
         });
 }
 
+folly::Future<folly::Unit> KeyValueAdapter::checkStorageAvailability()
+{
+    return folly::makeFuture()
+        .via(m_executor.get())
+        .thenValue([helper = m_helper, locks = m_locks](auto && /*unit*/) {
+            helper->checkStorageAvailability();
+        });
+}
+
 folly::Future<FileHandlePtr> KeyValueAdapter::open(
     const folly::fbstring &fileId, const int /*flags*/,
     const Params &openParams)

@@ -58,6 +58,12 @@ public:
 
     virtual bool supportsBatchDelete() const = 0;
 
+    virtual void checkStorageAvailability()
+    {
+        throw std::system_error{
+            std::make_error_code(std::errc::function_not_supported)};
+    }
+
     /**
      * @param prefix Arbitrary sequence of characters that provides value
      * namespace.

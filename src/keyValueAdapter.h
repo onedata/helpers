@@ -132,6 +132,8 @@ public:
 
     HELPER_PARAM_GETTER(maxCanonicalObjectSize)
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 

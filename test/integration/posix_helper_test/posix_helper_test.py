@@ -52,6 +52,25 @@ def helper(server):
         server.gid)
 
 
+@pytest.fixture
+def helper_invalid_mountpoint(server):
+    return PosixHelperProxy(
+        "/tmp/no_such_directory" + random_str(),
+        server.uid,
+        server.gid)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error(helper_invalid_mountpoint):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_mountpoint.check_storage_availability()
+
+    assert 'No such file or directory' in str(excinfo)
+
+
 def test_helper_should_update_params(helper, file_id):
     data = random_str()
     offset = random_int()
