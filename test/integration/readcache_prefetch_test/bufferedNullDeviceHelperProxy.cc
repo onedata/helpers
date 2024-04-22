@@ -6,9 +6,10 @@
  * 'LICENSE.txt'
  */
 
-#include "nullDeviceHelper.h"
-
 #include "buffering/bufferAgent.h"
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
+#include "nullDeviceHelper.h"
 
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
@@ -52,21 +53,28 @@ class BufferedNullDeviceHelperProxy {
 public:
     BufferedNullDeviceHelperProxy(const int latencyMin, const int latencyMax,
         const double timeoutProbability, std::string filter)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               NULL_DEVICE_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("null_t"))}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
-        , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
-              one::helpers::buffering::BufferLimits{},
-              std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
-                  latencyMax, timeoutProbability, std::move(filter),
-                  std::vector<std::pair<long int, long int>>{}, 0.0, 1024,
-                  false, m_executor),
-              m_scheduler,
-              std::make_shared<
-                  one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
-                  one::helpers::buffering::BufferLimits{}))}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params.emplace("type", "nulldevice");
+        params.emplace("name", "someNullDevice");
+        params.emplace("latencyMin", "0");
+        params.emplace("latencyMax", "0");
+        params.emplace("timeoutProbability", "0.0");
+
+        m_helper = std::make_shared<one::helpers::buffering::BufferAgent>(
+            one::helpers::buffering::BufferLimits{},
+            m_helperFactory.getStorageHelper(params, false), m_scheduler,
+            std::make_shared<
+                one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
+                one::helpers::buffering::BufferLimits{}));
     }
 
     ~BufferedNullDeviceHelperProxy() { }
@@ -143,9 +151,13 @@ public:
     }
 
 private:
+    one::communication::Communicator m_communicator;
+
     std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::Scheduler> m_scheduler;
-    std::shared_ptr<one::helpers::buffering::BufferAgent> m_helper;
+    StorageHelperPtr m_helper;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
 
 namespace {

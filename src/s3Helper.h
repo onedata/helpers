@@ -11,6 +11,7 @@
 
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
+#include "s3HelperParams.h"
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
@@ -56,62 +57,11 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
     {
-        // Default value for maximum object size on S3 storages
-        // with canonical paths which will support modification of
-        // objects in place.
-        // Writes to larger objects will be ignored.
-        const std::size_t kDefaultMaximumCanonicalObjectSize =
-            64UL * 1024 * 1024;
-
-        const int kDefaultMaxConnections{25};
-
-        const auto *kDefaultFileMode = "0664";
-        const auto *kDefaultDirMode = "0775";
-
-        const auto &scheme = getParam(parameters, "scheme", "https");
-        const auto &hostname = getParam(parameters, "hostname");
-        const auto &bucketName = getParam(parameters, "bucketName");
-        const auto &accessKey =
-            getParam<std::string>(parameters, "accessKey", "");
-        const auto &secretKey =
-            getParam<std::string>(parameters, "secretKey", "");
-        const auto version = getParam<int>(parameters, "signatureVersion", 4);
-        const auto verifyServerCertificate =
-            getParam<bool>(parameters, "verifyServerCertificate", true);
-        const auto disableExpectHeader =
-            getParam<bool>(parameters, "disableExpectHeader", false);
-        const auto enableClockSkewAdjustment =
-            getParam<bool>(parameters, "enableClockSkewAdjustment", false);
-        const auto maxConnections =
-            getParam<int>(parameters, "maxConnections", kDefaultMaxConnections);
-        const auto maximumCanonicalObjectSize = getParam<size_t>(parameters,
-            "maximumCanonicalObjectSize", kDefaultMaximumCanonicalObjectSize);
-        const auto fileMode =
-            getParam(parameters, "fileMode", kDefaultFileMode);
-        const auto dirMode = getParam(parameters, "dirMode", kDefaultDirMode);
-        const auto storagePathType =
-            getParam<StoragePathType>(parameters, "storagePathType");
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
-        const auto &blockSize =
-            getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
-        const auto &region =
-            getParam<std::string>(parameters, "region", "us-east-1");
-
-        if (version != 4)
-            throw std::invalid_argument(
-                "Unsupported S3 signature version: " + std::to_string(version) +
-                ". Currently only supported signature "
-                "version is '4'.");
+        auto params = S3HelperParams::create(parameters);
 
         return std::make_shared<KeyValueAdapter>(
-            std::make_shared<S3Helper>(hostname, bucketName, accessKey,
-                secretKey, verifyServerCertificate, disableExpectHeader,
-                enableClockSkewAdjustment, maxConnections,
-                maximumCanonicalObjectSize, parsePosixPermissions(fileMode),
-                parsePosixPermissions(dirMode), scheme == "https", region,
-                timeout, storagePathType),
-            m_executor, blockSize, executionContext);
+            std::make_shared<S3Helper>(params), params, m_executor,
+            executionContext);
     }
 
 private:
@@ -124,6 +74,8 @@ private:
  */
 class S3Helper : public KeyValueHelper {
 public:
+    using params_type = S3HelperParams;
+
     /**
      * Constructor.
      * @param hostName Hostname of the S3 server.
@@ -134,15 +86,7 @@ public:
      * should be used to sign requests.
      * @param timeout Asynchronous operations timeout.
      */
-    S3Helper(const folly::fbstring &hostname, const folly::fbstring &bucketName,
-        const folly::fbstring &accessKey, const folly::fbstring &secretKey,
-        const bool verifyServerCertificate, const bool disableExpectHeader,
-        const bool enableClockSkewAdjustment, const int maxConnections,
-        const std::size_t maximumCanonicalObjectSize, const mode_t fileMode,
-        const mode_t dirMode, const bool useHttps = true,
-        folly::fbstring region = "us-east-1",
-        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
-        StoragePathType storagePathType = StoragePathType::FLAT);
+    explicit S3Helper(std::shared_ptr<S3HelperParams> params);
 
     S3Helper(const S3Helper &) = delete;
     S3Helper &operator=(const S3Helper &) = delete;
@@ -152,6 +96,20 @@ public:
     virtual ~S3Helper() = default;
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
+
+    HELPER_PARAM_GETTER(scheme)
+    HELPER_PARAM_GETTER(hostname)
+    HELPER_PARAM_GETTER(bucketName)
+    HELPER_PARAM_GETTER(accessKey)
+    HELPER_PARAM_GETTER(secretKey)
+    HELPER_PARAM_GETTER(version)
+    HELPER_PARAM_GETTER(verifyServerCertificate)
+    HELPER_PARAM_GETTER(disableExpectHeader)
+    HELPER_PARAM_GETTER(enableClockSkewAdjustment)
+    HELPER_PARAM_GETTER(maxConnections)
+    HELPER_PARAM_GETTER(fileMode)
+    HELPER_PARAM_GETTER(dirMode)
+    HELPER_PARAM_GETTER(region)
 
     bool supportsBatchDelete() const override { return true; }
 
@@ -180,25 +138,18 @@ public:
 
     struct stat getObjectInfo(const folly::fbstring &key) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
 private:
-    folly::fbstring getRegion(const folly::fbstring &hostname);
+    folly::fbstring getRegion(const folly::fbstring &hostname) const;
 
     folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
     folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;
 
-    folly::fbstring m_bucket;
     // Prefix relative to the S3 bucket, which should be used on all requests
     // This effectively enables syncing of subdirectories within a bucket
     // or specifying a specific subdirectory of a bucket as space directory
+    folly::fbstring m_bucket;
     folly::fbstring m_prefix;
     std::unique_ptr<Aws::S3::S3Client> m_client;
-    Timeout m_timeout;
-
-    const mode_t m_fileMode;
-    const mode_t m_dirMode;
-    folly::fbstring m_defaultRegion;
 };
 
 /*

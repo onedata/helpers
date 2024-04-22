@@ -11,6 +11,8 @@
 
 #include "helpers/storageHelper.h"
 
+#include "glusterfsHelperParams.h"
+
 #include <folly/executors/IOExecutor.h>
 #include <glusterfs/api/glfs-handles.h>
 #include <glusterfs/api/glfs.h>
@@ -119,6 +121,8 @@ private:
 class GlusterFSHelper : public StorageHelper,
                         public std::enable_shared_from_this<GlusterFSHelper> {
 public:
+    using params_type = GlusterFSHelperParams;
+
     /**
      * Constructor.
      * @param mountPoint Root folder within the volume, all operations on the
@@ -138,12 +142,8 @@ public:
      * @param executor Executor that will drive the helper's async operations.
      * @param timeout Operation timeout.
      */
-    GlusterFSHelper(const boost::filesystem::path &mountPoint, const uid_t uid,
-        const gid_t gid, folly::fbstring hostname, int port,
-        folly::fbstring volume, folly::fbstring transport,
-        folly::fbstring xlatorOptions,
+    GlusterFSHelper(std::shared_ptr<GlusterFSHelperParams> params,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
         ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
     GlusterFSHelper(const GlusterFSHelper &) = delete;
@@ -154,6 +154,15 @@ public:
     ~GlusterFSHelper() override = default;
 
     folly::fbstring name() const override { return GLUSTERFS_HELPER_NAME; };
+
+    HELPER_PARAM_GETTER(mountPoint)
+    HELPER_PARAM_GETTER(uid)
+    HELPER_PARAM_GETTER(gid)
+    HELPER_PARAM_GETTER(hostname)
+    HELPER_PARAM_GETTER(port)
+    HELPER_PARAM_GETTER(volume)
+    HELPER_PARAM_GETTER(transport)
+    HELPER_PARAM_GETTER(xlatorOptions)
 
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
@@ -212,8 +221,6 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
     folly::Future<folly::Unit> connect();
@@ -239,19 +246,7 @@ public:
     boost::filesystem::path relative(const folly::fbstring &fileId) const;
 
 private:
-    boost::filesystem::path m_mountPoint;
-
-    uid_t m_uid;
-    gid_t m_gid;
-
-    folly::fbstring m_hostname;
-    int m_port;
-    folly::fbstring m_volume;
-    folly::fbstring m_transport;
-    folly::fbstring m_xlatorOptions;
-
     std::shared_ptr<folly::Executor> m_executor;
-    Timeout m_timeout;
 
     std::shared_ptr<glfs_t> m_glfsCtx;
 };
@@ -280,26 +275,9 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
     {
-        constexpr int kGlusterFSDefaultPort{24007};
 
-        const auto &mountPoint =
-            getParam<std::string>(parameters, "mountPoint", "");
-        const auto &uid = getParam<int>(parameters, "uid", -1);
-        const auto &gid = getParam<int>(parameters, "gid", -1);
-        const auto &hostname = getParam<std::string>(parameters, "hostname");
-        const auto &port =
-            getParam<int>(parameters, "port", kGlusterFSDefaultPort);
-        const auto &volume = getParam<std::string>(parameters, "volume");
-        const auto &transport =
-            getParam<std::string>(parameters, "transport", "tcp");
-        const auto &xlatorOptions =
-            getParam<std::string>(parameters, "xlatorOptions", "");
-
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
-
-        return std::make_shared<GlusterFSHelper>(mountPoint, uid, gid, hostname,
-            port, volume, transport, xlatorOptions, m_executor, timeout,
+        return std::make_shared<GlusterFSHelper>(
+            GlusterFSHelperParams::create(parameters), m_executor,
             executionContext);
     }
 

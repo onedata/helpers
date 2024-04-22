@@ -6,6 +6,8 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
 #include "posixHelper.h"
 #include "storageRouterHelper.h"
 
@@ -48,9 +50,13 @@ public:
      */
     StorageRouterHelperProxy(std::string routeA, std::string mountPointA,
         std::string routeB, std::string mountPointB, uid_t uid, gid_t gid)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               POSIX_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("router_t"))}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
         std::unordered_map<folly::fbstring, folly::fbstring> params;
         params["type"] = "posix";
@@ -72,8 +78,11 @@ public:
         helperMap.emplace(routeA, std::move(helperA));
         helperMap.emplace(routeB, std::move(helperB));
 
-        m_helper = std::make_shared<one::helpers::StorageRouterHelper>(
-            std::move(helperMap), ExecutionContext::ONECLIENT);
+        m_helper = std::make_shared<VersionedStorageHelper<one::helpers::
+                StorageHelperCreator<one::communication::Communicator>>>(
+            m_helperFactory,
+            std::make_shared<one::helpers::StorageRouterHelper>(
+                std::move(helperMap), ExecutionContext::ONECLIENT));
     }
 
     ~StorageRouterHelperProxy() { }
@@ -259,14 +268,33 @@ public:
 
     std::string mountpoint(std::string route)
     {
-        auto posixHelperPtr =
-            std::dynamic_pointer_cast<PosixHelper>(m_helper->route(route));
-        return posixHelperPtr->mountPoint().c_str();
+        auto versionedHelper =
+            std::dynamic_pointer_cast<VersionedStorageHelper<one::helpers::
+                    StorageHelperCreator<one::communication::Communicator>>>(
+                m_helper);
+
+        assert(versionedHelper);
+
+        auto storageRouterHelper =
+            std::dynamic_pointer_cast<StorageRouterHelper>(
+                versionedHelper->getHelper());
+
+        assert(storageRouterHelper);
+
+        auto posixHelper = std::dynamic_pointer_cast<PosixHelper>(
+            storageRouterHelper->route(route));
+
+        assert(posixHelper);
+
+        return posixHelper->mountPoint().c_str();
     }
 
 private:
-    std::shared_ptr<folly::IOExecutor> m_executor;
-    std::shared_ptr<one::helpers::StorageRouterHelper> m_helper;
+    StorageHelperPtr m_helper;
+    one::communication::Communicator m_communicator;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
 
 namespace {

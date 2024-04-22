@@ -184,6 +184,8 @@ private:
 class PosixHelper : public StorageHelper,
                     public std::enable_shared_from_this<PosixHelper> {
 public:
+    using params_type = PosixHelperParams;
+
     /**
      * Constructor.
      * @param mountPoint Absolute path to directory used by this storage helper
@@ -262,23 +264,13 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const boost::filesystem::path &mountPoint() const
-    {
-        return P()->mountPoint();
-    }
-
-    uid_t uid() const { return P()->uid(); }
-
-    gid_t gid() const { return P()->gid(); }
+    HELPER_PARAM_GETTER(mountPoint)
+    HELPER_PARAM_GETTER(uid)
+    HELPER_PARAM_GETTER(gid)
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
 private:
-    std::shared_ptr<PosixHelperParams> P() const
-    {
-        return std::dynamic_pointer_cast<PosixHelperParams>(params().get());
-    }
-
     boost::filesystem::path root(const folly::fbstring &fileId) const
     {
         return mountPoint() / fileId.toStdString();

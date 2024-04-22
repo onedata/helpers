@@ -311,3 +311,8 @@ def test_write_should_fill_new_files_with_non_zero_offset(helper):
     helper.flushBuffer(file_id, len(data) + offset)
 
     assert helper.read(file_id, 0, 1000) == new_object
+
+
+def test_helper_params(helper):
+    assert helper.blockSize() == 6000000
+    assert helper.storagePathType() == "flat"

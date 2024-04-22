@@ -11,6 +11,8 @@
 
 #include "helpers/storageHelper.h"
 
+#include "keyValueAdapterParams.h"
+
 #include <iomanip>
 #include <vector>
 
@@ -29,16 +31,15 @@ constexpr auto MAX_OBJECT_ID_DIGITS = 6;
  * The @c KeyValueHelper class provides an interface for all helpers that
  * operates on key-value storage.
  */
-class KeyValueHelper {
+class KeyValueHelper : public StorageHelperParamsHandler {
 public:
-    explicit KeyValueHelper(const bool randomAccess = false,
-        StoragePathType storagePathType = StoragePathType::FLAT,
-        const std::size_t maxCanonicalObjectSize =
-            std::numeric_limits<std::size_t>::max())
+    using params_type = KeyValueAdapterParams;
+
+    explicit KeyValueHelper(std::shared_ptr<KeyValueAdapterParams> params,
+        bool randomAccess = false)
         : m_randomAccess{randomAccess}
-        , m_maxCanonicalObjectSize{maxCanonicalObjectSize}
-        , m_storagePathType{storagePathType}
     {
+        invalidateParams()->setValue(std::move(params));
     }
 
     KeyValueHelper(const KeyValueHelper &) = delete;
@@ -49,6 +50,11 @@ public:
     virtual ~KeyValueHelper() = default;
 
     virtual folly::fbstring name() const = 0;
+
+    HELPER_PARAM_GETTER(maxCanonicalObjectSize)
+    HELPER_PARAM_GETTER(storagePathType)
+    HELPER_PARAM_GETTER(blockSize)
+    HELPER_PARAM_GETTER(timeout)
 
     virtual bool supportsBatchDelete() const = 0;
 
@@ -206,24 +212,11 @@ public:
         return {};
     }
 
-    virtual const Timeout &timeout() = 0;
-
     /**
      * Check if the underlying storage has random write access, i.e.
      * enables writing to a storage at a specific offset.
      */
     bool hasRandomAccess() const { return m_randomAccess; }
-
-    /**
-     * Return the maximum object size, which can be written or modified on this
-     * storage. This is a user defined setting.
-     */
-    std::size_t getMaxCanonicalObjectSize() const
-    {
-        return m_maxCanonicalObjectSize;
-    }
-
-    StoragePathType storagePathType() const { return m_storagePathType; }
 
 protected:
     std::string adjustPrefix(const folly::fbstring &prefix) const
@@ -248,15 +241,6 @@ private:
     // at any offset, or if the objects have to be uploaded to storage
     // in one call
     const bool m_randomAccess;
-
-    // For object storage with canonical paths, where block size is set to 0,
-    // i.e. entire files are stored in single objects, it is necessary to
-    // define the maximum object size which can be written or modified on the
-    // storage, as some storage do not allow writing from a specific offset.
-    const std::size_t m_maxCanonicalObjectSize;
-
-    // The type of mapping between logical paths and storage paths
-    const StoragePathType m_storagePathType;
 };
 
 } // namespace helpers

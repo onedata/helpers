@@ -68,20 +68,10 @@ namespace helpers {
 
 using std::placeholders::_1;
 
-CephRadosHelper::CephRadosHelper(folly::fbstring clusterName,
-    folly::fbstring monHost, folly::fbstring poolName, folly::fbstring userName,
-    folly::fbstring key, Timeout timeout, StoragePathType storagePathType)
-    : KeyValueHelper{true, storagePathType}
-    , m_clusterName{std::move(clusterName)}
-    , m_monHost{std::move(monHost)}
-    , m_poolName{std::move(poolName)}
-    , m_userName{std::move(userName)}
-    , m_key{std::move(key)}
-    , m_timeout{timeout}
+CephRadosHelper::CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params)
+    : KeyValueHelper{params, true}
 {
-    LOG_FCALL() << LOG_FARG(m_clusterName) << LOG_FARG(m_monHost)
-                << LOG_FARG(m_poolName) << LOG_FARG(m_userName)
-                << LOG_FARG(m_timeout.count());
+    invalidateParams()->setValue(std::move(params));
 }
 
 folly::IOBufQueue CephRadosHelper::getObject(
@@ -104,7 +94,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.cephrados.read");
 
-    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
+    LOG_DBG(2) << "Attempting to get " << size << " bytes from object " << key
                << " at offset " << offset;
 
     auto ret = retry(
@@ -221,26 +211,26 @@ void CephRadosHelper::connect()
         return;
 
     int ret =
-        m_ctx->cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
+        m_ctx->cluster.init2(username().c_str(), clusterName().c_str(), 0);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't initialize the cluster handle.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_ctx->cluster.conf_set("mon host", m_monHost.c_str());
+    ret = m_ctx->cluster.conf_set("mon host", monitorHostname().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set monitor host configuration "
                       "variable.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    ret = m_ctx->cluster.conf_set("key", m_key.c_str());
+    ret = m_ctx->cluster.conf_set("key", key().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set key configuration variable.";
         throw std::system_error{one::helpers::makePosixError(ret)};
     }
 
-    const auto timeoutStr = std::to_string(m_timeout.count() / 1000);
+    const auto timeoutStr = std::to_string(timeout().count() / 1000);
 
     ret = m_ctx->cluster.conf_set("rados_osd_op_timeout", timeoutStr.c_str());
     if (ret < 0) {
@@ -266,13 +256,13 @@ void CephRadosHelper::connect()
     ret = m_ctx->cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED)};
     }
 
-    ret = m_ctx->cluster.ioctx_create(m_poolName.c_str(), m_ctx->ioCTX);
+    ret = m_ctx->cluster.ioctx_create(poolName().c_str(), m_ctx->ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED)};
     }
 
     m_ctx->connected = true;

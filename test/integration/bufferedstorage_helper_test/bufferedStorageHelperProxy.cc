@@ -83,23 +83,33 @@ public:
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("buffer_t"))}
     {
+        Params params;
+        params["scheme"] = scheme;
+        params["hostname"] = hostName;
+        params["bucketName"] = bucketName;
+        params["accessKey"] = accessKey;
+        params["secretKey"] = secretKey;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = "flat";
+        params["maxCanonicalObjectSize"] = std::to_string(2 * 1024 * 1024);
+        params["maxConnections"] = "25";
+
+        auto parametersFlat = S3HelperParams::create(params);
+
         auto bufferStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
-                std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
-                    accessKey, secretKey, false, false, false, 25,
-                    std::numeric_limits<size_t>::max(), 0664, 0775,
-                    scheme == "https", "us-east-1", std::chrono::seconds{20},
-                    StoragePathType::FLAT),
-                m_executor, blockSize);
+                std::make_shared<one::helpers::S3Helper>(parametersFlat),
+                parametersFlat, m_executor);
+
+        params["storagePathType"] = "canonical";
+        params["blockSize"] = "0";
+        auto parametersCanonical = S3HelperParams::create(params);
 
         auto mainStorageHelper =
             std::make_shared<one::helpers::KeyValueAdapter>(
-                std::make_shared<one::helpers::S3Helper>(hostName, bucketName,
-                    accessKey, secretKey, false, false, false, 25,
-                    std::numeric_limits<size_t>::max(), 0664, 0775,
-                    scheme == "https", "us-east-1", std::chrono::seconds{20},
-                    StoragePathType::CANONICAL),
-                m_executor, 0);
+                std::make_shared<one::helpers::S3Helper>(parametersCanonical),
+                parametersCanonical, m_executor);
 
         m_helper = std::make_shared<one::helpers::BufferedStorageHelper>(
             std::move(bufferStorageHelper), std::move(mainStorageHelper),
@@ -205,6 +215,20 @@ public:
         m_helper->flushBuffer(fileId, size).get();
     }
 
+    size_t blockSize()
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSize();
+    }
+
+    std::string storagePathType()
+    {
+        ReleaseGIL guard;
+        return m_helper->storagePathType() == StoragePathType::FLAT
+            ? "flat"
+            : "canonical";
+    }
+
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::BufferedStorageHelper> m_helper;
@@ -215,6 +239,8 @@ boost::shared_ptr<BufferedStorageHelperProxy> create(std::string scheme,
     std::string hostName, std::string bucketName, std::string accessKey,
     std::string secretKey, int threadNumber, int blockSize)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<BufferedStorageHelperProxy>(scheme, hostName,
         bucketName, accessKey, secretKey, threadNumber, blockSize);
 }
@@ -244,5 +270,7 @@ BOOST_PYTHON_MODULE(bufferedstorage_helper)
         .def("read", &BufferedStorageHelperProxy::read)
         .def("write", &BufferedStorageHelperProxy::write)
         .def("flushBuffer", &BufferedStorageHelperProxy::flushBuffer)
-        .def("truncate", &BufferedStorageHelperProxy::truncate);
+        .def("truncate", &BufferedStorageHelperProxy::truncate)
+        .def("blockSize", &BufferedStorageHelperProxy::blockSize)
+        .def("storagePathType", &BufferedStorageHelperProxy::storagePathType);
 }

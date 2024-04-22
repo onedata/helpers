@@ -11,6 +11,8 @@
 
 #include "storageHelper.h"
 
+#include "versionedStorageHelper.h"
+
 #ifndef WITH_BUFFERING
 #ifdef BUILD_PROXY_IO
 #define WITH_BUFFERING
@@ -158,26 +160,52 @@ public:
 
     /**
      * Produces storage helper object.
-     * @param name Name of storage helper that has to be returned.
+     * @param type Name of storage helper that has to be returned.
      * @param args Arguments map passed as argument to storge helper's
      * constructor.
      * @param buffered Whether the storage helper should be wrapped
      * with a buffer agent.
      * @return The created storage helper object.
      */
-    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
+
+    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &type,
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+        bool buffered,
+        const std::unordered_map<folly::fbstring, folly::fbstring>
+            &overrideParams = {})
+    {
+        return std::make_shared<
+            VersionedStorageHelper<StorageHelperCreator<CommunicatorT>>>(*this,
+            getStorageHelperInternal(type, args, buffered, overrideParams));
+    }
+
+    std::shared_ptr<StorageHelper> getStorageHelper(
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+        bool buffered)
+    {
+        return getStorageHelper(args.at("type"), args, buffered);
+    }
+
+    std::shared_ptr<StorageHelper> getRawStorageHelper(
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+        bool buffered)
+    {
+        return getStorageHelperInternal(args.at("type"), args, buffered);
+    }
+
+private:
+    std::shared_ptr<StorageHelper> getStorageHelperInternal(
+        const folly::fbstring &name,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
         bool buffered,
         const std::unordered_map<folly::fbstring, folly::fbstring>
             &overrideParams = {});
 
-    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &name,
-        const std::unordered_map<folly::fbstring, folly::fbstring> &args)
-    {
-        return getStorageHelper(name, args, true);
-    }
+    std::vector<StorageHelperPtr> splitMultipleSupportNFSStorages(
+        const std::unordered_map<folly::fbstring, folly::fbstring>
+            &overrideParams,
+        folly::fbstring &host, folly::fbstring &volume) const;
 
-private:
 #if WITH_CEPH
     std::shared_ptr<folly::IOExecutor> m_cephExecutor;
     std::shared_ptr<folly::IOExecutor> m_cephRadosExecutor;
@@ -363,7 +391,7 @@ StorageHelperCreator<CommunicatorT>::StorageHelperCreator(
 
 template <typename CommunicatorT>
 std::shared_ptr<StorageHelper>
-StorageHelperCreator<CommunicatorT>::getStorageHelper(
+StorageHelperCreator<CommunicatorT>::getStorageHelperInternal(
     const folly::fbstring &name,
     const std::unordered_map<folly::fbstring, folly::fbstring> &args,
     const bool buffered,
@@ -434,12 +462,16 @@ StorageHelperCreator<CommunicatorT>::getStorageHelper(
             auto bufferArgs{args};
             auto mainArgs{args};
             auto bufferedArgs{args};
-            bufferArgs["blockSize"] = std::to_string(
-                kDefaultBufferStorageBlockSizeMultiplier *
-                getParam<std::size_t>(args, "blockSize", DEFAULT_BLOCK_SIZE));
-            mainArgs["storagePathType"] = "canonical";
+            bufferArgs["blockSize"] =
+                std::to_string(kDefaultBufferStorageBlockSizeMultiplier *
+                    getParam<std::size_t>(
+                        args, "blockSize", constants::DEFAULT_BLOCK_SIZE));
             bufferedArgs["bufferPath"] = ".__onedata__buffer";
             bufferedArgs["bufferDepth"] = "2";
+            bufferedArgs["storagePathType"] = "flat";
+            bufferArgs["storagePathType"] = "flat";
+            mainArgs["storagePathType"] = "canonical";
+            mainArgs["blockSize"] = "0";
 
             auto bufferHelper =
                 S3HelperFactory{m_s3Executor}.createStorageHelperWithOverride(
@@ -512,48 +544,8 @@ StorageHelperCreator<CommunicatorT>::getStorageHelper(
         else {
             // This is a multisupport NFS helper which handles multiple NFS
             // volumes in parallel
-            if (overrideParams.find("host") != overrideParams.cend())
-                host = getParam<folly::fbstring>(overrideParams, "host");
-
-            if (overrideParams.find("volume") != overrideParams.cend())
-                volume = getParam<folly::fbstring>(overrideParams, "volume");
-
-            std::vector<std::string> hosts;
-            std::vector<std::string> volumes;
-            folly::split(";", host, hosts, true);
-            folly::split(";", volume, volumes, true);
-
-            if (hosts.empty())
-                throw std::system_error{
-                    std::make_error_code(std::errc::invalid_argument),
-                    "Invalid NFS host specification"};
-
-            if (volumes.empty())
-                throw std::system_error{
-                    std::make_error_code(std::errc::invalid_argument),
-                    "Invalid NFS volume specification"};
-
-            if ((hosts.size() > 1) && (hosts.size() != volumes.size())) {
-                throw std::system_error{
-                    std::make_error_code(std::errc::invalid_argument),
-                    "NFS host count must match NFS volume count in "
-                    "multisupport NFS helper"};
-            }
-
-            std::vector<StorageHelperPtr> storages;
-            auto factory = NFSHelperFactory{m_nfsExecutor};
-            for (auto i = 0U; i < volumes.size(); i++) {
-                Params argsCopy;
-                if (hosts.size() == 1)
-                    argsCopy["host"] = hosts[0];
-                else
-                    argsCopy["host"] = hosts[i];
-
-                argsCopy["volume"] = volumes[i];
-
-                storages.emplace_back(factory.createStorageHelperWithOverride(
-                    argsCopy, overrideParams, m_executionContext));
-            }
+            std::vector<StorageHelperPtr> storages =
+                splitMultipleSupportNFSStorages(overrideParams, host, volume);
 
             helper = std::make_shared<StorageFanInHelper>(
                 std::move(storages), m_nfsExecutor, m_executionContext);
@@ -613,6 +605,60 @@ StorageHelperCreator<CommunicatorT>::getStorageHelper(
     LOG_DBG(1) << "Created non-buffered helper of type: " << name;
 
     return helper;
+}
+
+template <typename CommunicatorT>
+std::vector<StorageHelperPtr>
+StorageHelperCreator<CommunicatorT>::splitMultipleSupportNFSStorages(
+    const std::unordered_map<folly::fbstring, folly::fbstring> &overrideParams,
+    folly::fbstring &host, folly::fbstring &volume) const
+{
+    std::vector<StorageHelperPtr> storages;
+
+    if (overrideParams.find("host") != overrideParams.cend())
+        host = one::helpers::getParam<folly::fbstring>(overrideParams, "host");
+
+    if (overrideParams.find("volume") != overrideParams.cend())
+        volume =
+            one::helpers::getParam<folly::fbstring>(overrideParams, "volume");
+
+    std::vector<std::string> hosts;
+    std::vector<std::string> volumes;
+    folly::split(";", host, hosts, true);
+    folly::split(";", volume, volumes, true);
+
+    if (hosts.empty())
+        throw std::system_error{
+            std::make_error_code(std::errc::invalid_argument),
+            "Invalid NFS host specification"};
+
+    if (volumes.empty())
+        throw std::system_error{
+            std::make_error_code(std::errc::invalid_argument),
+            "Invalid NFS volume specification"};
+
+    if ((hosts.size() > 1) && (hosts.size() != volumes.size())) {
+        throw std::system_error{
+            std::make_error_code(std::errc::invalid_argument),
+            "NFS host count must match NFS volume count in "
+            "multisupport NFS helper"};
+    }
+
+    auto factory = one::helpers::NFSHelperFactory{this->m_nfsExecutor};
+    for (auto i = 0U; i < volumes.size(); i++) {
+        one::helpers::Params argsCopy;
+        if (hosts.size() == 1)
+            argsCopy["host"] = hosts[0];
+        else
+            argsCopy["host"] = hosts[i];
+
+        argsCopy["volume"] = volumes[i];
+
+        storages.emplace_back(factory.createStorageHelperWithOverride(
+            argsCopy, overrideParams, this->m_executionContext));
+    }
+
+    return storages;
 }
 
 } // namespace helpers

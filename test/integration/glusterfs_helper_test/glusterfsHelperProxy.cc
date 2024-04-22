@@ -51,10 +51,20 @@ public:
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               GLUSTERFS_HELPER_WORKER_THREADS,
               std::make_shared<StorageWorkerFactory>("gluster_t"))}
-        , m_helper{std::make_shared<one::helpers::GlusterFSHelper>(mountPoint,
-              uid, gid, hostname, port, volume, transport, xlatorOptions,
-              m_executor)}
     {
+        one::helpers::Params params;
+        params["hostname"] = hostname;
+        params["mountPoint"] = mountPoint;
+        params["uid"] = std::to_string(uid);
+        params["gid"] = std::to_string(gid);
+        params["port"] = std::to_string(port);
+        params["volume"] = volume;
+        params["transport"] = transport;
+        params["xlatorOptions"] = xlatorOptions;
+
+        m_helper = std::make_shared<one::helpers::GlusterFSHelper>(
+            GlusterFSHelperParams::create(params), m_executor,
+            ExecutionContext::ONECLIENT);
     }
 
     void open(std::string fileId, int flags)

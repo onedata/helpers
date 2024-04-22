@@ -40,7 +40,15 @@ def server(request):
         def list(self, file_id):
             test_bucket = self.s3.Bucket(self.bucket)
             return [o.key for o in
-                    test_bucket.objects.filter(Prefix=os.path.join(self.prefix, file_id) + '/', Delimiter='/')]
+                    test_bucket.objects.filter(
+                        Prefix=os.path.join(self.prefix, file_id) + '/',
+                        Delimiter='/')]
+
+        def set_bucket(self, bucket_name):
+            self.bucket = bucket_name
+
+        def make_bucket(self, new_bucket):
+            self.s3.create_bucket(Bucket=new_bucket)
 
     bucket = 'data'
     result = s3.up('onedata/minio:v1', [bucket], 'storage',
@@ -62,8 +70,52 @@ def helper(server):
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          BLOCK_SIZE, "flat")
 
+
+@pytest.fixture
+def helper_invalid(server):
+    return S3HelperProxy(server.scheme, server.hostname, "no_such_bucket",
+                         server.access_key, server.secret_key, THREAD_NUMBER,
+                         BLOCK_SIZE, "flat")
+
+
 @pytest.fixture
 def helper_multipart(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
                          6*1024*1024, "flat")
+
+
+def test_parameters_update_new_bucket(helper, server, file_id):
+    block_num = 20
+    seed = random_str(BLOCK_SIZE)
+    data = seed * block_num
+
+    assert helper.write(file_id, data, 0) == len(data)
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
+    assert len(server.list(file_id)) == block_num
+
+    server.make_bucket('data2')
+    server.set_bucket('data2')
+
+    helper.update_helper(server.scheme, server.hostname, 'data2',
+                        server.access_key, server.secret_key, THREAD_NUMBER,
+                        BLOCK_SIZE, 'flat')
+
+    assert len(server.list(file_id)) == 0
+    assert helper.write(file_id, data, 0) == len(data)
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
+    assert len(server.list(file_id)) == block_num
+
+    helper.unlink(file_id, len(data))
+    assert len(server.list(file_id)) == 0
+
+    server.set_bucket('data')
+
+    assert len(server.list(file_id)) == block_num
+
+
+def test_helper_params(helper):
+    assert helper.block_size() == BLOCK_SIZE
+    assert helper.block_size_for_path("/any") == BLOCK_SIZE
+    assert helper.is_object_storage() == True
+    assert helper.storage_path_type() == "flat"

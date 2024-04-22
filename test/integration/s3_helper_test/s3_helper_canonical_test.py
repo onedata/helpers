@@ -70,7 +70,8 @@ def server(request):
 def helper(server):
     return S3HelperProxy(server.scheme, server.hostname, server.bucket+server.prefix,
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         BLOCK_SIZE, "canonical")
+                         0, "canonical")
+
 
 def truncate_test(helper, op_num, size):
     """
@@ -94,3 +95,9 @@ def test_read_should_throw_for_write_beyond_supported_range(helper, file_id):
         helper.write(file_id, data, max_range+1)
 
     assert 'Numerical result out of range' in str(excinfo.value)
+
+
+def test_helper_params(helper):
+    assert helper.block_size() == 0
+    assert helper.block_size_for_path("/any") == 0
+    assert helper.storage_path_type() == "canonical"

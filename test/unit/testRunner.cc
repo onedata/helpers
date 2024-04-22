@@ -11,6 +11,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#define BACKWARD_HAS_DW 1
+#define BACKWARD_HAS_UNWIND 1
+#include <backward.hpp>
+
 int main(int argc, char *argv[])
 {
     ::testing::InitGoogleTest(&argc, argv);

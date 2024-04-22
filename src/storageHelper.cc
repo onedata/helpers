@@ -9,6 +9,7 @@
 #include "helpers/storageHelper.h"
 #include "fuseOperations.h"
 #include "helpers/logging.h"
+#include "nullDeviceHelperParams.h"
 #include "posixHelperParams.h"
 #include "webDAVHelperParams.h"
 #if WITH_XROOTD
@@ -16,6 +17,19 @@
 #endif
 #if WITH_NFS
 #include "nfsHelperParams.h"
+#endif
+#if WITH_S3
+#include "s3HelperParams.h"
+#endif
+#if WITH_SWIFT
+#include "swiftHelperParams.h"
+#endif
+#if WITH_CEPH
+#include "cephHelperParams.h"
+#include "cephRadosHelperParams.h"
+#endif
+#if WITH_GLUSTERFS
+#include "glusterfsHelperParams.h"
 #endif
 
 #include <folly/futures/Future.h>
@@ -150,7 +164,32 @@ std::shared_ptr<StorageHelperParams> StorageHelperParams::create(
         return NFSHelperParams::create(params);
     }
 #endif
-
+#if WITH_S3
+    if (name == S3_HELPER_NAME) {
+        return S3HelperParams::create(params);
+    }
+#endif
+#if WITH_SWIFT
+    if (name == SWIFT_HELPER_NAME) {
+        return SwiftHelperParams::create(params);
+    }
+#endif
+#if WITH_CEPH
+    if (name == CEPH_HELPER_NAME) {
+        return CephHelperParams::create(params);
+    }
+    if (name == CEPHRADOS_HELPER_NAME) {
+        return CephRadosHelperParams::create(params);
+    }
+#endif
+#if WITH_GLUSTERFS
+    if (name == GLUSTERFS_HELPER_NAME) {
+        return GlusterFSHelperParams::create(params);
+    }
+#endif
+    if (name == NULL_DEVICE_HELPER_NAME) {
+        return NullDeviceHelperParams::create(params);
+    }
     throw std::invalid_argument(
         "Unsupported storage helper type: " + name.toStdString());
 }
@@ -211,7 +250,7 @@ StorageHelperPtr StorageHelperFactory::createStorageHelperWithOverride(
         }
         else
             LOG(WARNING) << "Storage helper " << name() << " parameter "
-                         << parameterName << " cannot be overriden";
+                         << parameterName << " cannot be overridden";
     }
 
     return createStorageHelper(parameters, executionContext);
@@ -229,6 +268,7 @@ FileHandle::FileHandle(folly::fbstring fileId, Params openParams,
     , m_openParams{std::move(openParams)}
     , m_helper{std::move(helper)}
 {
+    LOG_FCALL() << LOG_FARG(m_fileId);
 }
 
 std::shared_ptr<StorageHelper> FileHandle::helper() { return m_helper; }
@@ -513,7 +553,7 @@ folly::Future<std::size_t> StorageHelper::blockSizeForPath(
 }
 
 folly::Future<std::shared_ptr<StorageHelperParams>>
-StorageHelper::params() const
+StorageHelperParamsHandler::params() const
 {
     std::lock_guard<std::mutex> m_lock{m_paramsMutex};
     return m_params->getFuture();
@@ -527,6 +567,12 @@ folly::Future<folly::Unit> StorageHelper::refreshParams(
     });
 }
 
+folly::Future<folly::Unit> StorageHelper::updateHelper(
+    const Params & /*params*/)
+{
+    return folly::makeFuture();
+}
+
 void StorageHelper::validateHandleOverrideParams(const Params &params)
 {
     const auto &overridableParams = handleOverridableParams();
@@ -536,10 +582,13 @@ void StorageHelper::validateHandleOverrideParams(const Params &params)
             throw BadParameterException{p.first, p.second};
     }
 }
+
 std::vector<folly::fbstring> StorageHelper::handleOverridableParams() const
 {
     return {};
 }
+
+bool StorageHelper::isBuffered() const { return false; }
 
 const Timeout &StorageHelper::timeout() { return params().get()->timeout(); }
 
@@ -553,7 +602,10 @@ bool StorageHelper::isFlat() const
     return storagePathType() == StoragePathType::FLAT;
 }
 
-std::size_t StorageHelper::blockSize() const noexcept { return 0; }
+std::size_t StorageHelper::blockSize() const
+{
+    return params().get()->blockSize();
+}
 
 bool StorageHelper::isObjectStorage() const { return false; }
 
@@ -565,8 +617,10 @@ ExecutionContext StorageHelper::executionContext() const
 }
 
 std::shared_ptr<StorageHelper::StorageHelperParamsPromise>
-StorageHelper::invalidateParams()
+StorageHelperParamsHandler::invalidateParams()
 {
+    LOG_FCALL();
+
     std::lock_guard<std::mutex> m_lock{m_paramsMutex};
     m_params = std::make_shared<StorageHelper::StorageHelperParamsPromise>();
     return m_params;

@@ -162,22 +162,15 @@ folly::Future<std::size_t> CephFileHandle::write(
 
 const Timeout &CephFileHandle::timeout() { return helper()->timeout(); }
 
-CephHelper::CephHelper(folly::fbstring clusterName, folly::fbstring monHost,
-    folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-    std::shared_ptr<folly::Executor> executor, Timeout timeout,
+CephHelper::CephHelper(std::shared_ptr<CephHelperParams> params,
+    std::shared_ptr<folly::Executor> executor,
     ExecutionContext executionContext)
     : StorageHelper{executionContext}
-    , m_clusterName{std::move(clusterName)}
-    , m_monHost{std::move(monHost)}
-    , m_poolName{std::move(poolName)}
-    , m_userName{std::move(userName)}
-    , m_key{std::move(key)}
     , m_executor{std::move(executor)}
-    , m_timeout{timeout}
 {
-    LOG_FCALL() << LOG_FARG(m_clusterName) << LOG_FARG(m_monHost)
-                << LOG_FARG(m_poolName) << LOG_FARG(m_userName)
-                << LOG_FARG(m_key);
+    LOG_FCALL();
+
+    invalidateParams()->setValue(std::move(params));
 }
 
 CephHelper::~CephHelper()
@@ -504,27 +497,27 @@ folly::Future<folly::Unit> CephHelper::connect()
             std::lock_guard<std::mutex> guard{m_connectionMutex};
 
             LOG_DBG(2) << "Attempting to connect to Ceph server at: "
-                       << m_monHost;
+                       << monitorHostname();
 
             if (m_connected) {
                 return folly::makeFuture();
             }
 
             auto ret =
-                m_cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
+                m_cluster.init2(username().c_str(), clusterName().c_str(), 0);
             if (ret < 0) {
                 LOG(ERROR) << "Couldn't initialize the cluster handle.";
                 return makeFuturePosixException(ret);
             }
 
-            ret = m_cluster.conf_set("mon host", m_monHost.c_str());
+            ret = m_cluster.conf_set("mon host", monitorHostname().c_str());
             if (ret < 0) {
                 LOG(ERROR) << "Couldn't set monitor host configuration "
                               "variable.";
                 return makeFuturePosixException(ret);
             }
 
-            ret = m_cluster.conf_set("key", m_key.c_str());
+            ret = m_cluster.conf_set("key", key().c_str());
             if (ret < 0) {
                 LOG(ERROR) << "Couldn't set key configuration variable.";
                 return makeFuturePosixException(ret);
@@ -539,7 +532,7 @@ folly::Future<folly::Unit> CephHelper::connect()
 
             ret = retry(
                 [&]() {
-                    return m_cluster.ioctx_create(m_poolName.c_str(), m_ioCTX);
+                    return m_cluster.ioctx_create(poolName().c_str(), m_ioCTX);
                 },
                 std::bind(CephRetryCondition, _1, "ioctx_create"));
             if (ret < 0) {
@@ -579,7 +572,8 @@ folly::Future<folly::Unit> CephHelper::connect()
             m_radosStriper.set_object_layout_stripe_count(m_stripeCount);
             m_radosStriper.set_object_layout_object_size(m_objectSize);
 
-            LOG_DBG(1) << "Successfully connected to Ceph at: " << m_monHost;
+            LOG_DBG(1) << "Successfully connected to Ceph at: "
+                       << monitorHostname();
 
             m_connected = true;
             return folly::makeFuture();

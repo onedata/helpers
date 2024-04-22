@@ -36,7 +36,7 @@ private:
 
 constexpr auto kHTTPHelperThreadCount = 5u;
 constexpr auto kHTTPConnectionPoolSize = 5u;
-constexpr auto kHTTPMaximumUploadSize = 0u;
+// constexpr auto kHTTPMaximumUploadSize = 0u;
 
 class HTTPHelperProxy {
 public:

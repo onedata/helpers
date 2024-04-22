@@ -49,20 +49,29 @@ TEST_F(
         makeRelative(
             "/DIR1/DIR2", "DIR1/DIR2/../../../DIR3/../../../file1.txt"));
 
+    Params params;
+    params["hostname"] = "127.0.0.1";
+    params["mountPoint"] = "/DIR1/DIR2";
+    params["volume"] = "one";
+
     auto helper = std::make_unique<GlusterFSHelper>(
-        "/DIR1/DIR2", 0, 0, "", 0, "", "", "", nullptr);
+        GlusterFSHelperParams::create(params), nullptr);
 
     EXPECT_EQ("file1.txt", helper->relative("DIR1/DIR2/file1.txt"));
     EXPECT_EQ("file1.txt", helper->relative("/DIR1/DIR2/file1.txt"));
 
-    auto helper2 =
-        std::make_unique<GlusterFSHelper>("", 0, 0, "", 0, "", "", "", nullptr);
+    params["mountPoint"] = "";
+
+    auto helper2 = std::make_unique<GlusterFSHelper>(
+        GlusterFSHelperParams::create(params), nullptr);
 
     EXPECT_EQ("DIR1/DIR2/file1.txt", helper2->relative("DIR1/DIR2/file1.txt"));
     EXPECT_EQ("DIR1/DIR2/file1.txt", helper2->relative("/DIR1/DIR2/file1.txt"));
 
+    params["mountPoint"] = "/";
+
     auto helper3 = std::make_unique<GlusterFSHelper>(
-        "/", 0, 0, "", 0, "", "", "", nullptr);
+        GlusterFSHelperParams::create(params), nullptr);
 
     EXPECT_EQ("DIR1/DIR2/file1.txt", helper2->relative("DIR1/DIR2/file1.txt"));
     EXPECT_EQ("DIR1/DIR2/file1.txt", helper2->relative("/DIR1/DIR2/file1.txt"));

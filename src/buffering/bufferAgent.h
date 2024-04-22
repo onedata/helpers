@@ -198,6 +198,8 @@ public:
     folly::Future<folly::Unit> refreshParams(
         std::shared_ptr<StorageHelperParams> params) override;
 
+    bool isBuffered() const override;
+
     StorageHelperPtr helper();
 
     const Timeout &timeout() override;

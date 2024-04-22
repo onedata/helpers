@@ -7,9 +7,11 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 from test_common import *
 import pytest
 
+
 @pytest.fixture
 def file_id():
     return random_str(32)
+
 
 def test_write_should_write_empty_data(helper, file_id):
     data = ''
@@ -190,6 +192,7 @@ def test_truncate_should_erase_existing_data(helper, file_id):
     truncated_size = 10
 
     assert helper.write(file_id, data, 0) == size
+
     helper.truncate(file_id, truncated_size, size)
     helper.truncate(file_id, size, truncated_size)
 

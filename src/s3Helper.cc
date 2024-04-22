@@ -42,9 +42,8 @@ const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
         {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
         {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
         {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-        {Aws::S3::S3Errors::UNKNOWN, std::errc::no_such_file_or_directory},
-        {Aws::S3::S3Errors::NO_SUCH_BUCKET,
-            std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::UNKNOWN, std::errc::io_error},
+        {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::invalid_argument},
         {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
         {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
             std::errc::no_such_file_or_directory}};
@@ -69,6 +68,7 @@ template <typename Outcome>
 std::error_code getReturnCode(const Outcome &outcome)
 {
     LOG_FCALL();
+
     if (outcome.IsSuccess())
         return one::helpers::constants::SUCCESS_CODE;
 
@@ -90,7 +90,8 @@ void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
     auto msg =
         operation.toStdString() + "': " + outcome.GetError().GetMessage();
 
-    LOG_DBG(1) << "Operation " << operation << " failed with message " << msg;
+    LOG_DBG(1) << "Operation " << operation << " failed with error code "
+               << code << " and message " << msg;
 
     if (operation == "PutObject") {
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3.errors.write");
@@ -109,9 +110,12 @@ bool S3RetryCondition(const T &outcome, const std::string &operation)
         !S3RetryErrors().count(outcome.GetError().GetErrorType());
 
     if (!result) {
-        LOG(WARNING) << "Retrying S3 helper operation '" << operation
-                     << "' due to error: "
-                     << outcome.GetError().GetMessage().c_str();
+        LOG(WARNING)
+            << "Retrying S3 helper operation '" << operation
+            << "' due to error ("
+            << static_cast<std::underlying_type<Aws::S3::S3Errors>::type>(
+                   outcome.GetError().GetErrorType())
+            << "): " << outcome.GetError().GetMessage().c_str();
         ONE_METRIC_COUNTER_INC("comp.helpers.mod.s3." + operation + ".retries");
     }
 
@@ -131,28 +135,18 @@ long to_ms(const Timeout &duration)
 }
 } // namespace
 
-S3Helper::S3Helper(const folly::fbstring &hostname,
-    const folly::fbstring &bucketName, const folly::fbstring &accessKey,
-    const folly::fbstring &secretKey, const bool verifyServerCertificate,
-    const bool disableExpectHeader, const bool enableClockSkewAdjustment,
-    const int maxConnections, const std::size_t maximumCanonicalObjectSize,
-    const mode_t fileMode, const mode_t dirMode, const bool useHttps,
-    folly::fbstring region, Timeout timeout, StoragePathType storagePathType)
-    : KeyValueHelper{false, storagePathType, maximumCanonicalObjectSize}
-    , m_timeout{timeout}
-    , m_fileMode{fileMode}
-    , m_dirMode{dirMode}
-    , m_defaultRegion{std::move(region)}
+S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
+    : KeyValueHelper{params, false}
 {
-    LOG_FCALL() << LOG_FARG(hostname) << LOG_FARG(m_bucket)
-                << LOG_FARG(accessKey) << LOG_FARG(secretKey)
-                << LOG_FARG(useHttps) << LOG_FARG(timeout.count());
+    LOG_FCALL();
+
+    invalidateParams()->setValue(std::move(params));
 
     static S3HelperApiInit init;
 
     // Split bucket and prefix
     std::vector<folly::fbstring> pathComponents;
-    folly::split('/', bucketName, pathComponents, true);
+    folly::split('/', bucketName(), pathComponents, true);
     if (pathComponents.empty())
         throw std::invalid_argument("Invalid bucket name.");
 
@@ -167,34 +161,34 @@ S3Helper::S3Helper(const folly::fbstring &hostname,
     }
 
     Aws::Client::ClientConfiguration configuration;
-    configuration.connectTimeoutMs = m_timeout.count();
-    configuration.requestTimeoutMs = m_timeout.count();
-    configuration.enableClockSkewAdjustment = enableClockSkewAdjustment;
-    configuration.verifySSL = verifyServerCertificate;
-    configuration.disableExpectHeader = disableExpectHeader;
-    configuration.maxConnections = maxConnections;
-    configuration.connectTimeoutMs = to_ms(m_timeout);
-    configuration.requestTimeoutMs = to_ms(m_timeout);
+    configuration.connectTimeoutMs = timeout().count();
+    configuration.requestTimeoutMs = timeout().count();
+    configuration.enableClockSkewAdjustment = enableClockSkewAdjustment();
+    configuration.verifySSL = verifyServerCertificate();
+    configuration.disableExpectHeader = disableExpectHeader();
+    configuration.maxConnections = maxConnections();
+    configuration.connectTimeoutMs = to_ms(timeout());
+    configuration.requestTimeoutMs = to_ms(timeout());
 
-    configuration.region = getRegion(hostname).c_str();
-    configuration.endpointOverride = hostname.c_str();
-    if (!useHttps)
+    configuration.region = getRegion(hostname()).c_str();
+    configuration.endpointOverride = hostname().c_str();
+    if (scheme() != std::string{"https"})
         configuration.scheme = Aws::Http::Scheme::HTTP;
 
-    if (accessKey.empty() && secretKey.empty()) {
+    if (accessKey().empty() && secretKey().empty()) {
         m_client = std::make_unique<Aws::S3::S3Client>(configuration,
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
     }
     else {
         Aws::Auth::AWSCredentials credentials{
-            accessKey.c_str(), secretKey.c_str()};
+            accessKey().c_str(), secretKey().c_str()};
         m_client = std::make_unique<Aws::S3::S3Client>(credentials,
             configuration,
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
     }
 }
 
-folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
+folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname) const
 {
     LOG_FCALL() << LOG_FARG(hostname);
 
@@ -215,9 +209,9 @@ folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname)
         }
     }
 
-    LOG_DBG(1) << "Using default S3 region " << m_defaultRegion;
+    LOG_DBG(1) << "Using default S3 region " << region();
 
-    return m_defaultRegion;
+    return region();
 }
 
 folly::fbstring S3Helper::toEffectiveKey(const folly::fbstring &key) const
@@ -469,7 +463,7 @@ std::size_t S3Helper::modifyObject(
         folly::IOBufQueue newObject{folly::IOBufQueue::cacheChainLength()};
 
         // Objects on S3 storage always start at offset zero, so cases where
-        // modify offset is smaller then object offset are not possible
+        // modify offset is smaller than object offset are not possible
         if (offset < originalSize) {
             auto left = originalObject.split(offset);
             // originalObject: [----------------------------------------]
@@ -529,6 +523,19 @@ void S3Helper::deleteObjects(const folly::fbvector<folly::fbstring> &keys)
     using Aws::S3::Model::ObjectIdentifier;
 
     LOG_FCALL() << LOG_FARGV(keys);
+
+    if (keys.empty())
+        return;
+
+    // Verify that the s3 bucket and params are valid, otherwise DeleteObjects
+    // will return success even if the helper parameters are invalid
+    try {
+        getObjectInfo(keys.front());
+    }
+    catch (const std::system_error &e) {
+        if (e.code().value() != ENOENT)
+            throw;
+    }
 
     LOG_DBG(2) << "Attempting to delete objects: " << LOG_VEC(keys);
 
@@ -717,7 +724,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 
     // For the root directory always return the defaults
     if (effectiveKey.empty() || effectiveKey == "/") {
-        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mode = S_IFDIR | dirMode();
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now())
@@ -790,7 +797,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
                    << " directories for key " << normalizedKey << " -- "
                    << commonPrefixList.cbegin()->GetPrefix().c_str();
 
-        attr.st_mode = S_IFDIR | m_dirMode;
+        attr.st_mode = S_IFDIR | dirMode();
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now())
@@ -809,7 +816,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
         auto object = outcome.GetResult().GetContents().cbegin();
 
         attr.st_size = object->GetSize();
-        attr.st_mode = S_IFREG | m_fileMode;
+        attr.st_mode = S_IFREG | fileMode();
         attr.st_mtim.tv_sec =
             std::chrono::time_point_cast<std::chrono::seconds>(
                 object->GetLastModified().UnderlyingTimestamp())
@@ -918,7 +925,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         };
         if (object.GetKey().back() == '/') {
             attr.st_mode = S_IFDIR;
-            attr.st_mode = S_IFDIR | m_dirMode;
+            attr.st_mode = S_IFDIR | dirMode();
             attr.st_size = 0;
             name.pop_back();
             if (name.empty())
@@ -926,7 +933,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         }
         else {
             attr.st_mode = S_IFREG;
-            attr.st_mode = S_IFREG | m_fileMode;
+            attr.st_mode = S_IFREG | fileMode();
             attr.st_size = object.GetSize();
         }
         attr.st_mtim.tv_sec =

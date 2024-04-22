@@ -11,6 +11,7 @@ import pytest
 THREAD_NUMBER = 8
 BLOCK_SIZE = 1024
 
+
 def test_write_should_write_multiple_blocks(helper, file_id, server):
     block_num = 20
     seed = random_str(BLOCK_SIZE)
@@ -55,6 +56,7 @@ def test_truncate_should_pad_block(helper, file_id, server):
     assert helper.read(file_id, 0, BLOCK_SIZE + 1).decode('utf-8') == '\0' * BLOCK_SIZE + '\0'
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
 
+
 def test_truncate_should_delete_all_blocks(helper, file_id, server):
     blocks_num = 10
     data = random_str(blocks_num * BLOCK_SIZE)
@@ -98,3 +100,24 @@ def test_read_should_read_empty_data(helper, file_id):
     size = random_int()
 
     assert helper.read(file_id, offset, size).decode('utf-8') == '\0'*size
+
+
+def test_truncate_should_throw_with_invalid_storage_params(helper_invalid,
+                                                           file_id):
+    current_size = 1024
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.truncate(file_id, 0, current_size)
+
+
+def test_read_should_throw_with_invalid_storage_params(helper_invalid,
+                                                       file_id):
+    size = 1024
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.read(file_id, 0, size)
+
+
+def test_unlink_should_throw_with_invalid_storage_params(helper_invalid,
+                                                           file_id):
+    current_size = 1024
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.unlink(file_id, current_size)

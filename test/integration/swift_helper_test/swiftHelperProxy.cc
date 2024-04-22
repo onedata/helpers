@@ -39,16 +39,27 @@ class SwiftHelperProxy {
 public:
     SwiftHelperProxy(std::string authUrl, std::string containerName,
         std::string tenantName, std::string userName, std::string password,
-        int threadNumber, std::size_t blockSize,
-        StoragePathType storagePathType)
+        int threadNumber, std::size_t blockSize, std::string storagePathType)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("swift_t"))}
-        , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::SwiftHelper>(
-                  std::move(containerName), authUrl, tenantName, userName,
-                  password, std::chrono::seconds{20}, storagePathType),
-              m_executor, blockSize)}
     {
+        using namespace one::helpers;
+
+        Params params;
+        params["containerName"] = containerName;
+        params["authUrl"] = authUrl;
+        params["tenantName"] = tenantName;
+        params["username"] = userName;
+        params["password"] = password;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = storagePathType;
+        params["maxConnections"] = "25";
+
+        auto parameters = SwiftHelperParams::create(params);
+
+        m_helper = std::make_shared<KeyValueAdapter>(
+            std::make_shared<SwiftHelper>(parameters), parameters, m_executor);
     }
 
     ~SwiftHelperProxy() { }
@@ -106,11 +117,11 @@ boost::shared_ptr<SwiftHelperProxy> create(std::string authUrl,
     std::string password, std::size_t threadNumber, std::size_t blockSize,
     std::string storagePathType = "flat")
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<SwiftHelperProxy>(std::move(authUrl),
         std::move(containerName), std::move(tenantName), std::move(userName),
-        std::move(password), threadNumber, blockSize,
-        storagePathType == "canonical" ? StoragePathType::CANONICAL
-                                       : StoragePathType::FLAT);
+        std::move(password), threadNumber, blockSize, storagePathType);
 }
 }
 

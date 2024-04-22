@@ -20,12 +20,10 @@ from test_common import *
 # noinspection PyUnresolvedReferences
 from environment import common, docker, nfs
 from faninstorage_helper import FanInStorageHelperProxy
-# from posix_test_base import *
-# from xattr_test_base import *
-# from io_perf_test_base import *
 from posix_test_types import *
 
 content = 'TEST'
+
 
 def make_test_directory_tree(mountpoints):
     branches = [
@@ -140,3 +138,9 @@ def test_readdir_should_list_files_in_directory(helper, dir_id):
         offset += step
 
     assert dirs == dirs_paging
+
+
+def test_helper_params(helper):
+    assert helper.blockSize() == 0
+    assert helper.storagePathType() == "canonical"
+

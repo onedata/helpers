@@ -103,6 +103,8 @@ private:
 class NFSHelper : public StorageHelper,
                   public std::enable_shared_from_this<NFSHelper> {
 public:
+    using params_type = NFSHelperParams;
+
     /**
      * Constructor.
      * @param params
@@ -168,13 +170,10 @@ public:
 
     folly::fbstring name() const override { return NFS_HELPER_NAME; };
 
-    const boost::filesystem::path &volume() const { return P()->volume(); }
-
-    int version() const { return P()->version(); }
-
-    uid_t uid() const { return P()->uid(); }
-
-    gid_t gid() const { return P()->gid(); }
+    HELPER_PARAM_GETTER(volume);
+    HELPER_PARAM_GETTER(version);
+    HELPER_PARAM_GETTER(uid);
+    HELPER_PARAM_GETTER(gid);
 
     const folly::fbstring &host() const { return P()->host(); }
 
@@ -224,6 +223,7 @@ public:
     folly::fbstring name() const override;
 
     std::vector<folly::fbstring> overridableParams() const override;
+
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override;
 

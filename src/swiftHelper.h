@@ -11,6 +11,7 @@
 
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
+#include "swiftHelperParams.h"
 
 #include "Swift/Account.h"
 #include "Swift/Container.h"
@@ -51,22 +52,11 @@ public:
     std::shared_ptr<StorageHelper> createStorageHelper(
         const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto &authUrl = getParam(parameters, "authUrl");
-        const auto &containerName = getParam(parameters, "containerName");
-        const auto &tenantName = getParam(parameters, "tenantName");
-        const auto &userName = getParam(parameters, "username");
-        const auto &password = getParam(parameters, "password");
-        const auto storagePathType =
-            getParam<StoragePathType>(parameters, "storagePathType");
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
-        const auto &blockSize =
-            getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
+        auto params = SwiftHelperParams::create(parameters);
 
         return std::make_shared<KeyValueAdapter>(
-            std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
-                userName, password, timeout, storagePathType),
-            m_executor, blockSize, executionContext);
+            std::make_shared<SwiftHelper>(params), params, m_executor,
+            executionContext);
     }
 
 private:
@@ -78,6 +68,8 @@ private:
  */
 class SwiftHelper : public KeyValueHelper {
 public:
+    using params_type = SwiftHelperParams;
+
     /**
      * Constructor.
      * @param authUrl The URL for authorization with Swift.
@@ -86,11 +78,7 @@ public:
      * @param userName Name of the Swift user.
      * @param password Password of the Swift user.
      */
-    SwiftHelper(folly::fbstring containerName, const folly::fbstring &authUrl,
-        const folly::fbstring &tenantName, const folly::fbstring &userName,
-        const folly::fbstring &password,
-        Timeout timeout = constants::ASYNC_OPS_TIMEOUT,
-        StoragePathType storagePathType = StoragePathType::FLAT);
+    explicit SwiftHelper(std::shared_ptr<SwiftHelperParams> params);
 
     SwiftHelper(const SwiftHelper &) = delete;
     SwiftHelper &operator=(const SwiftHelper &) = delete;
@@ -100,6 +88,12 @@ public:
     virtual ~SwiftHelper() = default;
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
+
+    HELPER_PARAM_GETTER(authUrl)
+    HELPER_PARAM_GETTER(containerName)
+    HELPER_PARAM_GETTER(tenantName)
+    HELPER_PARAM_GETTER(username)
+    HELPER_PARAM_GETTER(password)
 
     bool supportsBatchDelete() const override { return true; }
 
@@ -112,8 +106,6 @@ public:
     void deleteObject(const folly::fbstring &key) override;
 
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
-
-    const Timeout &timeout() override { return m_timeout; }
 
 private:
     class Authentication {
@@ -128,10 +120,11 @@ private:
         std::mutex m_authMutex;
         Swift::AuthenticationInfo m_authInfo;
         std::shared_ptr<Swift::Account> m_account;
-    } m_auth;
+    };
+
+    std::unique_ptr<Authentication> m_auth;
 
     folly::fbstring m_containerName;
-    Timeout m_timeout;
 };
 
 } // namespace helpers

@@ -61,6 +61,8 @@ public:
         }
     }
 
+    bool isBuffered() { return m_helper->isBuffered(); }
+
     one::helpers::FileHandlePtr open(std::string fileId,
         const std::unordered_map<folly::fbstring, folly::fbstring> &parameters)
     {
@@ -138,6 +140,7 @@ BOOST_PYTHON_MODULE(buffer_agent)
     class_<BufferAgentProxy, boost::noncopyable>("BufferAgentProxy", no_init)
         .def("__init__", make_constructor(create))
         .def("open", raw_function(raw_open))
+        .def("is_buffered", &BufferAgentProxy::isBuffered)
         .def("stop", &BufferAgentProxy::stop)
         .def("read", &BufferAgentProxy::read)
         .def("write", &BufferAgentProxy::write)

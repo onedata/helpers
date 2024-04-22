@@ -60,10 +60,18 @@ def server(request):
 
     return  server
 
+
 @pytest.fixture
 def helper(server):
     return CephRadosHelperProxy(server.mon_host, server.username, server.key,
                            server.pool_name, THREAD_NUMBER, BLOCK_SIZE, "flat")
+
+
+@pytest.fixture
+def helper_invalid(server):
+    return CephRadosHelperProxy(server.mon_host, server.username, server.key,
+                                "no_such_pool", THREAD_NUMBER, BLOCK_SIZE,
+                                "flat")
 
 
 def read_and_validate_block(h, results, file_id, iteration_count, offset_range):

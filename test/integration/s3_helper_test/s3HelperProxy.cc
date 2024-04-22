@@ -6,6 +6,8 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
 #include "keyValueAdapter.h"
 #include "posixHelper.h"
 #include "s3Helper.h"
@@ -78,18 +80,34 @@ class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
-        int threadNumber, std::size_t blockSize,
-        StoragePathType storagePathType)
-        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+        int threadNumber, std::size_t blockSize, std::string storagePathType)
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("s3_t"))}
-        , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::S3Helper>(std::move(hostName),
-                  std::move(bucketName), std::move(accessKey),
-                  std::move(secretKey), false, false, false, 25,
-                  2 * 1024 * 1024, 0664, 0775, scheme == "https", "us-east-1",
-                  std::chrono::seconds{20}, storagePathType),
-              m_executor, blockSize)}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
+        using namespace one::helpers;
+
+        Params params;
+        params["type"] = "s3";
+        params["name"] = "someS3";
+        params["scheme"] = scheme;
+        params["hostname"] = hostName;
+        params["bucketName"] = bucketName;
+        params["accessKey"] = accessKey;
+        params["secretKey"] = secretKey;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = storagePathType;
+        params["maxCanonicalObjectSize"] =
+            std::to_string(kMaxCanonicakObjectSize);
+        params["maxConnections"] = "25";
+
+        auto parameters = S3HelperParams::create(params);
+
+        m_helper = m_helperFactory.getStorageHelper(params, false);
     }
 
     ~S3HelperProxy() { }
@@ -178,9 +196,57 @@ public:
         m_helper->truncate(fileId, size, currentSize).get();
     }
 
+    void updateHelper(std::string scheme, std::string hostName,
+        std::string bucketName, std::string accessKey, std::string secretKey,
+        std::size_t threadNumber, std::size_t blockSize,
+        std::string storagePathType)
+    {
+        Params params;
+        params.emplace("type", "s3");
+        params.emplace("scheme", scheme);
+        params.emplace("hostname", hostName);
+        params.emplace("bucketName", bucketName);
+        params.emplace("accessKey", accessKey);
+        params.emplace("secretKey", secretKey);
+        params.emplace("threadNumber", std::to_string(threadNumber));
+        params.emplace("blockSize", std::to_string(blockSize));
+        params.emplace("storagePathType", storagePathType);
+
+        m_helper->updateHelper(params).get();
+    }
+
+    bool isObjectStorage()
+    {
+        ReleaseGIL guard;
+        return m_helper->isObjectStorage();
+    }
+
+    size_t blockSize()
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSize();
+    }
+
+    size_t blockSizeForPath(std::string path)
+    {
+        ReleaseGIL guard;
+        return m_helper->blockSizeForPath(path).get();
+    }
+
+    std::string storagePathType()
+    {
+        ReleaseGIL guard;
+        return m_helper->storagePathType() == StoragePathType::CANONICAL
+            ? "canonical"
+            : "flat";
+    }
+
 private:
-    std::shared_ptr<folly::IOExecutor> m_executor;
-    std::shared_ptr<one::helpers::StorageHelper> m_helper;
+    one::communication::Communicator m_communicator;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
+    StorageHelperPtr m_helper;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
 
 namespace {
@@ -189,11 +255,11 @@ boost::shared_ptr<S3HelperProxy> create(std::string scheme,
     std::string secretKey, std::size_t threadNumber, std::size_t blockSize,
     std::string storagePathType = "flat")
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize,
-        storagePathType == "canonical" ? StoragePathType::CANONICAL
-                                       : StoragePathType::FLAT);
+        std::move(secretKey), threadNumber, blockSize, storagePathType);
 }
 }
 
@@ -220,5 +286,10 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("unlink", &S3HelperProxy::unlink)
         .def("read", &S3HelperProxy::read)
         .def("write", &S3HelperProxy::write)
-        .def("truncate", &S3HelperProxy::truncate);
+        .def("truncate", &S3HelperProxy::truncate)
+        .def("update_helper", &S3HelperProxy::updateHelper)
+        .def("is_object_storage", &S3HelperProxy::isObjectStorage)
+        .def("block_size", &S3HelperProxy::blockSize)
+        .def("block_size_for_path", &S3HelperProxy::blockSizeForPath)
+        .def("storage_path_type", &S3HelperProxy::storagePathType);
 }

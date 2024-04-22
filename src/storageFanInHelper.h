@@ -67,6 +67,12 @@ public:
 
     bool isObjectStorage() const override;
 
+    std::size_t blockSize() const override;
+
+    const Timeout &timeout() override;
+
+    StoragePathType storagePathType() const override;
+
 private:
     std::vector<StorageHelperPtr> m_storages;
 

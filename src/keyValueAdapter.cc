@@ -82,7 +82,7 @@ KeyValueFileHandle::KeyValueFileHandle(folly::fbstring fileId,
     , m_locks{std::move(locks)}
     , m_executor{std::move(executor)}
 {
-    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(blockSize);
+    LOG_FCALL() << LOG_FARG(blockSize);
 }
 
 folly::Future<folly::IOBufQueue> KeyValueFileHandle::readFlat(
@@ -154,6 +154,8 @@ folly::Future<folly::IOBufQueue> KeyValueFileHandle::read(
 folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
     const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
     return folly::via(m_executor.get(),
         [this, offset, locks = m_locks, writeCb = std::move(writeCb),
             helper = std::dynamic_pointer_cast<KeyValueAdapter>(this->helper())
@@ -169,9 +171,9 @@ folly::Future<std::size_t> KeyValueFileHandle::writeCanonical(
 
             log_timer<> timer;
             if (!helper->hasRandomAccess() &&
-                (size + offset > helper->getMaxCanonicalObjectSize())) {
+                (size + offset > helper->maxCanonicalObjectSize())) {
                 LOG(ERROR) << "Cannot write to object storage beyond "
-                           << helper->getMaxCanonicalObjectSize();
+                           << helper->maxCanonicalObjectSize();
                 throw one::helpers::makePosixException(ERANGE);
             }
 
@@ -193,6 +195,10 @@ folly::Future<std::size_t> KeyValueFileHandle::writeFlat(const off_t offset,
     folly::IOBufQueue buf, std::size_t storageBlockSize,
     WriteCallback &&writeCb)
 {
+    LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(buf.chainLength());
+
+    assert(storageBlockSize > 0);
+
     return folly::via(m_executor.get(),
         [this, offset, storageBlockSize, locks = m_locks,
             writeCb = std::move(writeCb),
@@ -272,9 +278,14 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
     if (buf.empty())
         return folly::makeFuture<std::size_t>(0);
 
-    if (helper()->storagePathType() == StoragePathType::FLAT)
+    if (helper()->storagePathType() == StoragePathType::FLAT) {
+        assert(m_blockSize > 0);
+
         return writeFlat(
             offset, std::move(buf), m_blockSize, std::move(writeCb));
+    }
+
+    assert(m_blockSize == 0);
 
     return writeCanonical(offset, std::move(buf), std::move(writeCb));
 }
@@ -282,15 +293,17 @@ folly::Future<std::size_t> KeyValueFileHandle::write(
 const Timeout &KeyValueFileHandle::timeout() { return helper()->timeout(); }
 
 KeyValueAdapter::KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
-    std::shared_ptr<folly::Executor> executor, std::size_t blockSize,
+    std::shared_ptr<KeyValueAdapterParams> params,
+    std::shared_ptr<folly::Executor> executor,
     ExecutionContext executionContext)
     : StorageHelper{executionContext}
     , m_helper{std::move(helper)}
     , m_executor{std::move(executor)}
     , m_locks{std::make_shared<Locks>()}
-    , m_blockSize{blockSize}
 {
-    LOG_FCALL() << LOG_FARG(blockSize);
+    LOG_FCALL();
+
+    invalidateParams()->setValue(std::move(params));
 }
 
 folly::fbstring KeyValueAdapter::name() const { return helper()->name(); }
@@ -316,7 +329,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
     // Calculate the list of objects into which the file has been
     // split on the storage
     folly::fbvector<folly::fbstring> keysToDelete;
-    for (size_t objectId = 0; objectId <= (currentSize / m_blockSize);
+    for (size_t objectId = 0; objectId <= (currentSize / blockSize());
          objectId++) {
         keysToDelete.emplace_back(m_helper->getKey(fileId, objectId));
     }
@@ -438,9 +451,11 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
             });
     }
 
-    auto currentLastBlockId = getBlockId(currentSize, m_blockSize);
-    auto newLastBlockId = getBlockId(size, m_blockSize);
-    auto newLastBlockOffset = getBlockOffset(size, m_blockSize);
+    assert(blockSize() > 0);
+
+    auto currentLastBlockId = getBlockId(currentSize, blockSize());
+    auto newLastBlockId = getBlockId(size, blockSize());
+    auto newLastBlockOffset = getBlockOffset(size, blockSize());
 
     // Generate a list of objects to delete
     folly::fbvector<folly::fbstring> keysToDelete;
@@ -456,7 +471,7 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
 
     if (remainderBlockSize == 0 && newLastBlockId > 0) {
         key = m_helper->getKey(fileId, newLastBlockId - 1);
-        remainderBlockSize = m_blockSize;
+        remainderBlockSize = blockSize();
     }
 
     return folly::via(m_executor.get(),
@@ -567,17 +582,6 @@ folly::Future<ListObjectsResult> KeyValueAdapter::listobjects(
                        locks = m_locks](auto && /*unit*/) {
             return helper->listObjects(prefix, marker, offset, count);
         });
-}
-
-const Timeout &KeyValueAdapter::timeout()
-{
-    LOG_FCALL();
-
-    return m_helper->timeout();
-}
-StoragePathType KeyValueAdapter::storagePathType() const
-{
-    return m_helper->storagePathType();
 }
 
 folly::Future<folly::IOBufQueue> KeyValueFileHandle::readBlocks(
@@ -742,8 +746,8 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
     std::vector<folly::Future<std::size_t>> futs;
     bool lastPart = false;
 
-    while (blockId * m_blockSize < size) {
-        if ((blockId + 1) * m_blockSize >= size)
+    while (blockId * blockSize() < size) {
+        if ((blockId + 1) * blockSize() >= size)
             lastPart = true;
         auto key = helper()->getKey(fileId, blockId);
         auto fut =
@@ -752,10 +756,10 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
                                auto &&attr) -> std::size_t {
                     if (!lastPart &&
                         (static_cast<std::size_t>(attr.st_size) <
-                            m_blockSize)) {
+                            blockSize())) {
                         return helper->putObject(key,
                             fillToSize(helper->getObject(key, 0, attr.st_size),
-                                m_blockSize));
+                                blockSize()));
                     }
 
                     return 0;
@@ -767,7 +771,7 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
                             fillToSize(
                                 folly::IOBufQueue{
                                     folly::IOBufQueue::cacheChainLength()},
-                                m_blockSize));
+                                blockSize()));
                     });
         futs.emplace_back(std::move(fut));
         blockId++;
@@ -792,9 +796,18 @@ folly::Future<FileHandlePtr> KeyValueAdapter::open(
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARGM(openParams);
 
     FileHandlePtr handle = std::make_shared<KeyValueFileHandle>(
-        fileId, shared_from_this(), m_blockSize, m_locks, m_executor);
+        fileId, shared_from_this(), blockSize(), m_locks, m_executor);
 
     return folly::makeFuture(std::move(handle));
+}
+
+std::size_t KeyValueAdapter::blockSize() const noexcept
+{
+    LOG_FCALL();
+
+    assert(m_helper.get() != nullptr);
+
+    return m_helper->blockSize();
 }
 
 std::vector<folly::fbstring> KeyValueAdapter::handleOverridableParams() const
