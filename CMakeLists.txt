@@ -287,7 +287,7 @@ if(WITH_NFS)
 endif(WITH_NFS)
 
 add_library(helpersShared SHARED ${HELPERS_SOURCES})
-target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES} atomic)
+target_link_libraries(helpersShared PUBLIC ${HELPERS_LIBRARIES})
 target_include_directories(helpersShared SYSTEM PUBLIC ${HELPERS_SYSTEM_INCLUDE_DIRS})
 target_include_directories(helpersShared PUBLIC ${HELPERS_INCLUDE_DIRS})
 set_target_properties(helpersShared PROPERTIES OUTPUT_NAME helpers
