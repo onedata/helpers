@@ -201,10 +201,12 @@ private:
         const std::unordered_map<folly::fbstring, folly::fbstring>
             &overrideParams = {});
 
+#if WITH_NFS
     std::vector<StorageHelperPtr> splitMultipleSupportNFSStorages(
         const std::unordered_map<folly::fbstring, folly::fbstring>
             &overrideParams,
         folly::fbstring &host, folly::fbstring &volume) const;
+#endif
 
 #if WITH_CEPH
     std::shared_ptr<folly::IOExecutor> m_cephExecutor;
@@ -607,6 +609,7 @@ StorageHelperCreator<CommunicatorT>::getStorageHelperInternal(
     return helper;
 }
 
+#if WITH_NFS
 template <typename CommunicatorT>
 std::vector<StorageHelperPtr>
 StorageHelperCreator<CommunicatorT>::splitMultipleSupportNFSStorages(
@@ -660,6 +663,7 @@ StorageHelperCreator<CommunicatorT>::splitMultipleSupportNFSStorages(
 
     return storages;
 }
+#endif // WITH_NFS
 
 } // namespace helpers
 } // namespace one
