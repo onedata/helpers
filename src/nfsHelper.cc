@@ -361,10 +361,47 @@ void NFSHelper::putBackConnection(NFSConnection *conn)
     m_idleConnections.emplace(conn);
 }
 
+folly::Future<folly::Unit> NFSHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return connect(0).thenValue([this,
+                                    s = std::weak_ptr<NFSHelper>{
+                                        shared_from_this()}](auto &&conn) {
+        return folly::futures::retrying(
+            NFSRetryPolicy(constants::IO_RETRY_COUNT),
+            [conn, s](size_t retryCount) {
+                auto self = s.lock();
+                if (!self)
+                    return makeFuturePosixException(ECANCELED);
+
+                auto ret = nfs_access(conn->nfs, "", 0);
+
+                if (ret != 0) {
+                    LOG_DBG(1) << "NFS access failed on '/' - retries left: "
+                               << retryCount;
+
+                    return one::helpers::makeFutureNFSException<folly::Unit>(
+                        ret, "access");
+                }
+
+                return folly::makeFuture();
+            })
+            .via(executor().get())
+            .thenTry([this, conn, s](auto &&v) {
+                auto self = s.lock();
+                if (self)
+                    putBackConnection(conn);
+                return std::forward<decltype(v)>(v);
+            });
+    });
+}
+
 folly::Future<FileHandlePtr> NFSHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
 {
     LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
+
     auto openFunc = [fileId, helper = shared_from_this(), executor = executor(),
                         timeout = timeout()](NFSConnection *conn, auto &&mode) {
         return folly::futures::retrying(
@@ -994,11 +1031,11 @@ folly::Future<folly::Unit> NFSHelper::truncate(const folly::fbstring &fileId,
     });
 }
 
-folly::Future<NFSConnection *> NFSHelper::connect()
+folly::Future<NFSConnection *> NFSHelper::connect(int retryCount)
 {
     LOG_FCALL();
 
-    return folly::futures::retrying(NFSRetryPolicy(constants::IO_RETRY_COUNT),
+    return folly::futures::retrying(NFSRetryPolicy(retryCount),
         [this, s = std::weak_ptr<NFSHelper>{shared_from_this()}](size_t n) {
             auto self = s.lock();
             if (!self || m_isStopped)

@@ -67,6 +67,12 @@ public:
             ExecutionContext::ONECLIENT);
     }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
@@ -267,5 +273,7 @@ BOOST_PYTHON_MODULE(glusterfs_helper)
         .def("getxattr", &GlusterFSHelperProxy::getxattr)
         .def("setxattr", &GlusterFSHelperProxy::setxattr)
         .def("removexattr", &GlusterFSHelperProxy::removexattr)
-        .def("listxattr", &GlusterFSHelperProxy::listxattr);
+        .def("listxattr", &GlusterFSHelperProxy::listxattr)
+        .def("check_storage_availability",
+            &GlusterFSHelperProxy::checkStorageAvailability);
 }

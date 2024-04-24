@@ -25,6 +25,27 @@ folly::fbstring StorageFanInHelper::name() const
     return m_storages.front()->name();
 }
 
+folly::Future<folly::Unit> StorageFanInHelper::checkStorageAvailability()
+{
+    std::vector<folly::Future<folly::Unit>> futs;
+    for (auto &storage : m_storages) {
+        futs.emplace_back(storage->checkStorageAvailability());
+    }
+
+    return folly::collectAll(futs)
+        .via(m_executor.get())
+        .thenValue([](std::vector<folly::Try<folly::Unit>> &&res) {
+            std::vector<folly::Unit> results;
+            for (const auto &tryAccess : res) {
+                if (tryAccess.hasException()) {
+                    tryAccess.throwIfFailed();
+                }
+            }
+
+            return folly::makeFuture();
+        });
+}
+
 folly::Future<struct stat> StorageFanInHelper::getattr(
     const folly::fbstring &fileId)
 {

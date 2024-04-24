@@ -74,6 +74,13 @@ CephRadosHelper::CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params)
     invalidateParams()->setValue(std::move(params));
 }
 
+void CephRadosHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    connect();
+}
+
 folly::IOBufQueue CephRadosHelper::getObject(
     const folly::fbstring &key, const off_t offset, const std::size_t size)
 {
@@ -214,20 +221,23 @@ void CephRadosHelper::connect()
         m_ctx->cluster.init2(username().c_str(), clusterName().c_str(), 0);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't initialize the cluster handle.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't initialize the cluster handle."};
     }
 
     ret = m_ctx->cluster.conf_set("mon host", monitorHostname().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set monitor host configuration "
                       "variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set monitor host configuration variable."};
     }
 
     ret = m_ctx->cluster.conf_set("key", key().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set key configuration variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set key configuration variable."};
     }
 
     const auto timeoutStr = std::to_string(timeout().count() / 1000);
@@ -236,33 +246,38 @@ void CephRadosHelper::connect()
     if (ret < 0) {
         LOG(ERROR)
             << "Couldn't set rados_osd_op_timeout configuration variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set rados_osd_op_timeout configuration variable."};
     }
 
     ret = m_ctx->cluster.conf_set("rados_mon_op_timeout", timeoutStr.c_str());
     if (ret < 0) {
         LOG(ERROR)
             << "Couldn't set rados_mon_op_timeout configuration variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set rados_mon_op_timeout configuration variable."};
     }
 
     ret = m_ctx->cluster.conf_set("client_mount_timeout", timeoutStr.c_str());
     if (ret < 0) {
         LOG(ERROR)
             << "Couldn't set client_mount_timeout configuration variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set client_mount_timeout configuration variable."};
     }
 
     ret = m_ctx->cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
-        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED),
+            "Couldn't connect to cluster."};
     }
 
     ret = m_ctx->cluster.ioctx_create(poolName().c_str(), m_ctx->ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
-        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED),
+            "Couldn't set up ioCTX."};
     }
 
     m_ctx->connected = true;

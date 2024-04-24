@@ -75,14 +75,21 @@ def helper(server):
 def helper_invalid(server):
     return S3HelperProxy(server.scheme, server.hostname, "no_such_bucket",
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         BLOCK_SIZE, "flat", 2)
+                         BLOCK_SIZE, "flat", 5)
 
 
 @pytest.fixture
 def helper_invalid_host(server):
     return S3HelperProxy(server.scheme, "no_such_host.invalid:80888", "no_such_bucket",
                          server.access_key, server.secret_key, THREAD_NUMBER,
-                         BLOCK_SIZE, "flat", 2)
+                         BLOCK_SIZE, "flat", 5)
+
+
+@pytest.fixture
+def helper_invalid_key(server):
+    return S3HelperProxy(server.scheme, server.hostname, server.bucket,
+                         server.access_key, "no_such_key", THREAD_NUMBER,
+                         BLOCK_SIZE, "flat", 5)
 
 
 @pytest.fixture
@@ -108,6 +115,13 @@ def test_helper_check_availability_error_invalid_host(helper_invalid_host):
         helper_invalid_host.check_storage_availability()
 
     assert "Couldn't resolve host name" in str(excinfo)
+
+
+def test_helper_check_availability_error_invalid_key(helper_invalid_key):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_key.check_storage_availability()
+
+    assert "Permission denied" in str(excinfo)
 
 
 def test_parameters_update_new_bucket(helper, server, file_id):

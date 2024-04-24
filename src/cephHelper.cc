@@ -179,6 +179,13 @@ CephHelper::~CephHelper()
     m_ioCTX.close();
 }
 
+folly::Future<folly::Unit> CephHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return connect();
+}
+
 folly::Future<FileHandlePtr> CephHelper::open(const folly::fbstring &fileId,
     const int /*flags*/, const Params & /*openParams*/)
 {

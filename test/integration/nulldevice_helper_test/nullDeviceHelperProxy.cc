@@ -79,6 +79,12 @@ public:
 
     ~NullDeviceHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
@@ -326,5 +332,7 @@ BOOST_PYTHON_MODULE(nulldevice_helper)
         .def("setxattr", &NullDeviceHelperProxy::setxattr)
         .def("removexattr", &NullDeviceHelperProxy::removexattr)
         .def("listxattr", &NullDeviceHelperProxy::listxattr)
-        .def("updateHelper", &NullDeviceHelperProxy::updateHelper);
+        .def("updateHelper", &NullDeviceHelperProxy::updateHelper)
+        .def("check_storage_availability",
+            &NullDeviceHelperProxy::checkStorageAvailability);
 }

@@ -69,3 +69,28 @@ def helper_invalid(request, server):
     return SwiftHelperProxy(server.auth_url, "no_such_container",
                             server.tenant_name, "invalid_user",
                             server.password, THREAD_NUMBER, BLOCK_SIZE, "flat")
+
+
+@pytest.fixture
+def helper_invalid_host(request, server):
+    return SwiftHelperProxy("no_such_host.invalid:80800", "no_such_container",
+                            server.tenant_name, "invalid_user",
+                            server.password, THREAD_NUMBER, BLOCK_SIZE, "flat")
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_user(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert 'Permission denied' in str(excinfo)
+
+
+def test_helper_check_availability_error_invalid_host(helper_invalid_host):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_host.check_storage_availability()
+
+    assert 'No address found' in str(excinfo)

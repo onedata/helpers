@@ -62,7 +62,17 @@ public:
                 m_executor, ExecutionContext::ONECLIENT);
     }
 
-    ~XRootDHelperProxy() { m_executor->join(); }
+    ~XRootDHelperProxy()
+    {
+        LOG_FCALL();
+        m_executor->join();
+    }
+
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
 
     struct stat getattr(std::string fileId)
     {
@@ -214,6 +224,8 @@ private:
 namespace {
 auto create(std::string url)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<XRootDHelperProxy>(std::move(url));
 }
 } // namespace
@@ -235,5 +247,7 @@ BOOST_PYTHON_MODULE(xrootd_helper)
         .def("getxattr", &XRootDHelperProxy::getxattr)
         .def("setxattr", &XRootDHelperProxy::setxattr)
         .def("removexattr", &XRootDHelperProxy::removexattr)
-        .def("listxattr", &XRootDHelperProxy::listxattr);
+        .def("listxattr", &XRootDHelperProxy::listxattr)
+        .def("check_storage_availability",
+            &XRootDHelperProxy::checkStorageAvailability);
 }

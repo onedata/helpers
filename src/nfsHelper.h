@@ -122,6 +122,8 @@ public:
 
     ~NFSHelper() override { stop(); }
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(
@@ -166,7 +168,8 @@ public:
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    folly::Future<NFSConnection *> connect();
+    folly::Future<NFSConnection *> connect(
+        int retryCount = constants::IO_RETRY_COUNT);
 
     folly::fbstring name() const override { return NFS_HELPER_NAME; };
 

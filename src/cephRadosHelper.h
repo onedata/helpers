@@ -94,6 +94,8 @@ public:
 
     folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };
 
+    void checkStorageAvailability() override;
+
     bool supportsBatchDelete() const override { return false; }
 
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,

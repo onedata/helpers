@@ -105,8 +105,8 @@ bool GlusterFSRetryCondition(int result, const std::string &operation)
         (GlusterFSRetryErrors().find(errno) == GlusterFSRetryErrors().end()));
 
     if (!ret) {
-        LOG(WARNING) << "Retrying GlusterFS helper operation '" << operation
-                     << "' due to error: " << errno;
+        LOG(INFO) << "Retrying GlusterFS helper operation '" << operation
+                  << "' due to error: " << errno;
         ONE_METRIC_COUNTER_INC(
             "comp.helpers.mod.glusterfs." + operation + ".retries");
     }
@@ -121,8 +121,8 @@ bool GlusterFSRetryHandleCondition(
         (GlusterFSRetryErrors().find(errno) == GlusterFSRetryErrors().end()));
 
     if (!ret) {
-        LOG(WARNING) << "Retrying GlusterFS helper operation '" << operation
-                     << "' due to error code " << errno;
+        LOG(INFO) << "Retrying GlusterFS helper operation '" << operation
+                  << "' due to error code " << errno;
         ONE_METRIC_COUNTER_INC(
             "comp.helpers.mod.glusterfs." + operation + ".retries");
     }
@@ -542,6 +542,13 @@ folly::Future<FileHandlePtr> GlusterFSHelper::open(
 
         return folly::makeFuture<FileHandlePtr>(std::move(handle));
     });
+}
+
+folly::Future<folly::Unit> GlusterFSHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return access("", 0);
 }
 
 folly::Future<struct stat> GlusterFSHelper::getattr(

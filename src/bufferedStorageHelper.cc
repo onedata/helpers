@@ -223,6 +223,20 @@ folly::Future<folly::Unit> BufferedStorageHelper::flushBuffer(
     return {};
 }
 
+folly::Future<folly::Unit> BufferedStorageHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return applyAsync<folly::Unit>(m_mainStorage->checkStorageAvailability(),
+        m_bufferStorage->checkStorageAvailability())
+        .thenTry([](folly::Try<std::pair<folly::Unit, folly::Unit>> &&maybe) {
+            if (maybe.hasException())
+                maybe.throwIfFailed();
+
+            return folly::makeFuture();
+        });
+}
+
 folly::Future<struct stat> BufferedStorageHelper::getattr(
     const folly::fbstring &fileId)
 {

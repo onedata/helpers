@@ -215,6 +215,11 @@ def dataVerifyingFilesystemStorageHelper(dataVerifyingFilesystemServer):
         dataVerifyingFilesystemServer.simulatedFilesystemGrowSpeed,
         dataVerifyingFilesystemServer.enableDataVerification)
 
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
 @pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper, file_id):
     data = random_str()

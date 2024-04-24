@@ -54,6 +54,44 @@ def helper(server):
         server.gid,
         server.version)
 
+@pytest.fixture
+def helper_invalid_host(server):
+    return NFSHelperProxy(
+        "no_such_host.invalid",
+        server.volume,
+        server.uid,
+        server.gid,
+        server.version)
+
+@pytest.fixture
+def helper_invalid_volume(server):
+    return NFSHelperProxy(
+        server.host,
+        "no_such_volume",
+        server.uid,
+        server.gid,
+        server.version)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+@pytest.mark.skip()
+def test_helper_check_availability_error_invalid_host(helper_invalid_host):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_host.check_storage_availability()
+
+    assert "Failed to start connection" in str(excinfo)
+
+
+@pytest.mark.skip()
+def test_helper_check_availability_error_invalid_volume(helper_invalid_volume):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_volume.check_storage_availability()
+
+    assert "Permission denied" in str(excinfo)
+
 
 def create_server(request, version, volume):
     class Server(object):

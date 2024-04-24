@@ -89,6 +89,8 @@ public:
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
 
+    void checkStorageAvailability() override;
+
     HELPER_PARAM_GETTER(authUrl)
     HELPER_PARAM_GETTER(containerName)
     HELPER_PARAM_GETTER(tenantName)

@@ -402,6 +402,11 @@ NullDeviceHelper::NullDeviceHelper(
     }
 }
 
+folly::Future<folly::Unit> NullDeviceHelper::checkStorageAvailability()
+{
+    return folly::makeFuture();
+}
+
 bool NullDeviceHelper::storageIssuesEnabled() const noexcept
 {
     return (latencyMax() > 0.0) || (timeoutProbability() > 0.0);

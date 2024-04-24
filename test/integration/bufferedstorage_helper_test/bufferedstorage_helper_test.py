@@ -73,6 +73,24 @@ def helper(server):
             THREAD_NUMBER, BLOCK_SIZE)
 
 
+@pytest.fixture
+def helper_invalid(server):
+    return BufferedStorageHelperProxy(server.scheme, "no_such_host.invalid:80800",
+            server.bucket+server.prefix, server.access_key, server.secret_key,
+            THREAD_NUMBER, BLOCK_SIZE)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert 'Network is unreachable' in str(excinfo)
+
+
 @pytest.mark.readwrite_operations_tests
 def test_read_should_read_written_data(helper, server):
     data = 'x'*int(2*BLOCK_SIZE+BLOCK_SIZE/2)

@@ -52,6 +52,24 @@ def helper(server):
     return CephHelperProxy(server.mon_host, server.username, server.key,
                            server.pool_name)
 
+
+@pytest.fixture
+def helper_invalid(server):
+    return CephHelperProxy(server.mon_host, server.username, server.key,
+                           "no_such_pool")
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert 'No such file or directory' in str(excinfo)
+
+
 def test_helper_creation_should_not_leak_memory(server):
     for i in range(10):
         helper = CephHelperProxy(server.mon_host, server.username, server.key,

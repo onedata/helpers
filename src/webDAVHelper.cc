@@ -487,6 +487,13 @@ folly::Future<FileHandlePtr> WebDAVHelper::open(const folly::fbstring &fileId,
     return folly::makeFuture(handle);
 }
 
+folly::Future<folly::Unit> WebDAVHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return access("", {});
+}
+
 folly::Future<folly::Unit> WebDAVHelper::access(
     const folly::fbstring &fileId, const int /*mask*/)
 {

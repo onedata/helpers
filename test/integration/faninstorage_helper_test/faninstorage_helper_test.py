@@ -45,7 +45,7 @@ def make_test_directory_tree(mountpoints):
 
     for branch in branches:
         for i in range(len(branch)):
-            if i==0:
+            if i == 0:
                 continue
             for n in range(1000):
                 toks = [random.choice(mountpoints)]
@@ -86,6 +86,25 @@ def helper(server):
         server.mountpoints,
         server.uid,
         server.gid)
+
+
+@pytest.fixture
+def helper_invalid_mountpoints(server):
+    return FanInStorageHelperProxy(
+        "/tmp/no_such_dir_1:/tmp/no_such_dir_2",
+        server.uid,
+        server.gid)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_mountpoints(helper_invalid_mountpoints):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_mountpoints.check_storage_availability()
+
+    assert "No such file or directory" in str(excinfo)
 
 
 @pytest.mark.readwrite_operations_tests

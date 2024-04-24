@@ -111,6 +111,12 @@ public:
 
     ~FanInStorageHelperProxy() { m_executor->join(); }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
@@ -229,5 +235,7 @@ BOOST_PYTHON_MODULE(faninstorage_helper)
         .def("read", &FanInStorageHelperProxy::read)
         .def("readlink", &FanInStorageHelperProxy::readlink)
         .def("blockSize", &FanInStorageHelperProxy::blockSize)
-        .def("storagePathType", &FanInStorageHelperProxy::storagePathType);
+        .def("storagePathType", &FanInStorageHelperProxy::storagePathType)
+        .def("check_storage_availability",
+            &FanInStorageHelperProxy::checkStorageAvailability);
 }

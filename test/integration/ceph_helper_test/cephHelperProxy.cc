@@ -56,6 +56,12 @@ public:
 
     ~CephHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
@@ -169,5 +175,7 @@ BOOST_PYTHON_MODULE(ceph_helper)
         .def("setxattr", &CephHelperProxy::setxattr)
         .def("removexattr", &CephHelperProxy::removexattr)
         .def("listxattr", &CephHelperProxy::listxattr)
-        .def("lock", &CephHelperProxy::lock);
+        .def("lock", &CephHelperProxy::lock)
+        .def("check_storage_availability",
+            &CephHelperProxy::checkStorageAvailability);
 }

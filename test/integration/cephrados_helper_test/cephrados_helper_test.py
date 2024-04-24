@@ -74,6 +74,31 @@ def helper_invalid(server):
                                 "flat")
 
 
+@pytest.fixture
+def helper_invalid_mon_host(server):
+    return CephRadosHelperProxy("no_such_host.invalid:80800", server.username, server.key,
+                                server.pool_name, THREAD_NUMBER, BLOCK_SIZE,
+                                "flat")
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_mon_host(helper_invalid_mon_host):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_mon_host.check_storage_availability()
+
+    assert "Couldn't connect to cluster." in str(excinfo)
+
+
+def test_helper_check_availability_error_invalid_pool(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert "Couldn't set up ioCTX." in str(excinfo)
+
+
 def read_and_validate_block(h, results, file_id, iteration_count, offset_range):
     for _ in range(iteration_count):
         offset = random.randint(0, offset_range)

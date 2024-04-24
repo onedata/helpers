@@ -150,6 +150,13 @@ inline std::system_error makePosixException(const int posixCode)
     return std::system_error{one::helpers::makePosixError(posixCode)};
 }
 
+inline std::system_error makePosixException(
+    const int posixCode, const std::string &description)
+{
+    return std::system_error{
+        one::helpers::makePosixError(posixCode), description};
+}
+
 template <typename T = folly::Unit>
 inline folly::Future<T> makeFuturePosixException(const int posixCode)
 {
