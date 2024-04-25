@@ -52,7 +52,7 @@ public:
         params["poolName"] = poolName;
         params["username"] = username;
         params["key"] = key;
-        params["timeout"] = "20000";
+        params["timeout"] = "60000";
         params["blockSize"] = std::to_string(blockSize);
         params["storagePathType"] = storagePathType;
 
