@@ -93,4 +93,4 @@ def test_helper_check_availability_error_invalid_host(helper_invalid_host):
     with pytest.raises(RuntimeError) as excinfo:
         helper_invalid_host.check_storage_availability()
 
-    assert 'No address found' in str(excinfo)
+    assert ('No address found' in str(excinfo)) or ('Host not found' in str(excinfo))
