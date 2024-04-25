@@ -176,9 +176,11 @@ public:
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
             .thenValue([&](one::helpers::FileHandlePtr &&handle) {
-                auto buf = handle->read(offset, size).get();
+                return handle->read(offset, size);
+            })
+            .thenValue([](auto &&ioBuf) {
                 std::string data;
-                buf.appendToString(data);
+                ioBuf.appendToString(data);
                 return boost::python::api::object(boost::python::handle<>(
                     PyBytes_FromStringAndSize(data.c_str(), data.size())));
             })
