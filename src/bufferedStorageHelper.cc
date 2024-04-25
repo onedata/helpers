@@ -457,5 +457,10 @@ folly::fbstring BufferedStorageHelper::toBufferPath(
 
     return result;
 }
+
+std::shared_ptr<folly::Executor> BufferedStorageHelper::executor()
+{
+    return m_mainStorage->executor();
+}
 } // namespace helpers
 } // namespace one

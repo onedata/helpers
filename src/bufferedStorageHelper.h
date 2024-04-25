@@ -168,6 +168,8 @@ public:
 
     folly::fbstring toBufferPath(const folly::fbstring &fileId);
 
+    std::shared_ptr<folly::Executor> executor() override;
+
 private:
     /**
      * Applies the requested operations on both buffer and main storages
