@@ -331,6 +331,8 @@ public:
      */
     size_t simulatedFilesystemFileDist(const std::vector<std::string> &path);
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     bool storageIssuesEnabled() const noexcept;
 
     HELPER_PARAM_GETTER(latencyMin)

@@ -96,6 +96,8 @@ public:
 
     folly::fbstring name() const override { return XROOTD_HELPER_NAME; };
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, int mask) override;
 

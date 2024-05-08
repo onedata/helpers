@@ -22,6 +22,11 @@ namespace helpers {
 
 namespace {
 
+long toSec(const Timeout &duration)
+{
+    return std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+}
+
 inline bool shouldRetryError(const XrdCl::PipelineException &ex)
 {
     static const std::set<int> XROOTD_RETRY_ERRORS = {
@@ -447,7 +452,16 @@ XRootDHelper::XRootDHelper(std::shared_ptr<XRootDHelperParams> params,
     , m_executor{std::move(executor)}
     , m_fs{params->url(), true}
 {
+    LOG_FCALL();
+
     invalidateParams()->setValue(std::move(params));
+}
+
+folly::Future<folly::Unit> XRootDHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return access("", 0, 0);
 }
 
 folly::Future<folly::Unit> XRootDHelper::access(
@@ -459,6 +473,9 @@ folly::Future<folly::Unit> XRootDHelper::access(
 folly::Future<folly::Unit> XRootDHelper::access(
     const folly::fbstring &fileId, const int /*mask*/, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(retryCount)
+                << LOG_FARG(toSec(timeout()));
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -468,13 +485,16 @@ folly::Future<folly::Unit> XRootDHelper::access(
             p.setWith([&st]() {
                 if (!st.IsOK())
                     throw XrdCl::PipelineException(st); // NOLINT
+
+                return folly::Unit{};
             });
         }};
 
     auto tf = XrdCl::Async(
         XrdCl::Stat(
             m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
-        statTask);
+            statTask,
+        toSec(timeout()));
 
     return std::move(f)
         .via(executor().get())
@@ -484,6 +504,9 @@ folly::Future<folly::Unit> XRootDHelper::access(
             [fileId, retryCount,
                 s = std::weak_ptr<XRootDHelper>{shared_from_this()}](
                 auto &&ex) mutable {
+                LOG_DBG(2) << "Error when handling XrdCl::Stat request: "
+                           << ex.what();
+
                 auto self = s.lock();
                 if (!self)
                     return makeFuturePosixException<folly::Unit>(ECANCELED);
@@ -500,8 +523,9 @@ folly::Future<folly::Unit> XRootDHelper::access(
                         });
                 }
 
-                return makeFuturePosixException<folly::Unit>(
-                    xrootdStatusToPosixError(ex.GetError()));
+                return folly::makeFuture<folly::Unit>(
+                    makePosixException(xrootdStatusToPosixError(ex.GetError()),
+                        ex.GetError().ToStr()));
             });
 }
 
@@ -513,6 +537,8 @@ folly::Future<struct stat> XRootDHelper::getattr(const folly::fbstring &fileId)
 folly::Future<struct stat> XRootDHelper::getattr(
     const folly::fbstring &fileId, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(retryCount);
+
     auto p = folly::Promise<struct stat>();
     auto f = p.getFuture();
 
@@ -610,6 +636,8 @@ folly::Future<struct stat> XRootDHelper::getattr(
 folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
     const int flags, const Params & /*openParams*/)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(flags);
+
     auto p = folly::Promise<std::shared_ptr<XRootDFileHandle>>();
     auto f = p.getFuture();
 
@@ -670,6 +698,8 @@ folly::Future<folly::Unit> XRootDHelper::unlink(
 folly::Future<folly::Unit> XRootDHelper::unlink(const folly::fbstring &fileId,
     const size_t /*currentSize*/, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -727,6 +757,8 @@ folly::Future<folly::Unit> XRootDHelper::rmdir(const folly::fbstring &fileId)
 folly::Future<folly::Unit> XRootDHelper::rmdir(
     const folly::fbstring &fileId, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -785,6 +817,9 @@ folly::Future<folly::Unit> XRootDHelper::truncate(
 folly::Future<folly::Unit> XRootDHelper::truncate(const folly::fbstring &fileId,
     const off_t size, const size_t currentSize, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(size) << LOG_FARG(currentSize)
+                << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -844,6 +879,8 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     const mode_t mode, const FlagsSet &flags, const dev_t rdev,
     const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode) << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -911,6 +948,8 @@ folly::Future<folly::Unit> XRootDHelper::mkdir(
 folly::Future<folly::Unit> XRootDHelper::mkdir(
     const folly::fbstring &fileId, const mode_t mode, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(mode) << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -969,6 +1008,8 @@ folly::Future<folly::Unit> XRootDHelper::rename(
 folly::Future<folly::Unit> XRootDHelper::rename(const folly::fbstring &from,
     const folly::fbstring &to, const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(from) << LOG_FARG(to) << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
@@ -1029,6 +1070,9 @@ folly::Future<folly::fbvector<folly::fbstring>> XRootDHelper::readdir(
     const folly::fbstring &fileId, off_t offset, size_t count,
     const int retryCount)
 {
+    LOG_FCALL() << LOG_FARG(fileId) << LOG_FARG(offset) << LOG_FARG(count)
+                << LOG_FARG(retryCount);
+
     auto p = folly::Promise<folly::fbvector<folly::fbstring>>();
     auto f = p.getFuture();
 

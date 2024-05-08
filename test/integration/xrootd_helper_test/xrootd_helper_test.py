@@ -101,6 +101,24 @@ def helper(server):
     return XRootDHelperProxy(server.url)
 
 
+@pytest.fixture
+def helper_invalid(server):
+    return XRootDHelperProxy("root://no_such_host.invalid")
+
+
+@pytest.mark.skip
+def test_helper_check_availability_ok(helper):
+    helper.check_storage_availability()
+
+
+@pytest.mark.skip
+def test_helper_check_availability_error_invalid_host(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert 'Invalid address' in str(excinfo)
+
+
 @pytest.mark.skip
 def test_rmdir_should_remove_directory(helper, file_id):
     dir_id = file_id

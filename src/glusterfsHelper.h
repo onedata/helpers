@@ -164,6 +164,8 @@ public:
     HELPER_PARAM_GETTER(transport)
     HELPER_PARAM_GETTER(xlatorOptions)
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(

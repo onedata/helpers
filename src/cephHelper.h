@@ -80,6 +80,8 @@ public:
 
     folly::fbstring name() const override { return CEPH_HELPER_NAME; };
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int /*flags*/, const Params & /*openParams*/) override;
 

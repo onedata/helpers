@@ -113,6 +113,10 @@ public:
 
     bool supportsBatchDelete() const override { return true; }
 
+    void checkStorageAvailability() override;
+
+    void headBucket();
+
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
 

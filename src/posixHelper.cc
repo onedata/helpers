@@ -492,6 +492,14 @@ PosixHelper::PosixHelper(std::shared_ptr<PosixHelperParams> params,
     invalidateParams()->setValue(std::move(params));
 }
 
+folly::Future<folly::Unit> PosixHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return readdir("/", 0, 1).thenValue(
+        [](auto && /*unused*/) { return folly::makeFuture(); });
+}
+
 folly::Future<struct stat> PosixHelper::getattr(const folly::fbstring &fileId)
 {
     LOG_FCALL() << LOG_FARG(fileId);

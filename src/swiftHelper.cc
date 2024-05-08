@@ -138,6 +138,13 @@ SwiftHelper::SwiftHelper(std::shared_ptr<SwiftHelperParams> params)
     m_containerName = containerName();
 }
 
+void SwiftHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    m_auth->getAccount();
+}
+
 folly::IOBufQueue SwiftHelper::getObject(
     const folly::fbstring &key, const off_t offset, const std::size_t size)
 {

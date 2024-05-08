@@ -60,6 +60,12 @@ public:
 
     ~HTTPHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     struct stat getattr(std::string fileId)
     {
         ReleaseGIL guard;
@@ -101,5 +107,7 @@ BOOST_PYTHON_MODULE(http_helper)
     class_<HTTPHelperProxy, boost::noncopyable>("HTTPHelperProxy", no_init)
         .def("__init__", make_constructor(create))
         .def("getattr", &HTTPHelperProxy::getattr)
-        .def("read", &HTTPHelperProxy::read);
+        .def("read", &HTTPHelperProxy::read)
+        .def("check_storage_availability",
+            &HTTPHelperProxy::checkStorageAvailability);
 }

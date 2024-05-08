@@ -79,6 +79,8 @@ public:
 
     folly::fbstring name() const override;
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(
@@ -165,6 +167,8 @@ public:
     StorageHelperPtr mainHelper() { return m_mainStorage; };
 
     folly::fbstring toBufferPath(const folly::fbstring &fileId);
+
+    std::shared_ptr<folly::Executor> executor() override;
 
 private:
     /**

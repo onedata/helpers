@@ -87,6 +87,12 @@ public:
 
     ~StorageRouterHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
@@ -333,5 +339,7 @@ BOOST_PYTHON_MODULE(storagerouter_helper)
         .def("setxattr", &StorageRouterHelperProxy::setxattr)
         .def("removexattr", &StorageRouterHelperProxy::removexattr)
         .def("listxattr", &StorageRouterHelperProxy::listxattr)
-        .def("mountpoint", &StorageRouterHelperProxy::mountpoint);
+        .def("mountpoint", &StorageRouterHelperProxy::mountpoint)
+        .def("check_storage_availability",
+            &StorageRouterHelperProxy::checkStorageAvailability);
 }

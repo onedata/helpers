@@ -208,6 +208,8 @@ public:
 
     folly::fbstring name() const override { return POSIX_HELPER_NAME; };
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
     folly::Future<folly::Unit> access(

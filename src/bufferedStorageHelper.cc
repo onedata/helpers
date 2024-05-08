@@ -223,6 +223,20 @@ folly::Future<folly::Unit> BufferedStorageHelper::flushBuffer(
     return {};
 }
 
+folly::Future<folly::Unit> BufferedStorageHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return applyAsync<folly::Unit>(m_mainStorage->checkStorageAvailability(),
+        m_bufferStorage->checkStorageAvailability())
+        .thenTry([](folly::Try<std::pair<folly::Unit, folly::Unit>> &&maybe) {
+            if (maybe.hasException())
+                maybe.throwIfFailed();
+
+            return folly::makeFuture();
+        });
+}
+
 folly::Future<struct stat> BufferedStorageHelper::getattr(
     const folly::fbstring &fileId)
 {
@@ -442,6 +456,11 @@ folly::fbstring BufferedStorageHelper::toBufferPath(
     folly::join("/", fileIdTokens.begin(), fileIdTokens.end(), result);
 
     return result;
+}
+
+std::shared_ptr<folly::Executor> BufferedStorageHelper::executor()
+{
+    return m_mainStorage->executor();
 }
 } // namespace helpers
 } // namespace one

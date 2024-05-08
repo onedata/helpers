@@ -307,6 +307,13 @@ public:
 
     folly::fbstring name() const override { return HTTP_HELPER_NAME; };
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
+    folly::Future<folly::Unit> options();
+
+    folly::Future<folly::Unit> options(
+        const int retryCount, const Poco::URI &redirectURL = {});
+
     folly::Future<folly::Unit> access(
         const folly::fbstring &fileId, const int mask) override;
 
@@ -534,6 +541,29 @@ private:
     // request properly, in which case we have to download the first 2
     // bytes i.e. "Range: bytes=0-1", and then return the first byte
     bool m_firstByteRequest{false};
+};
+
+/**
+ * OPTIONS request/response handler
+ */
+class HTTPOPTIONS : public HTTPRequest,
+                    public std::enable_shared_from_this<HTTPOPTIONS> {
+public:
+    HTTPOPTIONS(HTTPHelper *helper, HTTPSession *session)
+        : HTTPRequest{helper, session}
+    {
+    }
+
+    folly::Future<std::map<folly::fbstring, folly::fbstring>> operator()();
+
+    void onEOM() noexcept override;
+    void onError(const proxygen::HTTPException &error) noexcept override;
+
+    void processHeaders(
+        const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept override;
+
+private:
+    folly::Promise<std::map<folly::fbstring, folly::fbstring>> m_resultPromise;
 };
 
 /**

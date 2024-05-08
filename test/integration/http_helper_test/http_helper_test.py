@@ -53,9 +53,26 @@ def server(request):
 def helper(server):
     return HTTPHelperProxy(server.endpoint, server.credentials, "basic")
 
+
 @pytest.fixture
 def public_helper():
     return HTTPHelperProxy("https://packages.onedata.org", "", "none")
+
+
+@pytest.fixture
+def helper_invalid_hostname(server):
+    return HTTPHelperProxy("http://no_such_host.invalid", server.credentials, "basic")
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_host(helper_invalid_hostname):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_hostname.check_storage_availability()
+
+    assert "Failed to resolve address for" in str(excinfo)
 
 
 def get_file_index(h):

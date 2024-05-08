@@ -377,9 +377,107 @@ std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
     return res;
 }
 
+folly::Future<folly::Unit> HTTPHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    return options();
+}
+
+folly::Future<folly::Unit> HTTPHelper::options()
+{
+    return options(kHTTPRetryCount);
+}
+
+folly::Future<folly::Unit> HTTPHelper::options(
+    const int retryCount, const Poco::URI &redirectURL)
+{
+    HTTPSessionPoolKey sessionPoolKey{};
+    folly::fbstring effectiveFileId{};
+
+    // Try to parse the fileId as URL - if it contains Host - treat it
+    // as an external resource and create a separate HTTP session pool key
+    auto poolKeyAndUri = relativizeURI("/");
+    sessionPoolKey = std::move(poolKeyAndUri.first);
+    effectiveFileId = std::move(poolKeyAndUri.second);
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
+            redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+    }
+
+    auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.http.getattr");
+
+    return connect(sessionPoolKey)
+        .thenValue([fileId = effectiveFileId, timer = std::move(timer),
+                       retryCount,
+                       s = std::weak_ptr<HTTPHelper>{shared_from_this()}](
+                       HTTPSession *session) {
+            auto self = s.lock();
+            if (!self)
+                return makeFuturePosixException<folly::Unit>(ECANCELED);
+
+            auto request = std::make_shared<HTTPOPTIONS>(self.get(), session);
+            folly::fbvector<folly::fbstring> propFilter;
+
+            return (*request)()
+                .thenValue(
+                    [&nsMap = self->m_nsMap, request,
+                        fileMode = self->P()->fileMode()](
+                        std::map<folly::fbstring, folly::fbstring>
+                            && /*headers*/) { return folly::makeFuture(); })
+                .thenError(folly::tag_t<HTTPFoundException>{},
+                    [fileId, self, retryCount](auto &&redirect) {
+                        LOG_DBG(2)
+                            << "Redirecting HTTP getattr request of file "
+                            << fileId << " to: " << redirect.location;
+                        return self->options(
+                            retryCount - 1, Poco::URI(redirect.location));
+                    })
+                .thenError(folly::tag_t<std::system_error>{},
+                    [=](auto &&e) {
+                        if (shouldRetryError(e.code().value()) &&
+                            retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.http.getattr.retries")
+                            LOG_DBG(1) << "Retrying HTTP getattr request for "
+                                       << fileId << " due to " << e.what();
+                            return folly::makeFuture()
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->options(retryCount - 1);
+                                });
+                        }
+
+                        LOG_DBG(1) << "Failed HTTP getattr request for "
+                                   << fileId << " due to " << e.what();
+                        return makeFuturePosixException<folly::Unit>(
+                            e.code().value());
+                    })
+                .thenError(
+                    folly::tag_t<proxygen::HTTPException>{}, [=](auto &&e) {
+                        if (retryCount > 0) {
+                            ONE_METRIC_COUNTER_INC(
+                                "comp.helpers.mod.http.getattr.retries")
+                            LOG_DBG(1) << "Retrying HTTP getattr request for "
+                                       << fileId << " due to " << e.what();
+                            return folly::makeFuture()
+                                .delayed(retryDelay(retryCount))
+                                .thenValue([=](auto && /*unit*/) {
+                                    return self->options(retryCount - 1);
+                                });
+                        }
+
+                        return makeFuturePosixException<folly::Unit>(EIO);
+                    });
+        });
+}
+
 folly::Future<folly::Unit> HTTPHelper::access(
     const folly::fbstring &fileId, const int /*mask*/)
 {
+    LOG_FCALL() << LOG_FARG(fileId);
+
     return getattr(fileId, kHTTPRetryCount, {}).thenValue([](auto && /*stat*/) {
         return folly::Unit();
     });
@@ -1055,6 +1153,27 @@ void HTTPGET::onEOM() noexcept
 }
 
 /**
+ * OPTIONS
+ */
+folly::Future<std::map<folly::fbstring, folly::fbstring>>
+HTTPOPTIONS::operator()()
+{
+    m_request.setMethod("OPTIONS");
+
+    updateRequestURL("");
+
+    m_destructionGuard = shared_from_this();
+
+    return startTransaction()
+        .via(eventBase())
+        .thenValue([this](proxygen::HTTPTransaction *txn) {
+            txn->sendHeaders(m_request);
+            txn->sendEOM();
+            return m_resultPromise.getFuture();
+        });
+}
+
+/**
  * HEAD
  */
 folly::Future<std::map<folly::fbstring, folly::fbstring>> HTTPHEAD::operator()(
@@ -1117,6 +1236,43 @@ void HTTPHEAD::processHeaders(
 void HTTPHEAD::onEOM() noexcept { }
 
 void HTTPHEAD::onError(const proxygen::HTTPException &error) noexcept
+{
+    try {
+        m_resultPromise.setException(error);
+    }
+    catch (...) {
+    }
+}
+
+void HTTPOPTIONS::processHeaders(
+    const std::unique_ptr<proxygen::HTTPMessage> & /*msg*/) noexcept
+{
+    std::map<folly::fbstring, folly::fbstring> res{};
+
+    try {
+        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                HTTPFoundException{m_redirectURL.toString()});
+            return;
+        }
+
+        auto result = httpStatusToPosixError(m_resultCode);
+
+        if (result != 0) {
+            m_resultPromise.setException(makePosixException(result));
+        }
+        else {
+            m_resultPromise.setValue(std::move(res));
+        }
+    }
+    catch (...) {
+    }
+}
+
+void HTTPOPTIONS::onEOM() noexcept { }
+
+void HTTPOPTIONS::onError(const proxygen::HTTPException &error) noexcept
 {
     try {
         m_resultPromise.setException(error);

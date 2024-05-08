@@ -58,6 +58,24 @@ def helper(server):
                                     server.uid, server.gid)
 
 
+@pytest.fixture
+def helper_invalid_mountpoints(server):
+    return StorageRouterHelperProxy(server.route_a, server.mountpoint_a,
+                                    server.route_b, '/tmp/no_such_directory_b',
+                                    server.uid, server.gid)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_mountpoints(helper_invalid_mountpoints):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_mountpoints.check_storage_availability()
+
+    assert "No such file or directory" in str(excinfo)
+
+
 def test_read_should_read_written_data(helper):
     data = random_str()
     offset = random_int()

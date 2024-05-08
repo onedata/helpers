@@ -64,6 +64,12 @@ public:
 
     ~WebDAVHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     struct stat getattr(std::string fileId)
     {
         ReleaseGIL guard;
@@ -231,5 +237,7 @@ BOOST_PYTHON_MODULE(webdav_helper)
         .def("getxattr", &WebDAVHelperProxy::getxattr)
         .def("setxattr", &WebDAVHelperProxy::setxattr)
         .def("removexattr", &WebDAVHelperProxy::removexattr)
-        .def("listxattr", &WebDAVHelperProxy::listxattr);
+        .def("listxattr", &WebDAVHelperProxy::listxattr)
+        .def("check_storage_availability",
+            &WebDAVHelperProxy::checkStorageAvailability);
 }

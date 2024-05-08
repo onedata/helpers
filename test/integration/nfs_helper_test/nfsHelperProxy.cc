@@ -67,6 +67,12 @@ public:
             ExecutionContext::ONECLIENT);
     }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
@@ -207,6 +213,8 @@ namespace {
 boost::shared_ptr<NFSHelperProxy> create(
     std::string host, std::string volume, uid_t uid, gid_t gid, int version)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<NFSHelperProxy>(host, volume, uid, gid, version);
 }
 } // namespace
@@ -230,5 +238,7 @@ BOOST_PYTHON_MODULE(nfs_helper)
         .def("link", &NFSHelperProxy::link)
         .def("chmod", &NFSHelperProxy::chmod)
         .def("chown", &NFSHelperProxy::chown)
-        .def("truncate", &NFSHelperProxy::truncate);
+        .def("truncate", &NFSHelperProxy::truncate)
+        .def("check_storage_availability",
+            &NFSHelperProxy::checkStorageAvailability);
 }

@@ -64,6 +64,12 @@ public:
 
     ~SwiftHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void unlink(std::string fileId, int size)
     {
         ReleaseGIL guard;
@@ -132,5 +138,7 @@ BOOST_PYTHON_MODULE(swift_helper)
         .def("unlink", &SwiftHelperProxy::unlink)
         .def("read", &SwiftHelperProxy::read)
         .def("write", &SwiftHelperProxy::write)
-        .def("truncate", &SwiftHelperProxy::truncate);
+        .def("truncate", &SwiftHelperProxy::truncate)
+        .def("check_storage_availability",
+            &SwiftHelperProxy::checkStorageAvailability);
 }

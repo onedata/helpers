@@ -118,6 +118,12 @@ public:
 
     ~BufferedStorageHelperProxy() { }
 
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
+
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
@@ -272,5 +278,7 @@ BOOST_PYTHON_MODULE(bufferedstorage_helper)
         .def("flushBuffer", &BufferedStorageHelperProxy::flushBuffer)
         .def("truncate", &BufferedStorageHelperProxy::truncate)
         .def("blockSize", &BufferedStorageHelperProxy::blockSize)
-        .def("storagePathType", &BufferedStorageHelperProxy::storagePathType);
+        .def("storagePathType", &BufferedStorageHelperProxy::storagePathType)
+        .def("check_storage_availability",
+            &BufferedStorageHelperProxy::checkStorageAvailability);
 }

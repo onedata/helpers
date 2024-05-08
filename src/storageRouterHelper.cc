@@ -94,6 +94,29 @@ folly::fbstring StorageRouterHelper::name() const
     return STORAGE_ROUTER_HELPER_NAME;
 }
 
+folly::Future<folly::Unit> StorageRouterHelper::checkStorageAvailability()
+{
+    if (m_routesOrder.empty())
+        return folly::makeFuture();
+
+    auto *executor = m_routes.at(m_routesOrder.at(0))->executor().get();
+
+    std::vector<folly::Future<folly::Unit>> futs;
+    for (const auto &route : m_routes) {
+        futs.emplace_back(route.second->checkStorageAvailability());
+    }
+
+    return folly::collectAll(futs).via(executor).thenValue(
+        [](std::vector<folly::Try<folly::Unit>> &&maybe) {
+            for (const auto &res : maybe) {
+                if (res.hasException())
+                    res.throwIfFailed();
+            }
+
+            return folly::makeFuture();
+        });
+}
+
 folly::Future<struct stat> StorageRouterHelper::getattr(
     const folly::fbstring &fileId)
 {

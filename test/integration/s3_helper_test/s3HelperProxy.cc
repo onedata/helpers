@@ -80,7 +80,8 @@ class S3HelperProxy {
 public:
     S3HelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
-        int threadNumber, std::size_t blockSize, std::string storagePathType)
+        int threadNumber, std::size_t blockSize, std::string storagePathType,
+        int timeout)
         : m_communicator{1, 1, "", 8080, false, true, false}
         , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("s3_t"))}
@@ -98,7 +99,7 @@ public:
         params["bucketName"] = bucketName;
         params["accessKey"] = accessKey;
         params["secretKey"] = secretKey;
-        params["timeout"] = "20";
+        params["timeout"] = std::to_string(timeout * 1000);
         params["blockSize"] = std::to_string(blockSize);
         params["storagePathType"] = storagePathType;
         params["maxCanonicalObjectSize"] =
@@ -111,6 +112,12 @@ public:
     }
 
     ~S3HelperProxy() { }
+
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
 
     void access(std::string fileId)
     {
@@ -169,9 +176,11 @@ public:
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
             .thenValue([&](one::helpers::FileHandlePtr &&handle) {
-                auto buf = handle->read(offset, size).get();
+                return handle->read(offset, size);
+            })
+            .thenValue([](auto &&ioBuf) {
                 std::string data;
-                buf.appendToString(data);
+                ioBuf.appendToString(data);
                 return boost::python::api::object(boost::python::handle<>(
                     PyBytes_FromStringAndSize(data.c_str(), data.size())));
             })
@@ -253,13 +262,14 @@ namespace {
 boost::shared_ptr<S3HelperProxy> create(std::string scheme,
     std::string hostName, std::string bucketName, std::string accessKey,
     std::string secretKey, std::size_t threadNumber, std::size_t blockSize,
-    std::string storagePathType = "flat")
+    std::string storagePathType = "flat", int timeout = 20)
 {
     FLAGS_v = 0;
 
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize, storagePathType);
+        std::move(secretKey), threadNumber, blockSize, storagePathType,
+        timeout);
 }
 }
 
@@ -291,5 +301,8 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("is_object_storage", &S3HelperProxy::isObjectStorage)
         .def("block_size", &S3HelperProxy::blockSize)
         .def("block_size_for_path", &S3HelperProxy::blockSizeForPath)
-        .def("storage_path_type", &S3HelperProxy::storagePathType);
+        .def("storage_path_type", &S3HelperProxy::storagePathType)
+        .def("check_storage_availability",
+            &S3HelperProxy::checkStorageAvailability);
+    ;
 }

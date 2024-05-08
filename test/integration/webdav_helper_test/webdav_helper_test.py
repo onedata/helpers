@@ -109,6 +109,16 @@ def helper(server):
 
 
 @pytest.fixture
+def helper_invalid_credentials(server):
+    return WebDAVHelperProxy(server.endpoint, "no_such_user")
+
+
+@pytest.fixture
+def helper_invalid_host(server):
+    return WebDAVHelperProxy("http://no_such_host.invalid", server.credentials)
+
+
+@pytest.fixture
 def helper_redirect(server):
     redirect_port = "8080"
     endpoint = urlparse(server.endpoint).decode('utf-8')
@@ -117,6 +127,24 @@ def helper_redirect(server):
             str(endpoint.port), redirect_port)).geturl()
 
     return WebDAVHelperProxy(redirect_url, server.credentials)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_credentials(helper_invalid_credentials):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_credentials.check_storage_availability()
+
+    assert 'Operation not permitted' in str(excinfo)
+
+
+def test_helper_check_availability_error_invalid_host(helper_invalid_host):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_host.check_storage_availability()
+
+    assert 'Failed to resolve address for' in str(excinfo)
 
 
 def test_read_should_follow_temporary_redirect(helper, helper_redirect, file_id):

@@ -52,7 +52,7 @@ public:
         params["poolName"] = poolName;
         params["username"] = username;
         params["key"] = key;
-        params["timeout"] = "20";
+        params["timeout"] = "60000";
         params["blockSize"] = std::to_string(blockSize);
         params["storagePathType"] = storagePathType;
 
@@ -64,6 +64,12 @@ public:
     }
 
     ~CephRadosHelperProxy() { }
+
+    void checkStorageAvailability()
+    {
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
+    }
 
     void unlink(std::string fileId, int size)
     {
@@ -134,5 +140,7 @@ BOOST_PYTHON_MODULE(cephrados_helper)
         .def("unlink", &CephRadosHelperProxy::unlink)
         .def("read", &CephRadosHelperProxy::read)
         .def("write", &CephRadosHelperProxy::write)
-        .def("truncate", &CephRadosHelperProxy::truncate);
+        .def("truncate", &CephRadosHelperProxy::truncate)
+        .def("check_storage_availability",
+            &CephRadosHelperProxy::checkStorageAvailability);
 }

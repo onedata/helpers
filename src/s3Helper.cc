@@ -20,6 +20,7 @@
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/HeadBucketRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartCopyRequest.h>
@@ -87,8 +88,8 @@ void throwOnError(const folly::fbstring &operation, const Outcome &outcome)
     if (!code)
         return;
 
-    auto msg =
-        operation.toStdString() + "': " + outcome.GetError().GetMessage();
+    auto msg = fmt::format(
+        "'{}' ({})", operation.toStdString(), outcome.GetError().GetMessage());
 
     LOG_DBG(1) << "Operation " << operation << " failed with error code "
                << code << " and message " << msg;
@@ -138,7 +139,7 @@ long to_ms(const Timeout &duration)
 S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
     : KeyValueHelper{params, false}
 {
-    LOG_FCALL();
+    LOG_FCALL() << LOG_FARG(to_ms(timeout()));
 
     invalidateParams()->setValue(std::move(params));
 
@@ -161,8 +162,6 @@ S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
     }
 
     Aws::Client::ClientConfiguration configuration;
-    configuration.connectTimeoutMs = timeout().count();
-    configuration.requestTimeoutMs = timeout().count();
     configuration.enableClockSkewAdjustment = enableClockSkewAdjustment();
     configuration.verifySSL = verifyServerCertificate();
     configuration.disableExpectHeader = disableExpectHeader();
@@ -246,6 +245,54 @@ folly::fbstring S3Helper::fromEffectiveKey(const folly::fbstring &key) const
         result += "/";
 
     return result;
+}
+
+void S3Helper::checkStorageAvailability()
+{
+    LOG_FCALL();
+    headBucket();
+}
+
+void S3Helper::headBucket()
+{
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::HeadBucketOutcome;
+    using Aws::S3::Model::HeadBucketRequest;
+
+    LOG_FCALL();
+
+    Aws::S3::Model::HeadBucketRequest request;
+    request.SetBucket(m_bucket.c_str());
+
+    auto outcome = retry(
+        [&, request = std::move(request)]() {
+            folly::Promise<HeadBucketOutcome> outcomePromise;
+            auto outcomeFuture = outcomePromise.getFuture();
+
+            m_client->HeadBucketAsync(
+                request,
+                [&outcomePromise](const S3Client * /*client*/,
+                    const HeadBucketRequest & /*request*/,
+                    HeadBucketOutcome headBucketOutcome,
+                    const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+                    outcomePromise.setValue(std::move(headBucketOutcome));
+                },
+                nullptr);
+            return std::move(outcomeFuture).get();
+        },
+        std::bind(S3RetryCondition<Aws::S3::Model::HeadBucketOutcome>,
+            std::placeholders::_1, "HeadBucket"),
+        0);
+
+    auto code = getReturnCode(outcome);
+
+    if (code != constants::SUCCESS_CODE) {
+        LOG_DBG(1) << "Head bucket for " << m_bucket << " failed with error "
+                   << outcome.GetError().GetMessage();
+
+        throwOnError("HeadBucket", outcome);
+    }
 }
 
 folly::IOBufQueue S3Helper::getObject(
