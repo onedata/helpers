@@ -493,8 +493,7 @@ folly::Future<folly::Unit> XRootDHelper::access(
     auto tf = XrdCl::Async(
         XrdCl::Stat(
             m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
-            statTask,
-        toSec(timeout()));
+        statTask);
 
     return std::move(f)
         .via(executor().get())
