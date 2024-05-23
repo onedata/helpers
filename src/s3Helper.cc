@@ -21,7 +21,7 @@
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/HeadBucketRequest.h>
-#include <aws/s3/model/ListObjectsRequest.h>
+#include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartCopyRequest.h>
 #include <boost/algorithm/string.hpp>
@@ -760,8 +760,8 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 {
     using Aws::Client::AsyncCallerContext;
     using Aws::S3::S3Client;
-    using Aws::S3::Model::ListObjectsOutcome;
-    using Aws::S3::Model::ListObjectsRequest;
+    using Aws::S3::Model::ListObjectsV2Outcome;
+    using Aws::S3::Model::ListObjectsV2Request;
 
     LOG_FCALL() << LOG_FARG(key);
 
@@ -795,7 +795,7 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
     if (normalizedKey == "/")
         normalizedKey = "";
 
-    ListObjectsRequest request;
+    ListObjectsV2Request request;
     request.SetBucket(m_bucket.c_str());
     request.SetPrefix(normalizedKey.c_str());
     request.SetMaxKeys(1);
@@ -806,21 +806,21 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
-            folly::Promise<ListObjectsOutcome> outcomePromise;
+            folly::Promise<ListObjectsV2Outcome> outcomePromise;
             auto outcomeFuture = outcomePromise.getFuture();
 
-            m_client->ListObjectsAsync(
+            m_client->ListObjectsV2Async(
                 request,
                 [&outcomePromise](const S3Client * /*client*/,
-                    const ListObjectsRequest & /*request*/,
-                    ListObjectsOutcome listObjectsOutcome,
+                    const ListObjectsV2Request & /*request*/,
+                    ListObjectsV2Outcome listObjectsOutcome,
                     const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
                     outcomePromise.setValue(std::move(listObjectsOutcome));
                 },
                 nullptr);
             return std::move(outcomeFuture).get();
         },
-        std::bind(S3RetryCondition<ListObjectsOutcome>, std::placeholders::_1,
+        std::bind(S3RetryCondition<ListObjectsV2Outcome>, std::placeholders::_1,
             "ListObjects"));
 
     auto code = getReturnCode(outcome);
@@ -889,14 +889,16 @@ struct stat S3Helper::getObjectInfo(const folly::fbstring &key)
 }
 
 ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
-    const folly::fbstring &marker, const off_t /*offset*/, const size_t size)
+    const folly::fbstring &continuationToken, const off_t /*offset*/,
+    const size_t size)
 {
     using Aws::Client::AsyncCallerContext;
     using Aws::S3::S3Client;
-    using Aws::S3::Model::ListObjectsOutcome;
-    using Aws::S3::Model::ListObjectsRequest;
+    using Aws::S3::Model::ListObjectsV2Outcome;
+    using Aws::S3::Model::ListObjectsV2Request;
 
-    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(marker) << LOG_FARG(size);
+    LOG_FCALL() << LOG_FARG(prefix) << LOG_FARG(continuationToken)
+                << LOG_FARG(size);
 
     auto effectivePrefix = toEffectiveKey(prefix);
 
@@ -908,38 +910,35 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
     if (normalizedPrefix.front() == '/')
         normalizedPrefix.erase(0, 1);
 
-    folly::fbstring normalizedMarker =
-        marker.empty() ? "" : toEffectiveKey(marker);
-    if (!normalizedMarker.empty() && normalizedMarker.front() == '/')
-        normalizedMarker.erase(0, 1);
-
-    ListObjectsRequest request;
+    ListObjectsV2Request request;
     request.SetBucket(m_bucket.c_str());
 
     request.SetPrefix(normalizedPrefix.c_str());
     request.SetMaxKeys(size);
-    request.SetMarker(normalizedMarker.c_str());
+    if (!continuationToken.empty())
+        request.SetContinuationToken(continuationToken.c_str());
 
     LOG_DBG(2) << "Attempting to list objects at " << normalizedPrefix
-               << " in bucket " << m_bucket << " after " << normalizedMarker;
+               << " in bucket " << m_bucket << " with token '"
+               << continuationToken << "'";
 
     auto outcome = retry(
         [&, request = std::move(request)]() {
-            folly::Promise<ListObjectsOutcome> outcomePromise;
+            folly::Promise<ListObjectsV2Outcome> outcomePromise;
             auto outcomeFuture = outcomePromise.getFuture();
 
-            m_client->ListObjectsAsync(
+            m_client->ListObjectsV2Async(
                 request,
                 [&outcomePromise](const S3Client * /*client*/,
-                    const ListObjectsRequest & /*request*/,
-                    ListObjectsOutcome listObjectsOutcome,
+                    const ListObjectsV2Request & /*request*/,
+                    ListObjectsV2Outcome listObjectsOutcome,
                     const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
                     outcomePromise.setValue(std::move(listObjectsOutcome));
                 },
                 nullptr);
             return std::move(outcomeFuture).get();
         },
-        std::bind(S3RetryCondition<ListObjectsOutcome>, std::placeholders::_1,
+        std::bind(S3RetryCondition<ListObjectsV2Outcome>, std::placeholders::_1,
             "ListObjects"));
 
     auto code = getReturnCode(outcome);
@@ -950,10 +949,15 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         throwOnError("ListObject", outcome);
     }
 
-    ListObjectsResult result;
+    ListObjectsResult::second_type result;
 
     LOG_DBG(2) << "Received " << outcome.GetResult().GetContents().size()
                << " object keys";
+
+    folly::fbstring nextToken;
+    if (outcome.GetResult().GetIsTruncated()) {
+        nextToken = outcome.GetResult().GetNextContinuationToken().c_str();
+    }
 
     // Add regular objects as file entries
     for (const auto &object : outcome.GetResult().GetContents()) {
@@ -995,7 +999,7 @@ ListObjectsResult S3Helper::listObjects(const folly::fbstring &prefix,
         result.emplace_back(std::move(name), attr);
     }
 
-    return result;
+    return {std::move(nextToken), std::move(result)};
 }
 
 ListObjectsResult S3Helper::listAllObjects(const folly::fbstring &prefix)
@@ -1003,33 +1007,37 @@ ListObjectsResult S3Helper::listAllObjects(const folly::fbstring &prefix)
     LOG_FCALL() << LOG_FARG(prefix);
 
     ListObjectsResult res;
+    res.first = "";
 
     // S3 listObjects returns maximum of 1000 results per call
     const size_t kMaxSingleListObjectsSize = 1000UL;
 
     // The iteration is based on the name of the last returned key
     // not numeric offset
-    folly::fbstring lastPositionMarker{};
+    folly::fbstring nextToken{};
     while (true) {
-        auto partialRes = listObjects(
-            prefix, lastPositionMarker, 0, kMaxSingleListObjectsSize);
+        auto partialRes =
+            listObjects(prefix, nextToken, 0, kMaxSingleListObjectsSize);
 
-        if (partialRes.empty())
+        if (std::get<0>(partialRes).empty()) {
+            // Stop if continuation token is empty
             break;
+        }
 
-        lastPositionMarker = std::get<0>(partialRes.back());
+        nextToken = std::get<0>(partialRes);
 
-        for (auto &key : partialRes) {
-            res.emplace_back(std::move(key));
+        for (auto &key : std::get<1>(partialRes)) {
+            std::get<1>(res).emplace_back(std::move(key));
         }
     }
 
-    std::sort(res.begin(), res.end(), [](const auto &l, const auto &r) {
-        return std::get<0>(l) > std::get<0>(r);
-    });
+    std::sort(std::get<1>(res).begin(), std::get<1>(res).end(),
+        [](const auto &l, const auto &r) {
+            return std::get<0>(l) > std::get<0>(r);
+        });
 
-    LOG_DBG(3) << "Returning " << res.size() << " objects with prefix "
-               << prefix;
+    LOG_DBG(3) << "Returning " << std::get<1>(res).size()
+               << " objects with prefix " << prefix;
 
     return res;
 }

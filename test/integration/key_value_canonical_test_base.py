@@ -231,7 +231,8 @@ def test_listobjects_should_handle_subdirectories(helper):
     result = []
 
     # Listing empty prefix should return empty result
-    objects = to_python_list(helper.listobjects('dir1', '', 100))
+    next_token, keys = helper.listobjects('dir1', '', 100)
+    objects = to_python_list(keys)
     assert objects == []
 
     for file in files:
@@ -244,28 +245,33 @@ def test_listobjects_should_handle_subdirectories(helper):
 
     # List objects from root should include leading '/'
     # objects is a list of tuples (path, stat)
-    objects = to_python_list(helper.listobjects('', '', 100))
+    next_token, keys = helper.listobjects('', '', 100)
+    objects = to_python_list(keys)
 
     assert len(objects) > 0
 
     for o in objects:
         assert o[0] == '/'
 
-    objects = to_python_list(helper.listobjects('/', '', 100))
+    next_token, keys = helper.listobjects('/', '', 100)
+    objects = to_python_list(keys)
     for o in objects:
         assert o[0] == '/'
 
     # List only objects starting with 'dir1/dir2' prefix
-    objects = to_python_list(helper.listobjects('dir1/dir2', '', 100))
+    next_token, keys = helper.listobjects('dir1/dir2', '', 100)
+    objects = to_python_list(keys)
     assert objects == ['/dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
 
     # Check that the same results are returned for paths with and without
     # forward slash
-    assert to_python_list(helper.listobjects('/dir1/dir2', '', 100)) \
-            == to_python_list(helper.listobjects('dir1/dir2', '', 100))
+    next_token, keys_slash = helper.listobjects('/dir1/dir2', '', 100)
+    next_token, keys_no_slash = helper.listobjects('dir1/dir2', '', 100)
+    assert to_python_list(keys_slash) == to_python_list(keys_no_slash)
 
     # Make sure that all results are returned for single query
-    objects = to_python_list(helper.listobjects('dir1', '', 100))
+    next_token, keys = helper.listobjects('dir1', '', 100)
+    objects = to_python_list(keys)
     assert set(objects) == set(result)
 
     # Make sure that all results are returned in chunks
@@ -273,12 +279,13 @@ def test_listobjects_should_handle_subdirectories(helper):
     marker = ""
     chunk_size = 3
     while True:
-        chunk = to_python_list(helper.listobjects('dir1', marker, chunk_size))
+        next_token, chunks = helper.listobjects('dir1', marker, chunk_size)
 
-        if len(chunk) < chunk_size:
+        chunk = to_python_list(chunks)
+        if len(next_token) == 0:
             break
 
-        marker = chunk[-1]
+        marker = next_token
 
         objects.extend(chunk)
 
@@ -302,11 +309,10 @@ def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
 
     res = []
     i = 0
+    next_token = ''
     while i < len(contents):
-        marker = ''
-        if res:
-            marker = res[-1]
-        res.extend(to_python_list(helper.listobjects(test_dir, marker, step)))
+        next_token, chunks = helper.listobjects(test_dir, next_token, step)
+        res.extend(to_python_list(chunks))
         i += step
 
     assert len(contents) == len(res)
@@ -321,6 +327,8 @@ def test_listobjects_should_not_return_root_dir(helper):
     helper.write('/{}/dir2/file.txt'.format(test_dir), random_str(), 0)
     helper.write('/{}/file.txt'.format(test_dir), random_str(), 0)
 
-    res = to_python_list(helper.listobjects('/{}'.format(test_dir), "", 100))
+    next_token, chunks = helper.listobjects('/{}'.format(test_dir), "", 100)
+
+    res = to_python_list(chunks)
 
     assert len(res) == 3

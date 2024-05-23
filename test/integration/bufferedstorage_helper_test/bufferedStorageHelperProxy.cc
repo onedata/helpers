@@ -177,8 +177,8 @@ public:
     {
         ReleaseGIL guard;
         ReadDirResult res;
-        for (auto &direntry :
-            m_helper->listobjects(fileId, marker, 0, count).get()) {
+        for (auto &direntry : std::get<1>(
+                 m_helper->listobjects(fileId, marker, 0, count).get())) {
             res.emplace_back(std::get<0>(direntry).toStdString());
         }
         return res;
