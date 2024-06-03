@@ -232,6 +232,8 @@ def test_listobjects_should_handle_subdirectories(helper):
 
     # Listing empty prefix should return empty result
     next_token, keys = helper.listobjects('dir1', '', 100)
+    assert len(next_token) == 0
+
     objects = to_python_list(keys)
     assert objects == []
 
@@ -244,9 +246,11 @@ def test_listobjects_should_handle_subdirectories(helper):
         result.append('/'+dir1+'/'+file)
 
     # List objects from root should include leading '/'
-    # objects is a list of tuples (path, stat)
+    # objects as a list of tuples (path, stat)
     next_token, keys = helper.listobjects('', '', 100)
     objects = to_python_list(keys)
+
+    assert len(next_token) == 0
 
     assert len(objects) > 0
 
@@ -254,12 +258,15 @@ def test_listobjects_should_handle_subdirectories(helper):
         assert o[0] == '/'
 
     next_token, keys = helper.listobjects('/', '', 100)
+    assert len(next_token) == 0
+
     objects = to_python_list(keys)
     for o in objects:
         assert o[0] == '/'
 
     # List only objects starting with 'dir1/dir2' prefix
     next_token, keys = helper.listobjects('dir1/dir2', '', 100)
+    assert len(next_token) == 0
     objects = to_python_list(keys)
     assert objects == ['/dir1/dir2/file{}.txt'.format(i,) for i in range(1, 6)]
 
@@ -276,16 +283,15 @@ def test_listobjects_should_handle_subdirectories(helper):
 
     # Make sure that all results are returned in chunks
     objects = []
-    marker = ""
+    token = ""
     chunk_size = 3
     while True:
-        next_token, chunks = helper.listobjects('dir1', marker, chunk_size)
-
+        next_token, chunks = helper.listobjects('dir1', token, chunk_size)
         chunk = to_python_list(chunks)
         if len(next_token) == 0:
             break
 
-        marker = next_token
+        token = next_token
 
         objects.extend(chunk)
 
@@ -309,11 +315,15 @@ def test_listobjects_should_handle_multiple_subdirs_with_offset(helper):
 
     res = []
     i = 0
-    next_token = ''
+    token = ''
     while i < len(contents):
-        next_token, chunks = helper.listobjects(test_dir, next_token, step)
+        next_token, chunks = helper.listobjects(test_dir, token, step)
         res.extend(to_python_list(chunks))
         i += step
+        if len(next_token) == 0:
+            break
+
+        token = next_token
 
     assert len(contents) == len(res)
     assert set(contents) == set(res)
@@ -328,6 +338,7 @@ def test_listobjects_should_not_return_root_dir(helper):
     helper.write('/{}/file.txt'.format(test_dir), random_str(), 0)
 
     next_token, chunks = helper.listobjects('/{}'.format(test_dir), "", 100)
+    assert len(next_token) == 0
 
     res = to_python_list(chunks)
 
