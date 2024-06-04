@@ -187,7 +187,8 @@ def test_readdir_should_list_files_in_directory(helper):
     helper.write(dir_id+"/"+file2_id, data, offset)
     helper.flushBuffer(dir_id+"/"+file2_id, len(data)+offset)
 
-    objects = to_python_list(helper.listobjects(dir_id, "", 1024))
+    next_marker, keys = helper.listobjects(dir_id, "", 1024)
+    objects = to_python_list(keys)
 
     assert len(objects) == 2
 

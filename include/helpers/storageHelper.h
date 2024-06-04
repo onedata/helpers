@@ -53,8 +53,10 @@
 namespace one {
 namespace helpers {
 
-using ListObjectsResult =
-    folly::fbvector<std::tuple<folly::fbstring, struct stat>>;
+using ListObjectsResult = std::pair</*NextToken*/ folly::fbstring,
+    /*ObjectsList*/
+    folly::fbvector<
+        std::pair</*key*/ folly::fbstring, /*attributes*/ struct stat>>>;
 
 constexpr auto STORAGE_ROUTER_HELPER_NAME = "storagerouter";
 constexpr auto BUFFERED_STORAGE_HELPER_NAME = "bufferedstorage";

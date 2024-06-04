@@ -24,12 +24,23 @@
 
 #include <iostream>
 
-using ReadDirResult = std::vector<std::string>;
+using ReadDirResult = std::pair<std::string, std::vector<std::string>>;
 
 using namespace boost::python;
 using namespace one::helpers;
 
 namespace {
+template <typename T1, typename T2> struct PairToPythonConverter {
+    static PyObject *convert(const std::pair<T1, T2> &pair)
+    {
+        return incref(boost::python::make_tuple(pair.first, pair.second).ptr());
+    }
+};
+
+template <typename T1, typename T2> struct py_pair {
+    to_python_converter<std::pair<T1, T2>, PairToPythonConverter<T1, T2>> toPy;
+};
+
 struct Stat {
     time_t atime;
     time_t mtime;
@@ -177,10 +188,14 @@ public:
     {
         ReleaseGIL guard;
         ReadDirResult res;
-        for (auto &direntry :
-            m_helper->listobjects(fileId, marker, 0, count).get()) {
-            res.emplace_back(std::get<0>(direntry).toStdString());
+        auto listobjectsResult =
+            m_helper->listobjects(fileId, marker, 0, count).get();
+        res.first = listobjectsResult.first.toStdString();
+
+        for (auto &direntry : std::get<1>(listobjectsResult)) {
+            res.second.emplace_back(std::get<0>(direntry).toStdString());
         }
+
         return res;
     }
 
@@ -254,6 +269,8 @@ boost::shared_ptr<BufferedStorageHelperProxy> create(std::string scheme,
 
 BOOST_PYTHON_MODULE(bufferedstorage_helper)
 {
+    py_pair<std::string, std::vector<std::string>>();
+
     class_<Stat>("Stat")
         .def_readwrite("st_atime", &Stat::atime)
         .def_readwrite("st_mtime", &Stat::mtime)
