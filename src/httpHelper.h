@@ -353,6 +353,12 @@ public:
 
     folly::fbstring accessToken() const { return P()->accessToken(); }
 
+    folly::fbstring hostHeader() const
+    {
+        return fmt::format(
+            "{}:{}", P()->endpoint().getHost(), P()->endpoint().getPort());
+    }
+
     uint32_t connectionPoolSize() const { return P()->connectionPoolSize(); }
 
     /**

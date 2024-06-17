@@ -1878,16 +1878,19 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
                 LOG_DBG(2) << "Connecting to " << host << ":" << port;
 
                 static const folly::SocketOptionMap socketOptions{
-                    {{SOL_SOCKET, SO_REUSEADDR}, 1}};
+                    {{SOL_SOCKET, SO_REUSEADDR}, 1},
+                    {{SOL_SOCKET, SO_KEEPALIVE}, 1}};
 
                 if (scheme == "https") {
-                    auto sslContext = std::make_shared<folly::SSLContext>();
+                    auto sslContext = std::make_shared<folly::SSLContext>(
+                        folly::SSLContext::TLSv1_2);
 
-                    sslContext->authenticate(
-                        P()->verifyServerCertificate(), false);
+                    if (!P()->verifyServerCertificate()) {
+                        sslContext->authenticate(false, false);
 
-                    folly::ssl::setSignatureAlgorithms<
-                        folly::ssl::SSLCommonOptions>(*sslContext);
+                        folly::ssl::setSignatureAlgorithms<
+                            folly::ssl::SSLCommonOptions>(*sslContext);
+                    }
 
                     sslContext->setVerificationOption(
                         P()->verifyServerCertificate()
@@ -1895,6 +1898,9 @@ folly::Future<WebDAVSession *> WebDAVHelper::connect(WebDAVSessionPoolKey key)
                             : folly::SSLContext::SSLVerifyPeerEnum::NO_VERIFY);
 
                     auto *sslCtx = sslContext->getSSLCtx();
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+                    SSL_CTX_set_max_proto_version(sslCtx, TLS1_2_VERSION);
+#endif
                     if (!setupOpenSSLCABundlePath(sslCtx)) {
                         SSL_CTX_set_default_verify_paths(sslCtx);
                     }
@@ -2014,7 +2020,8 @@ WebDAVRequest::WebDAVRequest(WebDAVHelper *helper, WebDAVSession *session)
         m_request.getHeaders().add("Connection", "Keep-Alive");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
-        m_request.getHeaders().add("Host", session->host);
+        m_request.getHeaders().add(
+            "Host", m_helper->hostHeader().toStdString());
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U) {
         if (p->credentialsType() == WebDAVCredentialsType::NONE) { }
@@ -2120,6 +2127,12 @@ void WebDAVRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
     try {
+        if (VLOG_IS_ON(4)) {
+            msg->getHeaders().forEach([](const auto &k, const auto &v) {
+                LOG_DBG(4) << " << " << k << ": " << v;
+            });
+        }
+
         if (msg->getHeaders().getNumberOfValues("Connection") != 0U) {
             if (msg->getHeaders().rawGet("Connection") == "close") {
                 LOG_DBG(4) << "Received 'Connection: close'";
@@ -2445,6 +2458,12 @@ folly::Future<PAPtr<pxml::Document>> WebDAVPROPFIND::operator()(
 
     m_request.getHeaders().add(
         "Depth", (depth >= 0) ? std::to_string(depth) : "infinity");
+
+    if (VLOG_IS_ON(4)) {
+        m_request.getHeaders().forEach([](const auto &k, const auto &v) {
+            LOG_DBG(4) << " >> " << k << ": " << v;
+        });
+    }
 
     m_destructionGuard = shared_from_this();
 
