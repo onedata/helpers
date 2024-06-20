@@ -444,6 +444,12 @@ public:
 
     folly::fbstring accessToken() const { return P()->accessToken(); }
 
+    folly::fbstring hostHeader() const
+    {
+        return fmt::format(
+            "{}:{}", P()->endpoint().getHost(), P()->endpoint().getPort());
+    }
+
     size_t maximumUploadSize() const { return P()->maximumUploadSize(); }
 
     uint32_t connectionPoolSize() const { return P()->connectionPoolSize(); }

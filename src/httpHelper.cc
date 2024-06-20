@@ -884,9 +884,8 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
             m_request.getHeaders().add("Connection", "Keep-Alive");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
-        m_request.getHeaders().add("Host",
-            fmt::format("{}:{}", std::get<0>(session->key).toStdString(),
-                std::get<1>(session->key)));
+        m_request.getHeaders().add(
+            "Host", m_helper->hostHeader().toStdString());
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U &&
         !isExternal) {
