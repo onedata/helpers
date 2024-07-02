@@ -33,7 +33,6 @@
 #include <proxygen/lib/http/session/HTTPSession.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/http/session/HTTPUpstreamSession.h>
-#include <proxygen/lib/utils/Base64.h>
 #include <proxygen/lib/utils/URL.h>
 #include <tbb/concurrent_priority_queue.h>
 

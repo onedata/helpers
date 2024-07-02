@@ -126,16 +126,36 @@ endif(WITH_CEPH)
 # AWS SDK library
 if(WITH_S3)
     find_library(AWS_SDK_C_COMMON_LIBRARY aws-c-common HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_AUTH_LIBRARY aws-c-auth HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_HTTP_LIBRARY aws-c-http HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_S3_LIBRARY aws-c-s3 HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_MQTT_LIBRARY aws-c-mqtt HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_CAL_LIBRARY aws-c-cal HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_CRT_LIBRARY aws-crt-cpp HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_IO_LIBRARY aws-c-io HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_SDKUTILS_LIBRARY aws-c-sdkutils HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_C_COMPRESSION_LIBRARY aws-c-compression HINTS /usr/lib/x86_64-linux-gnu)
     find_library(AWS_SDK_CHECKSUMS_LIBRARY aws-checksums HINTS /usr/lib/x86_64-linux-gnu)
     find_library(AWS_SDK_C_EVENT_STREAM_LIBRARY aws-c-event-stream HINTS /usr/lib/x86_64-linux-gnu)
     find_library(AWS_SDK_CORE_LIBRARY aws-cpp-sdk-core HINTS /usr/lib/x86_64-linux-gnu)
     find_library(AWS_SDK_S3_LIBRARY aws-cpp-sdk-s3 HINTS /usr/lib/x86_64-linux-gnu)
+    find_library(AWS_SDK_S2N_LIBRARY s2n HINTS /usr/lib/x86_64-linux-gnu)
     set(AWS_SDK_LIBRARIES
-        ${AWS_SDK_C_COMMON_LIBRARY}
+        ${AWS_SDK_C_SDKUTILS_LIBRARY}
+        ${AWS_SDK_C_S3_LIBRARY}
+        ${AWS_SDK_C_MQTT_LIBRARY}
+        ${AWS_SDK_C_HTTP_LIBRARY}
+        ${AWS_SDK_CRT_LIBRARY}
+        ${AWS_SDK_C_CAL_LIBRARY}
+        ${AWS_SDK_C_IO_LIBRARY}
         ${AWS_SDK_CHECKSUMS_LIBRARY}
         ${AWS_SDK_C_EVENT_STREAM_LIBRARY}
         ${AWS_SDK_S3_LIBRARY}
         ${AWS_SDK_CORE_LIBRARY}
+        ${AWS_SDK_S2N_LIBRARY}
+        ${AWS_SDK_C_AUTH_LIBRARY}
+        ${AWS_SDK_C_COMPRESSION_LIBRARY}
+        ${AWS_SDK_C_COMMON_LIBRARY}
         ${CURL_LIBRARIES})
     add_definitions(-DWITH_S3=1)
     if(APPLE)
@@ -228,7 +248,7 @@ else(NOT APPLE)
     set(CUSTOM_RPATH "${CMAKE_INSTALL_PREFIX}/lib" "\$ORIGIN")
 endif(APPLE)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -fdiagnostics-color")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fdiagnostics-color")
 
 add_compile_options(${SECTION_FRAGMENTATION_FLAGS} -Werror -Wshadow -Wall -Wpedantic -Wno-unused-private-field -Wno-deprecated-declarations)
 add_definitions(

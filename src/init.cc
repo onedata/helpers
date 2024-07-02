@@ -13,7 +13,6 @@
 #include "monitoring/monitoring.h"
 #include "monitoring/monitoringConfiguration.h"
 #include <folly/Singleton.h>
-#include <folly/ssl/Init.h>
 
 #include <array>
 
@@ -25,8 +24,6 @@ void init()
     LOG_FCALL();
 
     folly::SingletonVault::singleton()->registrationComplete();
-
-    folly::ssl::init();
 }
 
 void startReadWritePerfLogger(const std::string &logDirectory)

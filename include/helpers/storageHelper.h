@@ -674,11 +674,13 @@ private:
  */
 class StorageWorkerFactory : public folly::ThreadFactory {
 public:
-    explicit StorageWorkerFactory(folly::fbstring name)
+    explicit StorageWorkerFactory(std::string name)
         : m_name{std::move(name)}
         , m_id{0}
     {
     }
+
+    const std::string &getNamePrefix() const override { return m_name; }
 
     std::thread newThread(folly::Func &&func) override
     {
@@ -710,7 +712,7 @@ private:
         pthread_setaffinity_np(t.native_handle(), sizeof(cpu_set_t), &cpuset);
     };
 
-    folly::fbstring m_name;
+    std::string m_name;
     std::atomic<uint64_t> m_id;
 };
 
