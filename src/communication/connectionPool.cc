@@ -886,7 +886,7 @@ folly::Future<folly::Unit> ConnectionPool::close()
                                 return folly::makeFuture();
                             }
 
-                            maybe.throwIfFailed();
+                            maybe.throwUnlessValue();
                         }
 
                         return folly::makeFuture();

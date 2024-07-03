@@ -110,7 +110,7 @@ folly::Future<folly::Unit> StorageRouterHelper::checkStorageAvailability()
         [](std::vector<folly::Try<folly::Unit>> &&maybe) {
             for (const auto &res : maybe) {
                 if (res.hasException())
-                    res.throwIfFailed();
+                    res.throwUnlessValue();
             }
 
             return folly::makeFuture();
