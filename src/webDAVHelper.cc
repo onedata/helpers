@@ -2333,8 +2333,10 @@ folly::Future<folly::Unit> WebDAVPATCH::operator()(
     const folly::fbstring &resource, const off_t offset,
     std::unique_ptr<folly::IOBuf> buf)
 {
+#ifndef __clang_analyzer__
     if (buf->length() == 0)
         return folly::makeFuture();
+#endif
 
     m_request.setMethod("PATCH");
 
