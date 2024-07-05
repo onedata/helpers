@@ -536,9 +536,11 @@ ConnectionPool::getIdleClient(
             m_connectionState == State::HANDSHAKE_FAILED) {
             LOG_DBG(1) << "Connection pool stopped - cannot send message...";
 
-            folly::via(folly::getCPUExecutor().get(), [callback] {
-                callback(std::make_error_code(std::errc::connection_aborted));
-            });
+            folly::via(
+                folly::getUnsafeMutableGlobalCPUExecutor().get(), [callback] {
+                    callback(
+                        std::make_error_code(std::errc::connection_aborted));
+                });
 
             throw std::system_error(
                 std::make_error_code(std::errc::connection_aborted));
@@ -869,7 +871,7 @@ folly::Future<folly::Unit> ConnectionPool::close()
                 continue;
 
             stopFutures.emplace_back(
-                folly::via(folly::getCPUExecutor().get())
+                folly::via(folly::getUnsafeMutableGlobalCPUExecutor().get())
                     .thenValue([client](auto && /*unit*/) mutable {
                         if (client->getPipeline() == nullptr)
                             return folly::Future<folly::Unit>{};
