@@ -229,7 +229,7 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                                         << folly::exceptionStr(
                                                maybeUnit.exception());
 
-                                    maybeUnit.throwIfFailed();
+                                    maybeUnit.throwUnlessValue();
                                 }
 
                                 LOG_DBG(3)

@@ -30,7 +30,7 @@ struct LowerLayer {
 
     std::shared_ptr<folly::Executor> executor()
     {
-        return folly::getIOExecutor();
+        return folly::getUnsafeMutableGlobalIOExecutor();
     }
 
     MOCK_METHOD0(connect, void());

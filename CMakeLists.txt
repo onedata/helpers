@@ -109,7 +109,7 @@ add_definitions(-DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL)
 
 # Utility libs
 find_library(LTDL_LIBRARY ltdl)
-find_library(ZLIB_LIBRARY z)
+find_package(ZLIB)
 find_library(RT_LIBRARY rt)
 find_library(DL_LIBRARY dl)
 
@@ -125,17 +125,10 @@ endif(WITH_CEPH)
 
 # AWS SDK library
 if(WITH_S3)
-    find_library(AWS_SDK_C_COMMON_LIBRARY aws-c-common HINTS /usr/lib/x86_64-linux-gnu)
-    find_library(AWS_SDK_CHECKSUMS_LIBRARY aws-checksums HINTS /usr/lib/x86_64-linux-gnu)
-    find_library(AWS_SDK_C_EVENT_STREAM_LIBRARY aws-c-event-stream HINTS /usr/lib/x86_64-linux-gnu)
-    find_library(AWS_SDK_CORE_LIBRARY aws-cpp-sdk-core HINTS /usr/lib/x86_64-linux-gnu)
-    find_library(AWS_SDK_S3_LIBRARY aws-cpp-sdk-s3 HINTS /usr/lib/x86_64-linux-gnu)
+    find_package(AWSSDK REQUIRED COMPONENTS s3)
     set(AWS_SDK_LIBRARIES
-        ${AWS_SDK_C_COMMON_LIBRARY}
-        ${AWS_SDK_CHECKSUMS_LIBRARY}
-        ${AWS_SDK_C_EVENT_STREAM_LIBRARY}
-        ${AWS_SDK_S3_LIBRARY}
-        ${AWS_SDK_CORE_LIBRARY}
+        ${AWSSDK_LINK_LIBRARIES}
+        ${AWSSDK_PLATFORM_DEPS}
         ${CURL_LIBRARIES})
     add_definitions(-DWITH_S3=1)
     if(APPLE)
@@ -207,7 +200,7 @@ endif(WITH_NFS)
 set(PLATFORM_EXTRA_LIBS
     ${CMAKE_THREAD_LIBS_INIT}
     ${LTDL_LIBRARY}
-    ${ZLIB_LIBRARY}
+    ZLIB::ZLIB
     ${DL_LIBRARY})
 
 # Code coverage
@@ -228,7 +221,7 @@ else(NOT APPLE)
     set(CUSTOM_RPATH "${CMAKE_INSTALL_PREFIX}/lib" "\$ORIGIN")
 endif(APPLE)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -fdiagnostics-color")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fdiagnostics-color")
 
 add_compile_options(${SECTION_FRAGMENTATION_FLAGS} -Werror -Wshadow -Wall -Wpedantic -Wno-unused-private-field -Wno-deprecated-declarations)
 add_definitions(
