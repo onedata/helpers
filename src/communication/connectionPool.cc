@@ -186,7 +186,7 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
     auto context =
         std::make_shared<folly::SSLContext>(folly::SSLContext::TLSv1_2);
 
-    context->authenticate(m_verifyServerCertificate, false);
+    context->authenticate(m_verifyServerCertificate, false, m_host);
 
     folly::ssl::setSignatureAlgorithms<folly::ssl::SSLCommonOptions>(*context);
 
@@ -197,6 +197,60 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
     auto *sslCtx = context->getSSLCtx();
     if (!setupOpenSSLCABundlePath(sslCtx)) {
         SSL_CTX_set_default_verify_paths(sslCtx);
+    }
+
+    if (m_customCADirectory.has_value()) {
+        // If the user provided their custom certificates stored in PEM
+        // format in a `certDir`, load the certificates from that directory
+        // one by one and add to `sslCtx` context
+
+        auto certDir = m_customCADirectory.value();
+
+        // Iterate over each file in the directory
+        boost::filesystem::directory_iterator it(certDir.toStdString());
+        boost::filesystem::directory_iterator end;
+        for (; it != end; ++it) {
+            if (boost::filesystem::is_regular_file(it->path()) &&
+                it->path().extension() == ".pem") {
+
+                FILE *fp = fopen(it->path().c_str(), "r");
+                if (fp == nullptr) {
+                    LOG(ERROR) << "Failed to open certificate file: "
+                               << it->path().c_str() << std::endl;
+                    continue;
+                }
+
+                X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
+                fclose(fp);
+
+                if (cert == nullptr) {
+                    LOG(ERROR)
+                        << "Failed to load certificate: " << it->path().c_str()
+                        << std::endl;
+                    continue;
+                }
+
+                if (auto *store = SSL_CTX_get_cert_store(sslCtx)) {
+                    int errCode = X509_STORE_add_cert(store, cert);
+                    if (errCode != 1) {
+                        LOG(ERROR)
+                            << "Failed to add certificate to SSL context: "
+                            << it->path().c_str() << std::endl;
+                    }
+                }
+
+                constexpr auto kX509IssuerMaxLength{1024U};
+                std::array<char, kX509IssuerMaxLength> buffer; // NOLINT
+                X509_NAME_oneline(
+                    X509_get_issuer_name(cert), buffer.data(), buffer.size());
+
+                LOG(INFO) << "Added trusted CA certificate for clproto "
+                             "issued by: "
+                          << buffer.data();
+
+                X509_free(cert);
+            }
+        }
     }
 
     // NOLINTNEXTLINE
@@ -922,6 +976,13 @@ void ConnectionPool::setOnReconnectCallback(
     std::function<void()> onReconnectCallback)
 {
     m_onReconnectCallback = std::move(onReconnectCallback);
+}
+
+void ConnectionPool::setCustomCADirectory(const folly::fbstring &path)
+{
+    LOG_FCALL() << LOG_FARG(path);
+
+    m_customCADirectory = path;
 }
 
 } // namespace communication

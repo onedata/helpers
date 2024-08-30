@@ -252,6 +252,8 @@ public:
 
     std::shared_ptr<folly::Executor> executor() { return m_executor; }
 
+    void setCustomCADirectory(const folly::fbstring &path);
+
 private:
     void connectionMonitorTick();
 
@@ -296,6 +298,7 @@ private:
     const std::string m_host;
     const uint16_t m_port;
     const bool m_verifyServerCertificate;
+    folly::Optional<folly::fbstring> m_customCADirectory;
     const std::chrono::seconds m_providerTimeout;
     const bool m_clprotoUpgrade;
     const bool m_clprotoHandshake;
