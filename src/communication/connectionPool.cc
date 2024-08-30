@@ -207,13 +207,14 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
         auto certDir = m_customCADirectory.value();
 
         // Iterate over each file in the directory
-        boost::filesystem::directory_iterator it(certDir.toStdString()), end;
+        boost::filesystem::directory_iterator it(certDir.toStdString());
+        boost::filesystem::directory_iterator end;
         for (; it != end; ++it) {
             if (boost::filesystem::is_regular_file(it->path()) &&
                 it->path().extension() == ".pem") {
 
                 FILE *fp = fopen(it->path().c_str(), "r");
-                if (!fp) {
+                if (fp == nullptr) {
                     LOG(ERROR) << "Failed to open certificate file: "
                                << it->path().c_str() << std::endl;
                     continue;
@@ -222,7 +223,7 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
                 X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
                 fclose(fp);
 
-                if (!cert) {
+                if (cert == nullptr) {
                     LOG(ERROR)
                         << "Failed to load certificate: " << it->path().c_str()
                         << std::endl;
@@ -239,13 +240,13 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
                 }
 
                 constexpr auto kX509IssuerMaxLength{1024U};
-                char buffer[kX509IssuerMaxLength];
+                std::array<char, kX509IssuerMaxLength> buffer; // NOLINT
                 X509_NAME_oneline(
-                    X509_get_issuer_name(cert), buffer, kX509IssuerMaxLength);
+                    X509_get_issuer_name(cert), buffer.data(), buffer.size());
 
                 LOG(INFO) << "Added trusted CA certificate for clproto "
                              "issued by: "
-                          << buffer;
+                          << buffer.data();
 
                 X509_free(cert);
             }
