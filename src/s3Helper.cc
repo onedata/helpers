@@ -43,11 +43,44 @@ const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
         {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
         {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
         {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-        {Aws::S3::S3Errors::UNKNOWN, std::errc::io_error},
         {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::invalid_argument},
         {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
         {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
-            std::errc::no_such_file_or_directory}};
+            std::errc::no_such_file_or_directory},
+        {Aws::S3::S3Errors::INCOMPLETE_SIGNATURE, std::errc::protocol_error},
+        {Aws::S3::S3Errors::INTERNAL_FAILURE, std::errc::operation_canceled},
+        {Aws::S3::S3Errors::INVALID_ACTION, std::errc::not_supported},
+        {Aws::S3::S3Errors::INVALID_CLIENT_TOKEN_ID,
+            std::errc::permission_denied},
+        {Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
+            std::errc::invalid_argument},
+        {Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
+            std::errc::invalid_argument},
+        {Aws::S3::S3Errors::MISSING_AUTHENTICATION_TOKEN,
+            std::errc::permission_denied},
+        {Aws::S3::S3Errors::MISSING_PARAMETER, std::errc::invalid_argument},
+        {Aws::S3::S3Errors::OPT_IN_REQUIRED,
+            std::errc::operation_not_permitted},
+        {Aws::S3::S3Errors::THROTTLING,
+            std::errc::resource_unavailable_try_again},
+        {Aws::S3::S3Errors::VALIDATION, std::errc::invalid_argument},
+        {Aws::S3::S3Errors::UNRECOGNIZED_CLIENT, std::errc::permission_denied},
+        {Aws::S3::S3Errors::MALFORMED_QUERY_STRING,
+            std::errc::invalid_argument},
+        {Aws::S3::S3Errors::SLOW_DOWN,
+            std::errc::resource_unavailable_try_again},
+        {Aws::S3::S3Errors::REQUEST_TIME_TOO_SKEWED, std::errc::timed_out},
+        {Aws::S3::S3Errors::INVALID_SIGNATURE, std::errc::permission_denied},
+        {Aws::S3::S3Errors::SIGNATURE_DOES_NOT_MATCH,
+            std::errc::permission_denied},
+        {Aws::S3::S3Errors::INVALID_ACCESS_KEY_ID,
+            std::errc::permission_denied},
+        {Aws::S3::S3Errors::REQUEST_TIMEOUT, std::errc::timed_out},
+
+        {Aws::S3::S3Errors::UNKNOWN,
+            std::errc::io_error} // General unknown I/O error
+    };
+
     return g_errors;
 }
 
