@@ -87,6 +87,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_needMoreConnections{0}
     , m_sentMessageCounter{}
     , m_queuedMessageCounter{}
+    , m_reconnectAttemptCount{0}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
@@ -121,9 +122,10 @@ void ConnectionPool::addConnection(int connectionId)
                 maybeClient->setEOFCallbackCalled(true);
             }
 
-            if ((m_connectionState == State::CONNECTED ||
-                    m_connectionState == State::CONNECTION_LOST) &&
-                areAllConnectionsDown()) {
+            if (m_connectionState == State::INVALID_PROVIDER ||
+                ((m_connectionState == State::CONNECTED ||
+                     m_connectionState == State::CONNECTION_LOST) &&
+                    areAllConnectionsDown())) {
                 m_idleConnections.clear();
 
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
@@ -385,7 +387,7 @@ void ConnectionPool::connectionMonitorTask()
         // m_connectionMonitorWait variable is set to false, which breaks
         // out of continue loop, which is done by calling
         // connectionMonitorTick()
-        LOG_DBG(3) << "Monitor task - waiting for tick signal for: "
+        LOG_DBG(5) << "Monitor task - waiting for tick signal for: "
                    << monitorSleepDuration.count() << " [s]";
 
         {
@@ -397,7 +399,7 @@ void ConnectionPool::connectionMonitorTask()
             m_connectionMonitorWait = true;
         }
 
-        LOG_DBG(3) << "Connection monitor task - starting next loop iteration";
+        LOG_DBG(5) << "Connection monitor task - starting next loop iteration";
 
         if (m_connectionState == State::STOPPED)
             break;
@@ -420,10 +422,11 @@ void ConnectionPool::connectionMonitorTask()
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
                 for (auto &client : m_connections) {
                     if (m_connectionState == State::STOPPED ||
+                        m_connectionState == State::INVALID_PROVIDER ||
                         m_connectionState == State::HANDSHAKE_FAILED)
                         break;
 
-                    LOG_DBG(3)
+                    LOG_DBG(5)
                         << "Checking connection " << client->connectionId()
                         << " status - " << (client->idle() ? "idle" : "taken");
 
@@ -437,7 +440,7 @@ void ConnectionPool::connectionMonitorTask()
                     const int reconnectAttempt =
                         (m_connectionState == State::CONNECTION_LOST) ||
                             !client->firstConnection()
-                        ? 1
+                        ? getReconnectAttemptCount()
                         : 0;
 
                     futs.emplace_back(client->connectionId(),
@@ -487,6 +490,7 @@ void ConnectionPool::connectionMonitorTask()
                 }
 
                 if (m_connectionState == State::STOPPED ||
+                    m_connectionState == State::INVALID_PROVIDER ||
                     m_connectionState == State::HANDSHAKE_FAILED)
                     break;
 
@@ -506,6 +510,7 @@ void ConnectionPool::connectionMonitorTask()
                 std::unique_lock<std::mutex> lk(m_connectionMonitorMutex);
                 m_needMoreConnections = 0;
                 m_connectionMonitorWait = true;
+                resetReconnectAttemptCount();
             }
         }
     }
