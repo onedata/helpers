@@ -29,8 +29,9 @@ namespace communication {
 /**
  * List of consecutive socket reconnection delays in milliseconds.
  */
-static const std::array<int, 12> CLIENT_RECONNECT_DELAYS{0, 10, 10000, 10000,
-    10000, 10000, 10000, 10000, 30000, 30000, 30000, 60'000};
+static const std::array<int, CLIENT_RECONNECT_DELAYS_COUNT>
+    CLIENT_RECONNECT_DELAYS{0, 10, 10000, 10000, 10000, 10000, 10000, 10000,
+        30000, 30000, 30000, 60'000};
 
 static const auto CLIENT_CONNECT_TIMEOUT_SECONDS = 30;
 
@@ -305,7 +306,7 @@ bool CLProtoClientBootstrap::connected()
     if (m_eofCallbackCalled || m_stopping)
         return false;
 
-    if (!getPipeline()->getTransport())
+    if (getPipeline() != nullptr && !getPipeline()->getTransport())
         return false;
 
     if (m_eofCallbackCalled || m_stopping)

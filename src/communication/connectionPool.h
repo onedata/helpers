@@ -51,7 +51,9 @@ public:
         CONNECTION_LOST, /*< Connection has been lost for a time longer than
                             timeout period */
         STOPPED, /*< Connection pool has been stopped, clean up resources */
-        HANDSHAKE_FAILED /*< Handshake failed, the connection can be stopped */
+        INVALID_PROVIDER, /*< The target Oneprovider does not support any spaces
+                             for this user at the moment */
+        HANDSHAKE_FAILED  /*< Handshake failed, the connection can be stopped */
     };
 
     /**
@@ -188,6 +190,10 @@ public:
      */
     bool isConnected();
 
+    State connectionState() { return m_connectionState; }
+
+    void setConnectionState(State state) { m_connectionState = state; }
+
     /**
      * Sets handshake-related functions.
      * The handshake functions are passed down to connections and used on
@@ -277,6 +283,16 @@ private:
 
     size_t connectionsSize();
 
+    int getReconnectAttemptCount()
+    {
+        LOG_DBG(3) << "Current reconnect attempt is: "
+                   << m_reconnectAttemptCount;
+
+        return m_reconnectAttemptCount++;
+    }
+
+    void resetReconnectAttemptCount() { m_reconnectAttemptCount = 0; }
+
     /**
      * Close connections and handler pipelines.
      */
@@ -335,6 +351,8 @@ private:
     std::exception_ptr m_lastException;
     std::atomic<size_t> m_sentMessageCounter;
     std::atomic<size_t> m_queuedMessageCounter;
+
+    std::atomic<int> m_reconnectAttemptCount;
 };
 
 } // namespace communication
