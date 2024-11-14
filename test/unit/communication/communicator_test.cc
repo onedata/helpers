@@ -25,6 +25,9 @@ class LazyConnectionPool {
 public:
     using Callback = std::function<void(const std::error_code &)>;
 
+    enum class State { INVALID_PROVIDER };
+
+    void setConnectionState(State s) { }
     void connect() { }
 
     bool isConnected() { return true; }

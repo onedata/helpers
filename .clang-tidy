@@ -18,6 +18,7 @@ Checks: >-
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-narrowing-conversions,
   -concurrency-mt-unsafe,
+  -cppcoreguidelines-owning-memory,
   -fuchsia*,
   -google-readability-todo,
   -google-runtime-int,
