@@ -13,7 +13,6 @@
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
 
-#include <folly/ThreadLocal.h>
 #include <folly/executors/IOExecutor.h>
 #include <rados/librados.hpp>
 
@@ -123,7 +122,7 @@ private:
     void connect();
 
     std::mutex m_connectionMutex;
-    folly::ThreadLocal<CephRadosCtx> m_ctx;
+    CephRadosCtx m_ctx;
 };
 } // namespace helpers
 } // namespace one

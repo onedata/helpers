@@ -106,7 +106,7 @@ folly::IOBufQueue CephRadosHelper::getObject(
 
     auto ret = retry(
         [&, this]() {
-            return m_ctx->ioCTX.read(key.toStdString(), data, size, offset);
+            return m_ctx.ioCTX.read(key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "GetObject"));
 
@@ -165,7 +165,7 @@ std::size_t CephRadosHelper::putObject(
 
     auto ret = retry(
         [&]() {
-            return m_ctx->ioCTX.write(key.toStdString(), data, size, offset);
+            return m_ctx.ioCTX.write(key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "PutObject"));
 
@@ -189,7 +189,7 @@ void CephRadosHelper::deleteObject(const folly::fbstring &key)
 
     LOG_DBG(2) << "Attempting to delete object " << key;
 
-    auto ret = retry([&]() { return m_ctx->ioCTX.remove(key.toStdString()); },
+    auto ret = retry([&]() { return m_ctx.ioCTX.remove(key.toStdString()); },
         std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
 
     // Ignore non-existent object errors
@@ -214,18 +214,17 @@ void CephRadosHelper::connect()
 {
     std::lock_guard<std::mutex> guard{m_connectionMutex};
 
-    if (m_ctx->connected)
+    if (m_ctx.connected)
         return;
 
-    int ret =
-        m_ctx->cluster.init2(username().c_str(), clusterName().c_str(), 0);
+    int ret = m_ctx.cluster.init2(username().c_str(), clusterName().c_str(), 0);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't initialize the cluster handle.";
         throw std::system_error{one::helpers::makePosixError(ret),
             "Couldn't initialize the cluster handle."};
     }
 
-    ret = m_ctx->cluster.conf_set("mon host", monitorHostname().c_str());
+    ret = m_ctx.cluster.conf_set("mon host", monitorHostname().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set monitor host configuration "
                       "variable.";
@@ -233,7 +232,7 @@ void CephRadosHelper::connect()
             "Couldn't set monitor host configuration variable."};
     }
 
-    ret = m_ctx->cluster.conf_set("key", key().c_str());
+    ret = m_ctx.cluster.conf_set("key", key().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set key configuration variable.";
         throw std::system_error{one::helpers::makePosixError(ret),
@@ -242,7 +241,7 @@ void CephRadosHelper::connect()
 
     const auto timeoutStr = std::to_string(timeout().count() / 1000);
 
-    ret = m_ctx->cluster.conf_set("rados_osd_op_timeout", timeoutStr.c_str());
+    ret = m_ctx.cluster.conf_set("rados_osd_op_timeout", timeoutStr.c_str());
     if (ret < 0) {
         LOG(ERROR)
             << "Couldn't set rados_osd_op_timeout configuration variable.";
@@ -250,7 +249,7 @@ void CephRadosHelper::connect()
             "Couldn't set rados_osd_op_timeout configuration variable."};
     }
 
-    ret = m_ctx->cluster.conf_set("rados_mon_op_timeout", timeoutStr.c_str());
+    ret = m_ctx.cluster.conf_set("rados_mon_op_timeout", timeoutStr.c_str());
     if (ret < 0) {
         LOG(ERROR)
             << "Couldn't set rados_mon_op_timeout configuration variable.";
@@ -258,7 +257,7 @@ void CephRadosHelper::connect()
             "Couldn't set rados_mon_op_timeout configuration variable."};
     }
 
-    ret = m_ctx->cluster.conf_set("client_mount_timeout", timeoutStr.c_str());
+    ret = m_ctx.cluster.conf_set("client_mount_timeout", timeoutStr.c_str());
     if (ret < 0) {
         LOG(ERROR)
             << "Couldn't set client_mount_timeout configuration variable.";
@@ -266,21 +265,21 @@ void CephRadosHelper::connect()
             "Couldn't set client_mount_timeout configuration variable."};
     }
 
-    ret = m_ctx->cluster.connect();
+    ret = m_ctx.cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
         throw std::system_error{one::helpers::makePosixError(ECONNREFUSED),
             "Couldn't connect to cluster."};
     }
 
-    ret = m_ctx->cluster.ioctx_create(poolName().c_str(), m_ctx->ioCTX);
+    ret = m_ctx.cluster.ioctx_create(poolName().c_str(), m_ctx.ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
         throw std::system_error{one::helpers::makePosixError(ECONNREFUSED),
             "Couldn't set up ioCTX."};
     }
 
-    m_ctx->connected = true;
+    m_ctx.connected = true;
 }
 } // namespace helpers
 } // namespace one
