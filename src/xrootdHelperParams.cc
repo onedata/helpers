@@ -45,9 +45,6 @@ void XRootDHelperParams::initializeFromParams(const Params &parameters)
     if (url.empty())
         throw std::invalid_argument("XRootD endpoint cannot be empty");
 
-    if (url.back() != '/')
-        url += '/';
-
     XrdCl::URL endpointUrl{url.toStdString()};
 
     if (!endpointUrl.IsValid()) {
