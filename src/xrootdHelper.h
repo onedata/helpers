@@ -184,13 +184,13 @@ public:
 
     mode_t dirModeMask() const { return P()->dirModeMask(); }
 
-    std::string makeXrdClPath(const folly::fbstring &fileId)
+    std::string makeXrdClPath(const folly::fbstring &fileId) const
     {
         auto urlWithPath = appendPathToURL(url(), fileId.toStdString());
         return urlWithPath.GetPath();
     }
 
-    std::string makeXrdClURL(const folly::fbstring &fileId)
+    std::string makeXrdClURL(const folly::fbstring &fileId) const
     {
         auto urlWithPath = appendPathToURL(url(), fileId.toStdString());
         return urlWithPath.GetURL();
