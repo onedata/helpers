@@ -62,10 +62,19 @@ public:
                 m_executor, ExecutionContext::ONECLIENT);
     }
 
-    ~XRootDHelperProxy()
+    ~XRootDHelperProxy() { stop(); }
+
+    void stop()
     {
-        LOG_FCALL();
-        m_executor->join();
+        ReleaseGIL guard;
+        bool expected = false;
+        if (m_stopped.compare_exchange_strong(expected, true)) {
+            LOG_FCALL();
+
+            m_helper.reset();
+
+            m_executor->join();
+        }
     }
 
     void checkStorageAvailability()
@@ -219,6 +228,7 @@ public:
 private:
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
     std::shared_ptr<one::helpers::XRootDHelper> m_helper;
+    std::atomic_bool m_stopped{false};
 };
 
 namespace {
@@ -234,6 +244,7 @@ BOOST_PYTHON_MODULE(xrootd_helper)
 {
     class_<XRootDHelperProxy, boost::noncopyable>("XRootDHelperProxy", no_init)
         .def("__init__", make_constructor(create))
+        .def("stop", &XRootDHelperProxy::stop)
         .def("getattr", &XRootDHelperProxy::getattr)
         .def("unlink", &XRootDHelperProxy::unlink)
         .def("rmdir", &XRootDHelperProxy::rmdir)

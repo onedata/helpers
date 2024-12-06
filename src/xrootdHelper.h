@@ -24,6 +24,8 @@ constexpr auto kXRootDRetryCount = 6;
 
 class XRootDHelper;
 
+XrdCl::URL appendPathToURL(const XrdCl::URL &url, const std::string &path);
+
 /**
  * The @c FileHandle implementation for XRootD storage helper.
  */
@@ -181,6 +183,18 @@ public:
     mode_t fileModeMask() const { return P()->fileModeMask(); }
 
     mode_t dirModeMask() const { return P()->dirModeMask(); }
+
+    std::string makeXrdClPath(const folly::fbstring &fileId)
+    {
+        auto urlWithPath = appendPathToURL(url(), fileId.toStdString());
+        return urlWithPath.GetPath();
+    }
+
+    std::string makeXrdClURL(const folly::fbstring &fileId)
+    {
+        auto urlWithPath = appendPathToURL(url(), fileId.toStdString());
+        return urlWithPath.GetURL();
+    }
 
 private:
     std::shared_ptr<XRootDHelperParams> P() const
