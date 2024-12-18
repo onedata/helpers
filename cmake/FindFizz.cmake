@@ -6,6 +6,24 @@
 # FIZZ_LIBRARIES
 #
 
+
+if(DEFINED ONEDATA_DEPS_PREFIX AND NOT ONEDATA_DEPS_PREFIX STREQUAL "")
+find_package(Folly REQUIRED NAMES folly Folly)
+
+find_path(
+    FIZZ_INCLUDE_DIR
+    NAMES "fizz/client/AsyncFizzClient.h"
+    HINTS
+        "${ONEDATA_DEPS_PREFIX}/include"
+)
+
+find_library(
+    FIZZ_LIBRARY
+    NAMES fizz
+    HINTS
+        "${ONEDATA_DEPS_PREFIX}/lib"
+)
+else()
 find_package(Folly REQUIRED)
 
 find_path(
@@ -21,6 +39,7 @@ find_library(
     HINTS
         "/usr/local/facebook/lib"
 )
+endif()
 
 set(FIZZ_LIBRARIES ${FIZZ_LIBRARY} ${FOLLY_LIBRARIES})
 
