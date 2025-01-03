@@ -801,6 +801,10 @@ try {
     if (m_connectionState == State::STOPPED)
         return;
 
+    for (auto &conn : m_connections) {
+        conn->stop();
+    }
+
     if (m_connectionState == State::CREATED ||
         m_connectionState == State::HANDSHAKE_FAILED) {
         m_connectionState = State::STOPPED;
