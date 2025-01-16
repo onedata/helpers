@@ -21,6 +21,7 @@ namespace one {
 namespace communication {
 
 constexpr int DEFAULT_RETRY_NUMBER = 5;
+constexpr int CLOSE_CONNECTION_AFTER_SEND = -100;
 constexpr int STREAM_MSG_ACK_WINDOW = 100;
 constexpr std::chrono::seconds STREAM_MSG_REQ_WINDOW{30};
 

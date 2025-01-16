@@ -7,6 +7,8 @@
  */
 
 #include "communication/connectionPool.h"
+#include "communication/declarations.h"
+
 #include "helpers/init.h"
 
 #include <boost/make_shared.hpp>
@@ -53,11 +55,19 @@ public:
 
     void sendMultipleAsync(const std::string msg, size_t count)
     {
-        while (count-- > 0)
-            m_pool.send(
-                msg, [](auto) {}, int{});
+        std::vector<folly::Future<folly::Unit>> futs;
+        while (count-- > 0) {
+            futs.emplace_back(m_pool.send(
+                msg, [](auto) {}, int{}));
+        }
 
-        stop();
+        folly::collectAll(futs)
+            .via(m_pool.executor().get())
+            .thenValue([&](auto &&v) {
+                return m_pool.send(
+                    msg, [](auto) {}, CLOSE_CONNECTION_AFTER_SEND);
+            })
+            .get();
     }
 
     size_t sentMessageCounter() { return m_pool.sentMessageCounter(); }
@@ -74,10 +84,10 @@ public:
     size_t size() { return m_size; }
 
 private:
-    ConnectionPool m_pool;
     std::atomic<std::size_t> m_size{0};
     tbb::concurrent_queue<std::string> m_messages;
     std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
+    ConnectionPool m_pool;
 };
 
 namespace {
