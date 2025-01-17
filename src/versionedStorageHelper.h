@@ -23,7 +23,8 @@ class VersionedStorageHelper : public StorageHelper {
 public:
     VersionedStorageHelper(
         StorageHelperCreatorT &helperCreator, StorageHelperPtr helper)
-        : m_helper{std::move(helper)}
+        : StorageHelper{helper->executionContext()}
+        , m_helper{std::move(helper)}
         , m_helperCreator{helperCreator}
     {
     }
