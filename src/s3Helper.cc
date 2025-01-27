@@ -35,51 +35,39 @@ namespace {
 
 const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
 {
-    const static std::map<Aws::S3::S3Errors, std::errc> g_errors = {
-        {Aws::S3::S3Errors::INVALID_PARAMETER_VALUE,
-            std::errc::invalid_argument},
-        {Aws::S3::S3Errors::MISSING_ACTION, std::errc::not_supported},
-        {Aws::S3::S3Errors::SERVICE_UNAVAILABLE, std::errc::host_unreachable},
-        {Aws::S3::S3Errors::NETWORK_CONNECTION, std::errc::network_unreachable},
-        {Aws::S3::S3Errors::REQUEST_EXPIRED, std::errc::timed_out},
-        {Aws::S3::S3Errors::ACCESS_DENIED, std::errc::permission_denied},
-        {Aws::S3::S3Errors::NO_SUCH_BUCKET, std::errc::invalid_argument},
-        {Aws::S3::S3Errors::NO_SUCH_KEY, std::errc::no_such_file_or_directory},
-        {Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
-            std::errc::no_such_file_or_directory},
-        {Aws::S3::S3Errors::INCOMPLETE_SIGNATURE, std::errc::protocol_error},
-        {Aws::S3::S3Errors::INTERNAL_FAILURE, std::errc::operation_canceled},
-        {Aws::S3::S3Errors::INVALID_ACTION, std::errc::not_supported},
-        {Aws::S3::S3Errors::INVALID_CLIENT_TOKEN_ID,
-            std::errc::permission_denied},
-        {Aws::S3::S3Errors::INVALID_PARAMETER_COMBINATION,
-            std::errc::invalid_argument},
-        {Aws::S3::S3Errors::INVALID_QUERY_PARAMETER,
-            std::errc::invalid_argument},
-        {Aws::S3::S3Errors::MISSING_AUTHENTICATION_TOKEN,
-            std::errc::permission_denied},
-        {Aws::S3::S3Errors::MISSING_PARAMETER, std::errc::invalid_argument},
-        {Aws::S3::S3Errors::OPT_IN_REQUIRED,
-            std::errc::operation_not_permitted},
-        {Aws::S3::S3Errors::THROTTLING,
-            std::errc::resource_unavailable_try_again},
-        {Aws::S3::S3Errors::VALIDATION, std::errc::invalid_argument},
-        {Aws::S3::S3Errors::UNRECOGNIZED_CLIENT, std::errc::permission_denied},
-        {Aws::S3::S3Errors::MALFORMED_QUERY_STRING,
-            std::errc::invalid_argument},
-        {Aws::S3::S3Errors::SLOW_DOWN,
-            std::errc::resource_unavailable_try_again},
-        {Aws::S3::S3Errors::REQUEST_TIME_TOO_SKEWED, std::errc::timed_out},
-        {Aws::S3::S3Errors::INVALID_SIGNATURE, std::errc::permission_denied},
-        {Aws::S3::S3Errors::SIGNATURE_DOES_NOT_MATCH,
-            std::errc::permission_denied},
-        {Aws::S3::S3Errors::INVALID_ACCESS_KEY_ID,
-            std::errc::permission_denied},
-        {Aws::S3::S3Errors::REQUEST_TIMEOUT, std::errc::timed_out},
+    using Aws::S3::S3Errors;
+    using std::errc;
 
-        {Aws::S3::S3Errors::UNKNOWN,
-            std::errc::io_error} // General unknown I/O error
-    };
+    const static std::map<S3Errors, errc> g_errors = {
+        {S3Errors::ACCESS_DENIED, errc::permission_denied},
+        {S3Errors::INCOMPLETE_SIGNATURE, errc::protocol_error},
+        {S3Errors::INTERNAL_FAILURE, errc::operation_canceled},
+        {S3Errors::INVALID_ACCESS_KEY_ID, errc::permission_denied},
+        {S3Errors::INVALID_ACTION, errc::not_supported},
+        {S3Errors::INVALID_CLIENT_TOKEN_ID, errc::permission_denied},
+        {S3Errors::INVALID_PARAMETER_COMBINATION, errc::invalid_argument},
+        {S3Errors::INVALID_PARAMETER_VALUE, errc::invalid_argument},
+        {S3Errors::INVALID_QUERY_PARAMETER, errc::invalid_argument},
+        {S3Errors::INVALID_SIGNATURE, errc::permission_denied},
+        {S3Errors::MALFORMED_QUERY_STRING, errc::invalid_argument},
+        {S3Errors::MISSING_ACTION, errc::not_supported},
+        {S3Errors::MISSING_AUTHENTICATION_TOKEN, errc::permission_denied},
+        {S3Errors::MISSING_PARAMETER, errc::invalid_argument},
+        {S3Errors::NETWORK_CONNECTION, errc::network_unreachable},
+        {S3Errors::NO_SUCH_BUCKET, errc::invalid_argument},
+        {S3Errors::NO_SUCH_KEY, errc::no_such_file_or_directory},
+        {S3Errors::OPT_IN_REQUIRED, errc::operation_not_permitted},
+        {S3Errors::REQUEST_EXPIRED, errc::timed_out},
+        {S3Errors::REQUEST_TIMEOUT, errc::timed_out},
+        {S3Errors::REQUEST_TIME_TOO_SKEWED, errc::timed_out},
+        {S3Errors::RESOURCE_NOT_FOUND, errc::no_such_file_or_directory},
+        {S3Errors::SERVICE_UNAVAILABLE, errc::host_unreachable},
+        {S3Errors::SIGNATURE_DOES_NOT_MATCH, errc::permission_denied},
+        {S3Errors::SLOW_DOWN, errc::resource_unavailable_try_again},
+        {S3Errors::THROTTLING, errc::resource_unavailable_try_again},
+        {S3Errors::UNRECOGNIZED_CLIENT, errc::permission_denied},
+        {S3Errors::VALIDATION, errc::invalid_argument},
+        {S3Errors::UNKNOWN, errc::io_error}};
 
     return g_errors;
 }
@@ -110,6 +98,15 @@ std::error_code getReturnCode(const Outcome &outcome)
     auto search = ErrorMappings().find(outcome.GetError().GetErrorType());
     if (search != ErrorMappings().end())
         error = search->second;
+
+    if (error == std::errc::io_error) {
+        // Handle custom errors
+        const auto messageStr = outcome.GetError().GetMessage();
+
+        if (messageStr.find("QuotaExceeded") != std::string::npos) {
+            error = std::errc::no_space_on_device;
+        }
+    }
 
     return {static_cast<int>(error), std::system_category()};
 }
