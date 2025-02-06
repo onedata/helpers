@@ -151,7 +151,7 @@ docker.run(tty=True,
                     ('/var/run/docker.sock', 'rw'),
                     (HOST_STORAGE_PATH, 'rw')],
            image=args.image,
-           envs={'BASE_TEST_DIR': base_test_dir, 'PYTHONWARNINGS': 'ignore:Unverified HTTPS request'},
+           envs={'XRD_RUNFORKHANDLER': '0', 'BASE_TEST_DIR': base_test_dir, 'PYTHONWARNINGS': 'ignore:Unverified HTTPS request'},
            run_params=['--privileged'] if (args.gdb or args.valgrind) else [],
            cpuset_cpus=args.cpuset_cpus,
            command=['python3', '-c', command])

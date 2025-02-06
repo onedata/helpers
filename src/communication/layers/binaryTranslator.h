@@ -123,6 +123,17 @@ auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
                 LOG_DBG(2) << "Received ProcessingStatus heartbeat message - "
                               "ignoring...";
             }
+            // Typically handshake errors are handled during handshake, but in
+            // case user doesn't have any supported spaces in Oneprovider
+            // this error can appear outside of a handshake exchange
+            else if (serverMsg->has_handshake_response() &&
+                serverMsg->handshake_response().status() ==
+                    one::clproto::HandshakeStatus::INVALID_PROVIDER) {
+                LOG_DBG(2) << "Received INVALID_PROVIDER handshake message";
+
+                LowerLayer::setConnectionState(
+                    LowerLayer::State::INVALID_PROVIDER);
+            }
             else {
                 onMessageCallback(std::move(serverMsg));
             }

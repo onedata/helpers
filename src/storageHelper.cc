@@ -72,6 +72,18 @@ const std::unordered_map<int, Flag> &MaskTranslation()
 namespace one {
 namespace helpers {
 
+std::string toString(ExecutionContext ec)
+{
+    switch (ec) {
+        case ExecutionContext::ONEPROVIDER:
+            return "ONEPROVIDER";
+        case ExecutionContext::ONECLIENT:
+            return "ONECLIENT";
+        default:
+            return "";
+    }
+}
+
 template <>
 folly::fbstring getParam<folly::fbstring>(
     const Params &params, const folly::fbstring &key)
