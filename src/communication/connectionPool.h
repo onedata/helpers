@@ -53,8 +53,9 @@ public:
         STOPPING,        /*< Connection pool will not accept any more message or
                             reconnects */
         STOPPED, /*< Connection pool has been stopped, clean up resources */
-
-        HANDSHAKE_FAILED /*< Handshake failed, the connection can be stopped */
+        INVALID_PROVIDER, /*< The target Oneprovider does not support any spaces
+                             for this user at the moment */
+        HANDSHAKE_FAILED  /*< Handshake failed, the connection can be stopped */
     };
 
     /**
@@ -191,6 +192,10 @@ public:
      */
     bool isConnected();
 
+    State connectionState() { return m_connectionState; }
+
+    void setConnectionState(State state) { m_connectionState = state; }
+
     /**
      * Sets handshake-related functions.
      * The handshake functions are passed down to connections and used on
@@ -266,6 +271,8 @@ public:
 
     uint16_t port() const { return m_port; }
 
+    void setCustomCADirectory(const folly::fbstring &path);
+
 private:
     void connectionMonitorTick();
 
@@ -289,6 +296,16 @@ private:
 
     size_t connectionsSize();
 
+    int getReconnectAttemptCount()
+    {
+        LOG_DBG(3) << "Current reconnect attempt is: "
+                   << m_reconnectAttemptCount;
+
+        return m_reconnectAttemptCount++;
+    }
+
+    void resetReconnectAttemptCount() { m_reconnectAttemptCount = 0; }
+
     /**
      * Close connections and handler pipelines.
      */
@@ -310,6 +327,7 @@ private:
     const std::string m_host;
     const uint16_t m_port;
     const bool m_verifyServerCertificate;
+    folly::Optional<folly::fbstring> m_customCADirectory;
     const std::chrono::seconds m_providerTimeout;
     const bool m_clprotoUpgrade;
     const bool m_clprotoHandshake;
@@ -346,6 +364,8 @@ private:
     std::exception_ptr m_lastException;
     std::atomic<size_t> m_sentMessageCounter;
     std::atomic<size_t> m_queuedMessageCounter;
+
+    std::atomic<int> m_reconnectAttemptCount;
 };
 
 } // namespace communication

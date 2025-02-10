@@ -48,6 +48,7 @@ inline auto retryDelay(int retriesLeft)
             (kXRootDRetryCount - retriesLeft)};
 }
 
+namespace detail {
 /**
  * Prepend the relative file or directory path with the path registered as path
  * of the Url helper param and ensure it's absolute as required by XRootD FS
@@ -62,11 +63,15 @@ inline std::string ensureAbsPath(
     if (path.empty() || path == "/")
         return root;
 
+    if (root.back() == '/' && path.front() == '/')
+        return root + path.substr(1, path.length() - 1);
+
     if (root.back() != '/' && path.front() != '/')
         return root + '/' + path;
 
     return root + path;
 }
+} // namespace detail
 
 /**
  * Convert POSIX flags to XRootD open flags.
@@ -157,7 +162,28 @@ int xrootdStatusToPosixError(const XrdCl::XRootDStatus &xrootdStatus)
             return EIO;
     }
 }
+
+std::packaged_task<void(XrdCl::XRootDStatus &st)> makeUnitTask(
+    folly::Promise<folly::Unit> &&p)
+{
+    return std::packaged_task<void(XrdCl::XRootDStatus & st)>{
+        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
+            p.setWith([&st]() {
+                if (!st.IsOK())
+                    throw XrdCl::PipelineException(st); // NOLINT
+            });
+        }};
+}
 } // namespace
+
+XrdCl::URL appendPathToURL(const XrdCl::URL &url, const std::string &path)
+{
+    XrdCl::URL result = url;
+
+    result.SetPath(detail::ensureAbsPath(url.GetPath(), path));
+
+    return result;
+}
 
 XRootDFileHandle::XRootDFileHandle(folly::fbstring fileId,
     std::unique_ptr<XrdCl::File> &&file, std::shared_ptr<XRootDHelper> helper)
@@ -280,15 +306,7 @@ folly::Future<std::size_t> XRootDFileHandle::write(
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> writeTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-
-                return folly::Unit();
-            });
-        }};
+    auto writeTask = makeUnitTask(std::move(p));
 
     auto tf =
         XrdCl::Async(XrdCl::Write(m_file.get(), static_cast<uint64_t>(offset),
@@ -350,13 +368,7 @@ folly::Future<folly::Unit> XRootDFileHandle::release(const int retryCount)
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> closeTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-            });
-        }};
+    auto closeTask = makeUnitTask(std::move(p));
 
     auto tf = XrdCl::Async(XrdCl::Close(m_file.get()) >> closeTask);
 
@@ -403,13 +415,7 @@ folly::Future<folly::Unit> XRootDFileHandle::fsync(
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> syncTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-            });
-        }};
+    auto syncTask = makeUnitTask(std::move(p));
 
     auto tf = XrdCl::Async(XrdCl::Sync(m_file.get()) >> syncTask);
 
@@ -490,10 +496,8 @@ folly::Future<folly::Unit> XRootDHelper::access(
             });
         }};
 
-    auto tf = XrdCl::Async(
-        XrdCl::Stat(
-            m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
-        statTask);
+    auto tf =
+        XrdCl::Async(XrdCl::Stat(m_fs, makeXrdClPath(fileId)) >> statTask);
 
     return std::move(f)
         .via(executor().get())
@@ -597,10 +601,8 @@ folly::Future<struct stat> XRootDHelper::getattr(
             });
         }};
 
-    auto tf = XrdCl::Async(
-        XrdCl::Stat(
-            m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
-        statTask);
+    auto tf =
+        XrdCl::Async(XrdCl::Stat(m_fs, makeXrdClPath(fileId)) >> statTask);
 
     return std::move(f)
         .via(executor().get())
@@ -661,10 +663,12 @@ folly::Future<FileHandlePtr> XRootDHelper::open(const folly::fbstring &fileId,
             });
         }};
 
-    auto tf =
-        XrdCl::Async(XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
-                         flagsToOpenFlags(flags)) >>
-            openTask);
+    LOG_DBG(3) << "Opening file: " << fileId.toStdString()
+               << " with the following permissions: " << flags;
+
+    auto tf = XrdCl::Async(
+        XrdCl::Open(filePtr, makeXrdClURL(fileId), flagsToOpenFlags(flags)) >>
+        openTask);
 
     return std::move(f)
         .via(executor().get())
@@ -702,18 +706,9 @@ folly::Future<folly::Unit> XRootDHelper::unlink(const folly::fbstring &fileId,
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> rmTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-                return folly::Unit();
-            });
-        }};
+    auto rmTask = makeUnitTask(std::move(p));
 
-    auto tf = XrdCl::Async(
-        XrdCl::Rm(m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
-        rmTask);
+    auto tf = XrdCl::Async(XrdCl::Rm(m_fs, makeXrdClPath(fileId)) >> rmTask);
 
     return std::move(f)
         .via(executor().get())
@@ -761,19 +756,10 @@ folly::Future<folly::Unit> XRootDHelper::rmdir(
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> rmDirTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-                return folly::Unit();
-            });
-        }};
+    auto rmDirTask = makeUnitTask(std::move(p));
 
-    auto tf = XrdCl::Async(
-        XrdCl::RmDir(
-            m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString())) >>
-        rmDirTask);
+    auto tf =
+        XrdCl::Async(XrdCl::RmDir(m_fs, makeXrdClPath(fileId)) >> rmDirTask);
 
     return std::move(f)
         .via(executor().get())
@@ -822,19 +808,10 @@ folly::Future<folly::Unit> XRootDHelper::truncate(const folly::fbstring &fileId,
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> truncateTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-                return folly::Unit();
-            });
-        }};
+    auto truncateTask = makeUnitTask(std::move(p));
 
     auto tf = XrdCl::Async(
-        XrdCl::Truncate(
-            m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString()), size) >>
-        truncateTask);
+        XrdCl::Truncate(m_fs, makeXrdClPath(fileId), size) >> truncateTask);
 
     return std::move(f)
         .via(executor().get())
@@ -883,23 +860,18 @@ folly::Future<folly::Unit> XRootDHelper::mknod(const folly::fbstring &fileId,
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
+    auto mknodTask = makeUnitTask(std::move(p));
+
     auto file = std::make_unique<XrdCl::File>(true);
     auto *filePtr = file.get();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> mknodTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-            });
-        }};
+    auto fileIdURL = makeXrdClURL(fileId);
 
-    LOG_DBG(3) << "Creating file: " << url().GetURL() + fileId.toStdString();
+    LOG_DBG(3) << "Creating file: " << fileIdURL;
 
-    auto tf =
-        XrdCl::Async(XrdCl::Open(filePtr, url().GetURL() + fileId.toStdString(),
-                         XrdCl::OpenFlags::New, modeToAccess(mode)) |
-            XrdCl::Sync(filePtr) | XrdCl::Close(filePtr) >> mknodTask);
+    auto tf = XrdCl::Async(XrdCl::Open(filePtr, fileIdURL,
+                               XrdCl::OpenFlags::New, modeToAccess(mode)) |
+        XrdCl::Sync(filePtr) | XrdCl::Close(filePtr) >> mknodTask);
 
     return std::move(f)
         .via(executor().get())
@@ -952,17 +924,10 @@ folly::Future<folly::Unit> XRootDHelper::mkdir(
     auto p = folly::Promise<folly::Unit>();
     auto f = p.getFuture();
 
-    std::packaged_task<void(XrdCl::XRootDStatus & st)> mkdirTask{
-        [p = std::move(p)](XrdCl::XRootDStatus &st) mutable {
-            p.setWith([&st]() {
-                if (!st.IsOK())
-                    throw XrdCl::PipelineException(st); // NOLINT
-            });
-        }};
+    auto mkdirTask = makeUnitTask(std::move(p));
 
-    auto tf = XrdCl::Async(
-        XrdCl::MkDir(m_fs, ensureAbsPath(url().GetPath(), fileId.toStdString()),
-            XrdCl::MkDirFlags::None, modeToAccess(mode)) >>
+    auto tf = XrdCl::Async(XrdCl::MkDir(m_fs, makeXrdClPath(fileId),
+                               XrdCl::MkDirFlags::None, modeToAccess(mode)) >>
         mkdirTask);
 
     return std::move(f)
@@ -1022,9 +987,7 @@ folly::Future<folly::Unit> XRootDHelper::rename(const folly::fbstring &from,
         }};
 
     auto tf = XrdCl::Async(
-        XrdCl::Mv(m_fs, ensureAbsPath(url().GetPath(), from.toStdString()),
-            ensureAbsPath(url().GetPath(), to.toStdString())) >>
-        mvTask);
+        XrdCl::Mv(m_fs, makeXrdClPath(from), makeXrdClPath(to)) >> mvTask);
 
     return std::move(f)
         .via(executor().get())
@@ -1098,11 +1061,9 @@ folly::Future<folly::fbvector<folly::fbstring>> XRootDHelper::readdir(
             });
         }};
 
-    auto tf =
-        XrdCl::Async(XrdCl::DirList(m_fs,
-                         ensureAbsPath(url().GetPath(), fileId.toStdString()),
-                         XrdCl::DirListFlags::None) >>
-            dirlistTask);
+    auto tf = XrdCl::Async(XrdCl::DirList(m_fs, makeXrdClPath(fileId),
+                               XrdCl::DirListFlags::None) >>
+        dirlistTask);
 
     return std::move(f)
         .via(executor().get())

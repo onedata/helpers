@@ -35,6 +35,8 @@
 namespace one {
 namespace communication {
 
+constexpr auto CLIENT_RECONNECT_DELAYS_COUNT{12UL};
+
 /**
  * CLProto specific wrapper over wangle's ClientBoostrap
  */

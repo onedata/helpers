@@ -88,6 +88,7 @@ ConnectionPool::ConnectionPool(const std::size_t connectionsNumber,
     , m_needMoreConnections{0}
     , m_sentMessageCounter{}
     , m_queuedMessageCounter{}
+    , m_reconnectAttemptCount{0}
 {
     LOG_FCALL() << LOG_FARG(connectionsNumber) << LOG_FARG(host)
                 << LOG_FARG(port) << LOG_FARG(verifyServerCertificate);
@@ -122,9 +123,10 @@ void ConnectionPool::addConnection(int connectionId)
                 maybeClient->setEOFCallbackCalled(true);
             }
 
-            if ((m_connectionState == State::CONNECTED ||
-                    m_connectionState == State::CONNECTION_LOST) &&
-                areAllConnectionsDown()) {
+            if (m_connectionState == State::INVALID_PROVIDER ||
+                ((m_connectionState == State::CONNECTED ||
+                     m_connectionState == State::CONNECTION_LOST) &&
+                    areAllConnectionsDown())) {
                 m_idleConnections.clear();
 
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
@@ -187,7 +189,7 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
     auto context =
         std::make_shared<folly::SSLContext>(folly::SSLContext::TLSv1_2);
 
-    context->authenticate(m_verifyServerCertificate, false);
+    context->authenticate(m_verifyServerCertificate, false, m_host);
 
     folly::ssl::setSignatureAlgorithms<folly::ssl::SSLCommonOptions>(*context);
 
@@ -198,6 +200,60 @@ std::shared_ptr<folly::SSLContext> ConnectionPool::createSSLContext() const
     auto *sslCtx = context->getSSLCtx();
     if (!setupOpenSSLCABundlePath(sslCtx)) {
         SSL_CTX_set_default_verify_paths(sslCtx);
+    }
+
+    if (m_customCADirectory.has_value()) {
+        // If the user provided their custom certificates stored in PEM
+        // format in a `certDir`, load the certificates from that directory
+        // one by one and add to `sslCtx` context
+
+        auto certDir = m_customCADirectory.value();
+
+        // Iterate over each file in the directory
+        boost::filesystem::directory_iterator it(certDir.toStdString());
+        boost::filesystem::directory_iterator end;
+        for (; it != end; ++it) {
+            if (boost::filesystem::is_regular_file(it->path()) &&
+                it->path().extension() == ".pem") {
+
+                FILE *fp = fopen(it->path().c_str(), "r");
+                if (fp == nullptr) {
+                    LOG(ERROR) << "Failed to open certificate file: "
+                               << it->path().c_str() << std::endl;
+                    continue;
+                }
+
+                X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
+                fclose(fp);
+
+                if (cert == nullptr) {
+                    LOG(ERROR)
+                        << "Failed to load certificate: " << it->path().c_str()
+                        << std::endl;
+                    continue;
+                }
+
+                if (auto *store = SSL_CTX_get_cert_store(sslCtx)) {
+                    int errCode = X509_STORE_add_cert(store, cert);
+                    if (errCode != 1) {
+                        LOG(ERROR)
+                            << "Failed to add certificate to SSL context: "
+                            << it->path().c_str() << std::endl;
+                    }
+                }
+
+                constexpr auto kX509IssuerMaxLength{1024U};
+                std::array<char, kX509IssuerMaxLength> buffer; // NOLINT
+                X509_NAME_oneline(
+                    X509_get_issuer_name(cert), buffer.data(), buffer.size());
+
+                LOG(INFO) << "Added trusted CA certificate for clproto "
+                             "issued by: "
+                          << buffer.data();
+
+                X509_free(cert);
+            }
+        }
     }
 
     // NOLINTNEXTLINE
@@ -330,7 +386,7 @@ void ConnectionPool::connectionMonitorTask()
         // m_connectionMonitorWait variable is set to false, which breaks
         // out of continue loop, which is done by calling
         // connectionMonitorTick()
-        LOG_DBG(3) << "Monitor task - waiting for tick signal for: "
+        LOG_DBG(5) << "Monitor task - waiting for tick signal for: "
                    << monitorSleepDuration.count() << " [s]";
 
         {
@@ -342,7 +398,7 @@ void ConnectionPool::connectionMonitorTask()
             m_connectionMonitorWait = true;
         }
 
-        LOG_DBG(3) << "Connection monitor task - starting next loop iteration";
+        LOG_DBG(5) << "Connection monitor task - starting next loop iteration";
 
         if (!isReconnectable())
             break;
@@ -364,10 +420,11 @@ void ConnectionPool::connectionMonitorTask()
             {
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
                 for (auto &client : m_connections) {
-                    if (!isReconnectable())
+                    if (!isReconnectable() ||
+                        m_connectionState == State::INVALID_PROVIDER)
                         break;
 
-                    LOG_DBG(3)
+                    LOG_DBG(5)
                         << "Checking connection " << client->connectionId()
                         << " status - " << (client->idle() ? "idle" : "taken");
 
@@ -381,7 +438,7 @@ void ConnectionPool::connectionMonitorTask()
                     const int reconnectAttempt =
                         (m_connectionState == State::CONNECTION_LOST) ||
                             !client->firstConnection()
-                        ? 1
+                        ? getReconnectAttemptCount()
                         : 0;
 
                     futs.emplace_back(client->connectionId(),
@@ -430,7 +487,8 @@ void ConnectionPool::connectionMonitorTask()
                         m_onReconnectCallback();
                 }
 
-                if (!isReconnectable())
+                if (!isReconnectable() ||
+                    m_connectionState == State::INVALID_PROVIDER)
                     break;
 
                 m_connectionState = State::CONNECTED;
@@ -448,6 +506,7 @@ void ConnectionPool::connectionMonitorTask()
                 std::unique_lock<std::mutex> lk(m_connectionMonitorMutex);
                 m_needMoreConnections = 0;
                 m_connectionMonitorWait = true;
+                resetReconnectAttemptCount();
             }
         }
     }
@@ -800,10 +859,6 @@ try {
     if (m_connectionState == State::STOPPED)
         return;
 
-    //    for (auto &conn : m_connections) {
-    //        conn->stop();
-    //    }
-
     if (m_connectionState == State::CREATED ||
         m_connectionState == State::HANDSHAKE_FAILED) {
         m_connectionState = State::STOPPED;
@@ -812,7 +867,6 @@ try {
 
         if (m_connectionMonitorThread.joinable())
             m_connectionMonitorThread.join();
-
         return;
     }
 
@@ -928,6 +982,13 @@ void ConnectionPool::setOnReconnectCallback(
     std::function<void()> onReconnectCallback)
 {
     m_onReconnectCallback = std::move(onReconnectCallback);
+}
+
+void ConnectionPool::setCustomCADirectory(const folly::fbstring &path)
+{
+    LOG_FCALL() << LOG_FARG(path);
+
+    m_customCADirectory = path;
 }
 
 } // namespace communication
