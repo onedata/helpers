@@ -19,6 +19,7 @@
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
+#include <stdexcept>
 
 namespace cppmetrics {
 namespace core {
