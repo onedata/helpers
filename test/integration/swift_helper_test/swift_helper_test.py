@@ -22,13 +22,15 @@ from io_perf_test_base import *
 @pytest.fixture(scope='module')
 def server(request):
     class Server(object):
-        def __init__(self, auth_url, container_name, tenant_name, username,
-                     password, container, ip):
+        def __init__(self, auth_url, container_name, project_name, username,
+                     password, user_domain_name, project_domain_name, container, ip):
             self.auth_url = auth_url
             self.container_name = container_name
-            self.tenant_name = tenant_name
+            self.project_name = project_name
             self.username = username
             self.password = password
+            self.user_domain_name = user_domain_name
+            self.project_domain_name = project_domain_name
             self.container = container
             self.ip = ip
 
@@ -39,10 +41,10 @@ def server(request):
             return res.split()
 
     container_name = 'onedata'
-    result = swift.up('onedata/dockswift', [container_name], 'storage',
-                      common.generate_uid())
+    result = swift.up('onedata/dockswift:v3',
+                      [container_name], 'storage', common.generate_uid())
     [container] = result['docker_ids']
-    auth_url = 'http://{0}:{1}/v2.0/tokens'.format(result['host_name'],
+    auth_url = 'http://{0}:{1}/v3'.format(result['host_name'],
                                                    result['keystone_port'])
 
     def fin():
@@ -52,30 +54,33 @@ def server(request):
 
     print("AuthUrl: {0}".format(auth_url))
 
-    return Server(auth_url, container_name, result['tenant_name'],
-                  result['user_name'], result['password'], container,
-                  result['host_name'])
+    return Server(auth_url, container_name, result['project_name'],
+                  result['user_name'], result['password'], result['user_domain_name'],
+                  result['project_domain_name'], container, result['host_name'])
 
 
 @pytest.fixture
 def helper(request, server):
     return SwiftHelperProxy(server.auth_url, server.container_name,
-                            server.tenant_name, server.username,
-                            server.password, THREAD_NUMBER, BLOCK_SIZE, "flat")
+                            server.project_name, server.username,
+                            server.password, server.user_domain_name, server.project_domain_name,
+                            THREAD_NUMBER, BLOCK_SIZE, "flat")
 
 
 @pytest.fixture
 def helper_invalid(request, server):
     return SwiftHelperProxy(server.auth_url, "no_such_container",
-                            server.tenant_name, "invalid_user",
-                            server.password, THREAD_NUMBER, BLOCK_SIZE, "flat")
+                            server.project_name, "invalid_user",
+                            server.password, server.user_domain_name, server.project_domain_name,
+                            THREAD_NUMBER, BLOCK_SIZE, "flat")
 
 
 @pytest.fixture
 def helper_invalid_host(request, server):
     return SwiftHelperProxy("no_such_host.invalid:80800", "no_such_container",
-                            server.tenant_name, "invalid_user",
-                            server.password, THREAD_NUMBER, BLOCK_SIZE, "flat")
+                            server.project_name, "invalid_user",
+                            server.password, server.user_domain_name, server.project_domain_name,
+                            THREAD_NUMBER, BLOCK_SIZE, "flat")
 
 
 def test_helper_check_availability(helper):
@@ -86,7 +91,7 @@ def test_helper_check_availability_error_invalid_user(helper_invalid):
     with pytest.raises(RuntimeError) as excinfo:
         helper_invalid.check_storage_availability()
 
-    assert 'Permission denied' in str(excinfo)
+    assert 'Authentication failed' in str(excinfo)
 
 
 def test_helper_check_availability_error_invalid_host(helper_invalid_host):
