@@ -24,18 +24,19 @@
 namespace one {
 namespace helpers {
 template <class T> struct SwiftResult {
-    SwiftResult(T v,
+    explicit SwiftResult(T v,
         Poco::Net::HTTPResponse::HTTPStatus s =
             Poco::Net::HTTPResponse::HTTPStatus::HTTP_OK)
+        : httpStatus{s}
+        , value{std::move(v)}
     {
-        value = std::move(v);
-        httpStatus = s;
     }
 
-    SwiftResult(Poco::Net::HTTPResponse::HTTPStatus s, std::string m = {})
+    explicit SwiftResult(
+        Poco::Net::HTTPResponse::HTTPStatus s, folly::fbstring m = {})
+        : httpStatus{s}
+        , msg{std::move(m)}
     {
-        httpStatus = s;
-        msg = std::move(m);
     }
 
     Poco::Net::HTTPResponse::HTTPStatus httpStatus;

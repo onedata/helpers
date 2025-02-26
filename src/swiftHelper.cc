@@ -170,23 +170,24 @@ SwiftResult<bool> SwiftClient::containerExists()
         // HTTP_OK (200).
         if (response.getStatus() == Poco::Net::HTTPResponse::HTTP_NO_CONTENT ||
             response.getStatus() == Poco::Net::HTTPResponse::HTTP_OK) {
-            return {true, response.getStatus()};
+            return SwiftResult<bool>{true, response.getStatus()};
         }
 
         // If container does not exist, Swift returns HTTP_NOT_FOUND (404).
         if (response.getStatus() == Poco::Net::HTTPResponse::HTTP_NOT_FOUND) {
-            return {false, response.getStatus()};
+            return SwiftResult<bool>{false, response.getStatus()};
         }
 
         // For any unexpected status, return the status and reason.
-        return {response.getStatus(), response.getReason()};
+        return SwiftResult<bool>{response.getStatus(), response.getReason()};
     }
     catch (Poco::Exception &ex) {
-        return {
+        return SwiftResult<bool>{
             Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR, ex.message()};
     }
     catch (std::exception &ex) {
-        return {Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR, ex.what()};
+        return SwiftResult<bool>{
+            Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR, ex.what()};
     }
 }
 
@@ -239,17 +240,19 @@ SwiftResult<std::size_t> SwiftClient::putObject(
         if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK &&
             response.getStatus() != Poco::Net::HTTPResponse::HTTP_CREATED &&
             response.getStatus() != Poco::Net::HTTPResponse::HTTP_ACCEPTED) {
-            return {response.getStatus(), response.getReason()};
+            return SwiftResult<std::size_t>{
+                response.getStatus(), response.getReason()};
         }
 
-        return {size, response.getStatus()};
+        return SwiftResult<std::size_t>{size, response.getStatus()};
     }
     catch (Poco::Exception &ex) {
-        return {
+        return SwiftResult<std::size_t>{
             Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR, ex.message()};
     }
     catch (std::exception &ex) {
-        return {Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR, ex.what()};
+        return SwiftResult<std::size_t>{
+            Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR, ex.what()};
     }
 }
 
@@ -277,17 +280,19 @@ SwiftResult<folly::Unit> SwiftClient::deleteObject(const folly::fbstring &key)
         session.receiveResponse(response);
         if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_NO_CONTENT &&
             response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK) {
-            return {response.getStatus()};
+            return SwiftResult<folly::Unit>{response.getStatus()};
         }
     }
     catch (Poco::Exception &ex) {
-        return {Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
+        return SwiftResult<folly::Unit>{
+            Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
     }
     catch (std::exception &ex) {
-        return {Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
+        return SwiftResult<folly::Unit>{
+            Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
     }
 
-    return {folly::Unit{}};
+    return SwiftResult<folly::Unit>{folly::Unit{}};
 }
 
 /**
@@ -343,7 +348,7 @@ SwiftResult<folly::IOBufQueue> SwiftClient::getObject(
         if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK &&
             response.getStatus() !=
                 Poco::Net::HTTPResponse::HTTP_PARTIAL_CONTENT) {
-            return {response.getStatus()};
+            return SwiftResult<folly::IOBufQueue>{response.getStatus()};
         }
 
         // Read the response body into a string.
@@ -355,13 +360,16 @@ SwiftResult<folly::IOBufQueue> SwiftClient::getObject(
         folly::IOBufQueue bufQueue{folly::IOBufQueue::cacheChainLength()};
         bufQueue.append(
             folly::IOBuf::copyBuffer(responseData.data(), responseData.size()));
-        return {std::move(bufQueue), response.getStatus()};
+        return SwiftResult<folly::IOBufQueue>{
+            std::move(bufQueue), response.getStatus()};
     }
     catch (Poco::Exception &ex) {
-        return {Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
+        return SwiftResult<folly::IOBufQueue>{
+            Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
     }
     catch (std::exception &ex) {
-        return {Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
+        return SwiftResult<folly::IOBufQueue>{
+            Poco::Net::HTTPResponse::HTTP_INTERNAL_SERVER_ERROR};
     }
 }
 
