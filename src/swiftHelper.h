@@ -44,6 +44,12 @@ template <class T> struct SwiftResult {
     folly::Optional<T> value;
 };
 
+struct SwiftToken {
+    folly::fbstring token;
+    folly::fbstring swiftEndpoint;
+    std::chrono::system_clock::time_point tokenExpiry;
+};
+
 class SwiftClient {
 public:
     SwiftClient(folly::fbstring keystoneUrl, folly::fbstring swiftContainer,
@@ -65,10 +71,9 @@ public:
         const folly::fbstring &key, const off_t offset, const std::size_t size);
 
 private:
-    void authenticateIfNeeded();
+    SwiftToken authenticateIfNeeded();
 
     folly::fbstring m_keystoneUrl;
-    folly::fbstring m_swiftEndpoint; // Retrieved from Keystone service catalog.
     folly::fbstring m_swiftContainer;
     folly::fbstring m_username;
     folly::fbstring m_password;
@@ -76,9 +81,8 @@ private:
     folly::fbstring m_userDomainName;
     folly::fbstring m_projectDomainName;
 
-    // Authentication token and its expiry.
-    folly::fbstring m_token;
-    std::chrono::system_clock::time_point m_tokenExpiry;
+    std::mutex m_swiftTokenMutex;
+    SwiftToken m_swiftToken;
 };
 
 class SwiftHelper;

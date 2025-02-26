@@ -146,10 +146,10 @@ SwiftResult<bool> SwiftClient::containerExists()
 {
     LOG_FCALL() << LOG_FARG(m_swiftContainer);
 
-    authenticateIfNeeded();
+    auto swiftToken = authenticateIfNeeded();
 
     // Build the URL: <swiftEndpoint>/<container>
-    auto containerUrl = m_swiftEndpoint + "/" + m_swiftContainer;
+    auto containerUrl = swiftToken.swiftEndpoint + "/" + m_swiftContainer;
     Poco::URI uri(containerUrl.toStdString());
     Poco::Net::HTTPClientSession session(uri.getHost(), uri.getPort());
     std::string path = uri.getPathAndQuery();
@@ -159,7 +159,7 @@ SwiftResult<bool> SwiftClient::containerExists()
     // Construct a HEAD request to check if the container exists.
     Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_HEAD, path,
         Poco::Net::HTTPMessage::HTTP_1_1);
-    request.set("X-Auth-Token", m_token.toStdString());
+    request.set("X-Auth-Token", swiftToken.token.toStdString());
 
     try {
         session.sendRequest(request);
@@ -208,11 +208,12 @@ SwiftResult<std::size_t> SwiftClient::putObject(
     }
 
     // Ensure we are authenticated.
-    authenticateIfNeeded();
+    auto swiftToken = authenticateIfNeeded();
     auto size = buf.chainLength();
 
     // Build the URL: <swiftEndpoint>/<container>/<key>
-    auto objectUrl = m_swiftEndpoint + "/" + m_swiftContainer + "/" + key;
+    auto objectUrl =
+        swiftToken.swiftEndpoint + "/" + m_swiftContainer + "/" + key;
     Poco::URI uri(objectUrl.toStdString());
     Poco::Net::HTTPClientSession session(uri.getHost(), uri.getPort());
     std::string path = uri.getPathAndQuery();
@@ -221,7 +222,7 @@ SwiftResult<std::size_t> SwiftClient::putObject(
 
     Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_PUT, path,
         Poco::Net::HTTPMessage::HTTP_1_1);
-    request.set("X-Auth-Token", m_token.toStdString());
+    request.set("X-Auth-Token", swiftToken.token.toStdString());
 
     // For demonstration, assume buf.chainLength() returns the number of
     // bytes
@@ -261,9 +262,10 @@ SwiftResult<std::size_t> SwiftClient::putObject(
  */
 SwiftResult<folly::Unit> SwiftClient::deleteObject(const folly::fbstring &key)
 {
-    authenticateIfNeeded();
+    auto swiftToken = authenticateIfNeeded();
 
-    auto objectUrl = m_swiftEndpoint + "/" + m_swiftContainer + "/" + key;
+    auto objectUrl =
+        swiftToken.swiftEndpoint + "/" + m_swiftContainer + "/" + key;
     Poco::URI uri(objectUrl.toStdString());
     Poco::Net::HTTPClientSession session(uri.getHost(), uri.getPort());
     std::string path = uri.getPathAndQuery();
@@ -272,7 +274,7 @@ SwiftResult<folly::Unit> SwiftClient::deleteObject(const folly::fbstring &key)
 
     Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_DELETE, path,
         Poco::Net::HTTPMessage::HTTP_1_1);
-    request.set("X-Auth-Token", m_token.toStdString());
+    request.set("X-Auth-Token", swiftToken.token.toStdString());
 
     try {
         session.sendRequest(request);
@@ -318,10 +320,11 @@ SwiftResult<folly::IOBufQueue> SwiftClient::getObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
     // Ensure authentication is valid.
-    authenticateIfNeeded();
+    auto swiftToken = authenticateIfNeeded();
 
     // Build the object URL: <swiftEndpoint>/<container>/<key>
-    auto objectUrl = m_swiftEndpoint + "/" + m_swiftContainer + "/" + key;
+    auto objectUrl =
+        swiftToken.swiftEndpoint + "/" + m_swiftContainer + "/" + key;
 
     LOG_DBG(1) << "Getting object at: " << objectUrl;
 
@@ -334,7 +337,7 @@ SwiftResult<folly::IOBufQueue> SwiftClient::getObject(
     // Construct the GET request with a Range header.
     Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, path,
         Poco::Net::HTTPMessage::HTTP_1_1);
-    request.set("X-Auth-Token", m_token.toStdString());
+    request.set("X-Auth-Token", swiftToken.token.toStdString());
     std::string rangeHeader = "bytes=" + std::to_string(offset) + "-" +
         std::to_string(offset + size - 1);
     request.set("Range", rangeHeader);
@@ -373,11 +376,13 @@ SwiftResult<folly::IOBufQueue> SwiftClient::getObject(
     }
 }
 
-void SwiftClient::authenticateIfNeeded()
+SwiftToken SwiftClient::authenticateIfNeeded()
 {
+    std::lock_guard<std::mutex> guard{m_swiftTokenMutex};
+
     auto now = std::chrono::system_clock::now();
-    if (!m_token.empty() && now < m_tokenExpiry) {
-        return;
+    if (!m_swiftToken.token.empty() && (now < m_swiftToken.tokenExpiry)) {
+        return m_swiftToken;
     }
 
     // Build the Keystone authentication JSON payload.
@@ -441,7 +446,7 @@ void SwiftClient::authenticateIfNeeded()
         }
 
         // The token is returned in the header.
-        m_token = response.get("X-Subject-Token", "");
+        m_swiftToken.token = response.get("X-Subject-Token", "");
 
         // Parse the JSON response to get token expiration and service
         // catalog.
@@ -457,11 +462,11 @@ void SwiftClient::authenticateIfNeeded()
         int tzd{};
         Poco::DateTimeParser::parse("%Y-%m-%dT%H:%M:%S", expiresAt, dt, tzd);
         std::time_t tt = dt.timestamp().epochTime();
-        m_tokenExpiry = std::chrono::system_clock::from_time_t(tt);
+        m_swiftToken.tokenExpiry = std::chrono::system_clock::from_time_t(tt);
 
         // Find the Swift (object-store) endpoint in the service catalog.
         Poco::JSON::Array::Ptr catalog = tokenObj->getArray("catalog");
-        m_swiftEndpoint.clear();
+        m_swiftToken.swiftEndpoint.clear();
         for (size_t i = 0; i < catalog->size(); ++i) {
             Poco::JSON::Object::Ptr service = catalog->getObject(i);
             std::string type = service->getValue<std::string>("type");
@@ -473,31 +478,33 @@ void SwiftClient::authenticateIfNeeded()
                     std::string iface =
                         endpoint->getValue<std::string>("interface");
                     if (iface == "public") {
-                        m_swiftEndpoint =
+                        m_swiftToken.swiftEndpoint =
                             endpoint->getValue<std::string>("url");
                         break;
                     }
                 }
             }
-            if (!m_swiftEndpoint.empty())
+            if (!m_swiftToken.swiftEndpoint.empty())
                 break;
         }
 
-        if (m_swiftEndpoint.empty()) {
+        if (m_swiftToken.swiftEndpoint.empty()) {
             throw std::runtime_error(
                 "Failed to obtain Swift endpoint from service catalog");
         }
 
-        Poco::URI swiftEndpointURI{m_swiftEndpoint.toStdString()};
+        Poco::URI swiftEndpointURI{m_swiftToken.swiftEndpoint.toStdString()};
         if (swiftEndpointURI.getHost() == "0.0.0.0") {
             swiftEndpointURI.setHost(uri.getHost());
-            m_swiftEndpoint = swiftEndpointURI.toString();
+            m_swiftToken.swiftEndpoint = swiftEndpointURI.toString();
         }
     }
     catch (Poco::Exception &ex) {
         throw std::runtime_error("Poco exception during authentication: " +
             std::string(ex.displayText()));
     }
+
+    return m_swiftToken;
 }
 
 SwiftHelper::SwiftHelper(std::shared_ptr<SwiftHelperParams> params)
