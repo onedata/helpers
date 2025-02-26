@@ -34,8 +34,9 @@ public:
         m_projectName = getParam(parameters, "projectName");
         m_username = getParam(parameters, "username");
         m_password = getParam(parameters, "password");
-        m_userDomainName = getParam(parameters, "userDomainName");
-        m_projectDomainName = getParam(parameters, "projectDomainName");
+        m_userDomainName = getParam(parameters, "userDomainName", "Default");
+        m_projectDomainName =
+            getParam(parameters, "projectDomainName", "Default");
     }
 
     const folly::fbstring &authUrl() const { return m_authUrl; }
