@@ -243,6 +243,8 @@ boost::shared_ptr<GlusterFSHelperProxy> create(std::string mountPoint,
     uid_t uid, gid_t gid, std::string hostname, int port, std::string volume,
     std::string transport, std::string xlatorOptions)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<GlusterFSHelperProxy>(std::move(mountPoint), uid,
         gid, std::move(hostname), std::move(port), std::move(volume),
         std::move(transport), std::move(xlatorOptions));

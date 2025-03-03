@@ -193,6 +193,11 @@ folly::Future<folly::IOBufQueue> GlusterFSFileHandle::read(
 {
     LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size);
 
+    if (size == 0ULL) {
+        folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+        return folly::makeFuture(std::move(buf));
+    }
+
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.glusterfs.read");
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
@@ -471,10 +476,18 @@ folly::Future<folly::Unit> GlusterFSHelper::connect()
                     "glfs_init"));
 
             if (ret < 0) {
+                auto posixError = errno;
                 LOG(ERROR) << "Couldn't initialize GlusterFS connection to "
                               "volume: "
-                           << volume() << " at: " << hostname();
-                return makeFuturePosixException(errno);
+                           << volume() << " at: " << hostname() << " due to "
+                           << posixError;
+
+                // Translate invalid data volume error for backward
+                // compatibility
+                if (posixError == ENOMEM)
+                    posixError = ENOENT;
+
+                return makeFuturePosixException(posixError);
             }
 
             LOG_DBG(1) << "Successfully connected to GlusterFS at: "
