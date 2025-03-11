@@ -328,8 +328,9 @@ folly::Future<folly::Unit> GlusterFSFileHandle::release()
 {
     LOG_FCALL();
 
-    if (!m_needsRelease.exchange(false))
+    if (!m_needsRelease.exchange(false)) {
         return folly::makeFuture();
+    }
 
     auto helper = std::dynamic_pointer_cast<GlusterFSHelper>(this->helper());
 
@@ -408,9 +409,9 @@ folly::Future<folly::Unit> GlusterFSHelper::connect()
     return folly::via(m_executor.get(),
         [this, s = std::weak_ptr<GlusterFSHelper>{shared_from_this()}] {
             auto self = s.lock();
-            if (!self)
+            if (!self) {
                 return makeFuturePosixException(ECANCELED);
-
+            }
             LOG_DBG(1) << "Attempting to connect to GlusterFS server at: "
                        << hostname() << " volume: " << volume();
 
