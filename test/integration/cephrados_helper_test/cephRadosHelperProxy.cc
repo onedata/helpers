@@ -84,11 +84,15 @@ public:
             .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 return handle->read(offset, size)
                     .thenValue([handle](folly::IOBufQueue &&buf) {
-                        std::string data;
-                        buf.appendToString(data);
-                        return boost::python::api::object(
-                            boost::python::handle<>(PyBytes_FromStringAndSize(
-                                data.c_str(), data.size())));
+                        return handle->release().thenValue(
+                            [handle, buf = std::move(buf)](auto && /*unit*/) {
+                                std::string data;
+                                buf.appendToString(data);
+                                return boost::python::api::object(
+                                    boost::python::handle<>(
+                                        PyBytes_FromStringAndSize(
+                                            data.c_str(), data.size())));
+                            });
                     });
             })
             .get();
@@ -102,7 +106,10 @@ public:
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
                 return handle->write(offset, std::move(buf), {})
-                    .thenValue([handle](int &&size) { return size; });
+                    .thenValue([handle](int &&size) {
+                        return handle->release().thenValue(
+                            [handle, size](auto && /*unit*/) { return size; });
+                    });
             })
             .get();
     }
