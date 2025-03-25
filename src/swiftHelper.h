@@ -13,11 +13,9 @@
 #include "keyValueHelper.h"
 #include "swiftHelperParams.h"
 
-#include "Swift/Account.h"
-#include "Swift/Container.h"
-#include "Swift/HTTPIO.h"
-#include "Swift/Object.h"
-
+#include <Poco/JSON/Object.h>
+#include <Poco/JSON/Parser.h>
+#include <Poco/Net/HTTPResponse.h>
 #include <folly/executors/IOExecutor.h>
 
 #include <mutex>
@@ -25,6 +23,67 @@
 
 namespace one {
 namespace helpers {
+template <class T> struct SwiftResult {
+    explicit SwiftResult(T v,
+        Poco::Net::HTTPResponse::HTTPStatus s =
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_OK)
+        : httpStatus{s}
+        , value{std::move(v)}
+    {
+    }
+
+    explicit SwiftResult(
+        Poco::Net::HTTPResponse::HTTPStatus s, folly::fbstring m = {})
+        : httpStatus{s}
+        , msg{std::move(m)}
+    {
+    }
+
+    Poco::Net::HTTPResponse::HTTPStatus httpStatus;
+    folly::fbstring msg;
+    folly::Optional<T> value;
+};
+
+struct SwiftToken {
+    folly::fbstring token;
+    folly::fbstring swiftEndpoint;
+    std::chrono::system_clock::time_point tokenExpiry;
+};
+
+class SwiftClient {
+public:
+    SwiftClient(folly::fbstring keystoneUrl, folly::fbstring swiftContainer,
+        folly::fbstring username, folly::fbstring password,
+        folly::fbstring projectName, folly::fbstring userDomainName,
+        folly::fbstring projectDomainName);
+
+    SwiftResult<bool> containerExists();
+
+    SwiftResult<std::size_t> putObject(const folly::fbstring &key,
+        folly::IOBufQueue buf, const std::size_t offset);
+
+    SwiftResult<folly::Unit> deleteObject(const folly::fbstring &key);
+
+    SwiftResult<std::vector<SwiftResult<folly::Unit>>> deleteObjects(
+        const folly::fbvector<folly::fbstring> &keys);
+
+    SwiftResult<folly::IOBufQueue> getObject(
+        const folly::fbstring &key, const off_t offset, const std::size_t size);
+
+private:
+    SwiftToken authenticateIfNeeded();
+
+    folly::fbstring m_keystoneUrl;
+    folly::fbstring m_swiftContainer;
+    folly::fbstring m_username;
+    folly::fbstring m_password;
+    folly::fbstring m_projectName;
+    folly::fbstring m_userDomainName;
+    folly::fbstring m_projectDomainName;
+
+    std::mutex m_swiftTokenMutex;
+    SwiftToken m_swiftToken;
+};
 
 class SwiftHelper;
 
@@ -81,21 +140,32 @@ public:
     explicit SwiftHelper(std::shared_ptr<SwiftHelperParams> params);
 
     SwiftHelper(const SwiftHelper &) = delete;
+
     SwiftHelper &operator=(const SwiftHelper &) = delete;
+
     SwiftHelper(SwiftHelper &&) = delete;
+
     SwiftHelper &operator=(SwiftHelper &&) = delete;
 
-    virtual ~SwiftHelper() = default;
+    ~SwiftHelper() override = default;
 
     folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
 
     void checkStorageAvailability() override;
 
     HELPER_PARAM_GETTER(authUrl)
+
     HELPER_PARAM_GETTER(containerName)
-    HELPER_PARAM_GETTER(tenantName)
+
+    HELPER_PARAM_GETTER(projectName)
+
     HELPER_PARAM_GETTER(username)
+
     HELPER_PARAM_GETTER(password)
+
+    HELPER_PARAM_GETTER(userDomainName)
+
+    HELPER_PARAM_GETTER(projectDomainName)
 
     bool supportsBatchDelete() const override { return true; }
 
@@ -110,21 +180,7 @@ public:
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 
 private:
-    class Authentication {
-    public:
-        Authentication(const folly::fbstring &authUrl,
-            const folly::fbstring &tenantName, const folly::fbstring &userName,
-            const folly::fbstring &password);
-
-        Swift::Account &getAccount();
-
-    private:
-        std::mutex m_authMutex;
-        Swift::AuthenticationInfo m_authInfo;
-        std::shared_ptr<Swift::Account> m_account;
-    };
-
-    std::unique_ptr<Authentication> m_auth;
+    std::unique_ptr<SwiftClient> m_client;
 
     folly::fbstring m_containerName;
 };

@@ -91,11 +91,15 @@ public:
                            one::helpers::FileHandlePtr &&handle) {
                 return handle->read(offset, size)
                     .thenValue([handle](folly::IOBufQueue &&buf) {
-                        std::string data;
-                        buf.appendToString(data);
-                        return boost::python::api::object(
-                            boost::python::handle<>(PyBytes_FromStringAndSize(
-                                data.c_str(), data.size())));
+                        return handle->release().thenValue(
+                            [handle, buf = std::move(buf)](auto && /*unit*/) {
+                                std::string data;
+                                buf.appendToString(data);
+                                return boost::python::api::object(
+                                    boost::python::handle<>(
+                                        PyBytes_FromStringAndSize(
+                                            data.c_str(), data.size())));
+                            });
                     });
             })
             .get();
@@ -110,7 +114,10 @@ public:
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
                 return handle->write(offset, std::move(buf), {})
-                    .thenValue([handle](auto &&size) { return size; });
+                    .thenValue([handle](auto &&size) {
+                        return handle->release().thenValue(
+                            [handle, size](auto && /*unit*/) { return size; });
+                    });
             })
             .get();
     }
@@ -243,6 +250,8 @@ boost::shared_ptr<GlusterFSHelperProxy> create(std::string mountPoint,
     uid_t uid, gid_t gid, std::string hostname, int port, std::string volume,
     std::string transport, std::string xlatorOptions)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<GlusterFSHelperProxy>(std::move(mountPoint), uid,
         gid, std::move(hostname), std::move(port), std::move(volume),
         std::move(transport), std::move(xlatorOptions));
