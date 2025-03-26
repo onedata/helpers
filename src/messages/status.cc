@@ -170,8 +170,9 @@ void Status::throwOnError() const
         try {
             auto maybeOnedataError = folly::parseJson(*m_description);
             isJson = true;
-            LOG_DBG(1) << "Received error with description: "
-                       << folly::toPrettyJson(maybeOnedataError);
+            const auto debugLevel = m_code.value() == ENOENT ? 2 : 1;
+            LOG_DBG(debugLevel) << "Received error with description: "
+                                << folly::toPrettyJson(maybeOnedataError);
         }
         catch (std::exception &e) {
         }
