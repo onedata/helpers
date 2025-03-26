@@ -14,6 +14,7 @@
 #include <boost/bimap.hpp>
 #include <boost/bimap/multiset_of.hpp>
 #include <boost/optional/optional_io.hpp>
+#include <folly/json.h>
 
 #include <cassert>
 #include <sstream>
@@ -149,8 +150,8 @@ Status::Status(clproto::Status &status)
     m_code = std::make_error_code(errc);
     if (status.has_description()) {
         m_description = std::move(*status.mutable_description());
-        LOG(INFO) << "Received status with description: " << m_code.message()
-                  << ": " << m_description.get();
+        LOG_DBG(2) << "Received status with description: " << m_code.message()
+                   << ": " << m_description.get();
     }
 }
 
@@ -162,7 +163,21 @@ void Status::throwOnError() const
         return;
 
     if (m_description) {
-        throw std::system_error{m_code, m_description.get()};
+        bool isJson{false};
+
+        // If description contains Onedata Error in JSON format, pretty print it
+        // and throw just posix code
+        try {
+            auto maybeOnedataError = folly::parseJson(*m_description);
+            isJson = true;
+            LOG_DBG(1) << "Received error with description: "
+                       << folly::toPrettyJson(maybeOnedataError);
+        }
+        catch (std::exception &e) {
+        }
+
+        if (!isJson)
+            throw std::system_error{m_code, *m_description};
     }
 
     throw std::system_error{m_code};
@@ -176,8 +191,12 @@ const boost::optional<std::string> &Status::description() const
 std::string Status::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'Status', code: " << m_code
-           << ", description: " << m_description;
+    stream << "type: 'Status', code: " << m_code;
+
+    if (m_description) {
+        stream << ", description: '" << *m_description << "'";
+    }
+
     return stream.str();
 }
 
