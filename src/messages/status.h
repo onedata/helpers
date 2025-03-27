@@ -28,7 +28,6 @@ class Status;
 } // namespace clproto
 
 namespace messages {
-
 /**
  * The Status class represents a message that is sent by the client or the
  * server to inform about requested operation status.
