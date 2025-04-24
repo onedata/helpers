@@ -60,6 +60,12 @@ void CLProtoClientBootstrap::setEOFCallback(
 folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
     const folly::fbstring &host, const int port, size_t reconnectAttempt)
 {
+    LOG_FCALL() << LOG_FARG(host) << LOG_FARG(port)
+                << LOG_FARG(reconnectAttempt);
+
+    if (m_stopping)
+        return folly::makeFuture();
+
     m_firstConnection = false;
 
     reconnectAttempt =
@@ -285,6 +291,8 @@ folly::Future<folly::Unit> CLProtoClientBootstrap::connect(
                     });
         });
 }
+
+void CLProtoClientBootstrap::stop() { m_stopping = true; }
 
 bool CLProtoClientBootstrap::connected()
 {

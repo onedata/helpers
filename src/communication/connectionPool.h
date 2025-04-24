@@ -50,6 +50,8 @@ public:
         CONNECTED, /*< Connection pool is connected or connecting */
         CONNECTION_LOST, /*< Connection has been lost for a time longer than
                             timeout period */
+        STOPPING,        /*< Connection pool will not accept any more message or
+                            reconnects */
         STOPPED, /*< Connection pool has been stopped, clean up resources */
         INVALID_PROVIDER, /*< The target Oneprovider does not support any spaces
                              for this user at the moment */
@@ -256,7 +258,18 @@ public:
 
     size_t queuedMessageCounter() const { return m_queuedMessageCounter; }
 
+    bool isReconnectable() const
+    {
+        return m_connectionState != State::STOPPING &&
+            m_connectionState != State::STOPPED &&
+            m_connectionState != State::HANDSHAKE_FAILED;
+    }
+
     std::shared_ptr<folly::Executor> executor() { return m_executor; }
+
+    std::string host() const { return m_host; }
+
+    uint16_t port() const { return m_port; }
 
     void setCustomCADirectory(const folly::fbstring &path);
 

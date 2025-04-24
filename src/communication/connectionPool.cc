@@ -14,6 +14,7 @@
 #include "codec/packetDecoder.h"
 #include "codec/packetEncoder.h"
 #include "codec/packetLogger.h"
+#include "declarations.h"
 #include "exception.h"
 
 #include <openssl/ssl.h>
@@ -360,8 +361,7 @@ void ConnectionPool::connectionMonitorTask()
     while (m_connectionState == State::CREATED) {
         std::this_thread::sleep_for(100ms);
 
-        if (m_connectionState == State::STOPPED ||
-            m_connectionState == State::HANDSHAKE_FAILED)
+        if (!isReconnectable())
             return;
     }
 
@@ -378,8 +378,7 @@ void ConnectionPool::connectionMonitorTask()
     // Loop until connection pool is forcibly stopped using stop()
     // i.e. as long as m_connectionState != State::STOPPED
     while (true) {
-        if (m_connectionState == State::STOPPED ||
-            m_connectionState == State::HANDSHAKE_FAILED)
+        if (!isReconnectable())
             break;
 
         // This condition variable is responsible for controlling loop
@@ -401,7 +400,7 @@ void ConnectionPool::connectionMonitorTask()
 
         LOG_DBG(5) << "Connection monitor task - starting next loop iteration";
 
-        if (m_connectionState == State::STOPPED)
+        if (!isReconnectable())
             break;
 
         lastIterationStart = std::chrono::steady_clock::now();
@@ -421,9 +420,8 @@ void ConnectionPool::connectionMonitorTask()
             {
                 std::lock_guard<std::mutex> guard{m_connectionsMutex};
                 for (auto &client : m_connections) {
-                    if (m_connectionState == State::STOPPED ||
-                        m_connectionState == State::INVALID_PROVIDER ||
-                        m_connectionState == State::HANDSHAKE_FAILED)
+                    if (!isReconnectable() ||
+                        m_connectionState == State::INVALID_PROVIDER)
                         break;
 
                     LOG_DBG(5)
@@ -489,9 +487,8 @@ void ConnectionPool::connectionMonitorTask()
                         m_onReconnectCallback();
                 }
 
-                if (m_connectionState == State::STOPPED ||
-                    m_connectionState == State::INVALID_PROVIDER ||
-                    m_connectionState == State::HANDSHAKE_FAILED)
+                if (!isReconnectable() ||
+                    m_connectionState == State::INVALID_PROVIDER)
                     break;
 
                 m_connectionState = State::CONNECTED;
@@ -499,8 +496,7 @@ void ConnectionPool::connectionMonitorTask()
                 monitorSleepDuration = kConnectedMonitorSleepDuration;
             }
 
-            if (m_connectionState == State::STOPPED ||
-                m_connectionState == State::HANDSHAKE_FAILED)
+            if (!isReconnectable())
                 break;
 
             if (m_connectionState == State::CONNECTION_LOST)
@@ -591,8 +587,7 @@ ConnectionPool::getIdleClient(
     while ((client == nullptr) || !client->connected()) {
         // First, check if the connection pool has been stopped
         // intentionally client-side
-        if (m_connectionState == State::STOPPED ||
-            m_connectionState == State::HANDSHAKE_FAILED) {
+        if (!isReconnectable()) {
             LOG_DBG(1) << "Connection pool stopped - cannot send message...";
 
             folly::via(
@@ -677,14 +672,15 @@ ConnectionPool::getIdleClient(
 }
 
 folly::Future<folly::Unit> ConnectionPool::send(
-    const std::string &message, const Callback &callback, const int /*unused*/)
+    const std::string &message, const Callback &callback, const int retries)
 {
     using namespace std::chrono_literals;
 
+    bool stopAfterSend{retries == CLOSE_CONNECTION_AFTER_SEND};
+
     LOG_FCALL() << LOG_FARG(message.size());
 
-    if (m_connectionState == State::STOPPED ||
-        m_connectionState == State::HANDSHAKE_FAILED) {
+    if (!isReconnectable()) {
         LOG_DBG(1) << "Connection pool stopped - cannot send message...";
 
         callback(std::make_error_code(std::errc::connection_aborted));
@@ -710,10 +706,9 @@ folly::Future<folly::Unit> ConnectionPool::send(
                 return getIdleClient(callback, IdleConnectionGuard{this});
             })
             .via(m_executor.get())
-            .thenValue([this, message, callback](
+            .thenValue([this, message, callback, stopAfterSend](
                            IdleConnectionGuard &&idleConnectionGuard) {
-                if (m_connectionState == State::STOPPED ||
-                    m_connectionState == State::HANDSHAKE_FAILED) {
+                if (!isReconnectable()) {
                     LOG_DBG(1)
                         << "Connection pool stopped - ignoring send message...";
 
@@ -738,8 +733,7 @@ folly::Future<folly::Unit> ConnectionPool::send(
 
                 auto *client = idleConnectionGuard.client();
 
-                if (m_connectionState == State::STOPPED ||
-                    m_connectionState == State::HANDSHAKE_FAILED) {
+                if (!isReconnectable()) {
                     LOG_DBG(1) << "Got null connection - aborting...";
 
                     callback(
@@ -757,7 +751,8 @@ folly::Future<folly::Unit> ConnectionPool::send(
                     .thenTry(
                         [this, callback, connectionId = client->connectionId(),
                             idleConnectionGuard =
-                                std::move(idleConnectionGuard)](
+                                std::move(idleConnectionGuard),
+                            stopAfterSend](
                             folly::Try<folly::Unit> &&maybeUnit) {
                             if (maybeUnit.hasException()) {
                                 const auto &e = maybeUnit.exception();
@@ -790,6 +785,10 @@ folly::Future<folly::Unit> ConnectionPool::send(
                                 callback(std::error_code{});
                             }
 
+                            if (stopAfterSend) {
+                                m_connectionState = State::STOPPING;
+                            }
+
                             return folly::makeFuture();
                         });
             })
@@ -804,7 +803,7 @@ folly::Future<folly::Unit> ConnectionPool::send(
                 })
             .thenError(folly::tag_t<std::system_error>{},
                 [this, callback](auto &&e) {
-                    if (m_connectionState != State::STOPPED) {
+                    if (isReconnectable()) {
                         LOG(ERROR)
                             << "Failed sending messages due to system error: "
                             << e.what();
@@ -825,7 +824,7 @@ folly::Future<folly::Unit> ConnectionPool::send(
                     }
                     else {
                         LOG_DBG(1)
-                            << "Ignoring message send exception due to alread "
+                            << "Ignoring message send exception due to already "
                                "stopped connection pool: "
                             << e.what();
                     }
