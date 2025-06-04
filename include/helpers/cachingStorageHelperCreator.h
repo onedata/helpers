@@ -22,7 +22,7 @@ namespace helpers {
 template <typename CommunicatorT> class CachingStorageHelperCreator {
 public:
     explicit CachingStorageHelperCreator(
-        std::shared_ptr<StorageHelperCreator<CommunicatorT>> creator)
+        std::unique_ptr<StorageHelperCreator<CommunicatorT>> creator)
         : m_creator{std::move(creator)}
     {
     }
@@ -36,8 +36,20 @@ public:
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
         bool buffered)
     {
+        return getStorageHelper(args.at("type"), args, buffered);
+    }
+
+    /**
+     * Get or create a storage helper for the given arguments.
+     * If a storage helper was previously created with the same arguments,
+     * returns the cached instance. Otherwise creates a new one and caches it.
+     */
+    std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &type,
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+        bool buffered)
+    {
         // Create a cache key from args and buffered flag
-        auto key = createCacheKey(args, buffered);
+        auto key = createCacheKey(type, args, buffered);
 
         typename CacheMap::accessor accessor;
         if (m_cache.insert(accessor, key)) {
@@ -57,11 +69,11 @@ private:
      * Creates a unique cache key from storage helper arguments and buffered
      * flag.
      */
-    static CacheKey createCacheKey(
+    static CacheKey createCacheKey(const folly::fbstring &type,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
         bool buffered)
     {
-        std::string key;
+        folly::fbstring key = type + ";";
 
         // Add all args to key in sorted order for consistency
         std::vector<std::pair<folly::fbstring, folly::fbstring>> sortedArgs(
@@ -69,17 +81,16 @@ private:
         std::sort(sortedArgs.begin(), sortedArgs.end());
 
         for (const auto &arg : sortedArgs) {
-            key +=
-                arg.first.toStdString() + "=" + arg.second.toStdString() + ";";
+            key += arg.first + "=" + arg.second + ";";
         }
 
         // Add buffered flag
         key += "buffered=" + std::to_string(buffered);
 
-        return key;
+        return key.toStdString();
     }
 
-    std::shared_ptr<StorageHelperCreator<CommunicatorT>> m_creator;
+    std::unique_ptr<StorageHelperCreator<CommunicatorT>> m_creator;
     CacheMap m_cache;
 };
 

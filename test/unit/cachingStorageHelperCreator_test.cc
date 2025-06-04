@@ -34,13 +34,13 @@ public:
         m_executor = std::make_shared<folly::IOThreadPoolExecutor>(1);
         m_nullDeviceFactory =
             std::make_shared<NullDeviceHelperFactory>(m_executor);
-        m_storageHelperCreator =
-            std::make_shared<StorageHelperCreator<MockCommunicator>>(m_executor,
+        auto storageHelperCreator =
+            std::make_unique<StorageHelperCreator<MockCommunicator>>(m_executor,
                 m_executor, m_executor, m_executor, m_executor, m_executor,
                 m_executor, m_executor, m_executor, m_executor);
         m_cachingCreator =
             std::make_shared<CachingStorageHelperCreator<MockCommunicator>>(
-                m_storageHelperCreator);
+                std::move(storageHelperCreator));
     }
 
     void TearDown() override { m_executor->join(); }
@@ -49,8 +49,6 @@ protected:
     MockCommunicator m_communicator;
     std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
     std::shared_ptr<NullDeviceHelperFactory> m_nullDeviceFactory;
-    std::shared_ptr<StorageHelperCreator<MockCommunicator>>
-        m_storageHelperCreator;
     std::shared_ptr<CachingStorageHelperCreator<MockCommunicator>>
         m_cachingCreator;
 };
