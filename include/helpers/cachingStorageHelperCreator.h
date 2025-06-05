@@ -18,6 +18,9 @@ namespace helpers {
  * A wrapper around StorageHelperCreator that provides caching of created
  * storage helpers. For the same combination of arguments and buffered flag, it
  * will return the same storage helper instance instead of creating a new one.
+ * The class implements reference counting for cached helpers - each
+ * getStorageHelper call increases the reference count, and releaseStorageHelper
+ * decreases it. When the count reaches zero, the helper is removed from cache.
  */
 template <typename CommunicatorT> class CachingStorageHelperCreator {
 public:
@@ -30,7 +33,8 @@ public:
     /**
      * Get or create a storage helper for the given arguments.
      * If a storage helper was previously created with the same arguments,
-     * returns the cached instance. Otherwise creates a new one and caches it.
+     * returns the cached instance and increases its reference count.
+     * Otherwise creates a new one, caches it and sets reference count to 1.
      */
     std::shared_ptr<StorageHelper> getStorageHelper(
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
@@ -42,7 +46,8 @@ public:
     /**
      * Get or create a storage helper for the given arguments.
      * If a storage helper was previously created with the same arguments,
-     * returns the cached instance. Otherwise creates a new one and caches it.
+     * returns the cached instance and increases its reference count.
+     * Otherwise creates a new one, caches it and sets reference count to 1.
      */
     std::shared_ptr<StorageHelper> getStorageHelper(const folly::fbstring &type,
         const std::unordered_map<folly::fbstring, folly::fbstring> &args,
@@ -54,17 +59,60 @@ public:
         typename CacheMap::accessor accessor;
         if (m_cache.insert(accessor, key)) {
             // Key wasn't in cache, create new storage helper
-            accessor->second =
+            accessor->second.first =
                 m_creator->getStorageHelper(type, args, buffered);
+            accessor->second.second = 1; // Initialize reference count
+        }
+        else {
+            // Key was in cache, increment reference count
+            accessor->second.second++;
         }
 
-        return accessor->second;
+        return accessor->second.first;
+    }
+
+    /**
+     * Release a storage helper instance.
+     * Decrements the reference count for the helper matching the given
+     * arguments. If the reference count reaches zero, removes the helper from
+     * cache.
+     * @return true if the helper was found and released, false otherwise
+     */
+    bool releaseStorageHelper(const folly::fbstring &type,
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+        bool buffered)
+    {
+        auto key = createCacheKey(type, args, buffered);
+
+        typename CacheMap::accessor accessor;
+        if (m_cache.find(accessor, key)) {
+            if (--accessor->second.second == 0) {
+                m_cache.erase(accessor);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Release a storage helper instance.
+     * Decrements the reference count for the helper matching the given
+     * arguments. If the reference count reaches zero, removes the helper from
+     * cache.
+     * @return true if the helper was found and released, false otherwise
+     */
+    bool releaseStorageHelper(
+        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
+        bool buffered)
+    {
+        return releaseStorageHelper(args.at("type"), args, buffered);
     }
 
 private:
     using CacheKey = std::string;
-    using CacheMap =
-        tbb::concurrent_hash_map<CacheKey, std::shared_ptr<StorageHelper>>;
+    // Pair of storage helper and its reference count
+    using CacheValue = std::pair<std::shared_ptr<StorageHelper>, std::size_t>;
+    using CacheMap = tbb::concurrent_hash_map<CacheKey, CacheValue>;
 
     /**
      * Creates a unique cache key from storage helper arguments and buffered
