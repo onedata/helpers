@@ -54,7 +54,8 @@ public:
         typename CacheMap::accessor accessor;
         if (m_cache.insert(accessor, key)) {
             // Key wasn't in cache, create new storage helper
-            accessor->second = m_creator->getStorageHelper(args, buffered);
+            accessor->second =
+                m_creator->getStorageHelper(type, args, buffered);
         }
 
         return accessor->second;
