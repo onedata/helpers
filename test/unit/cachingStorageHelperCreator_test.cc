@@ -71,6 +71,7 @@ TEST_F(CachingStorageHelperCreatorTest, ShouldReturnSameHelperForSameArgs)
 
     // Then
     ASSERT_EQ(helper1, helper2);
+    ASSERT_EQ(helper1->id(), helper2->id());
 }
 
 TEST_F(CachingStorageHelperCreatorTest,
@@ -89,6 +90,7 @@ TEST_F(CachingStorageHelperCreatorTest,
 
     // Then
     ASSERT_NE(helper1, helper2);
+    ASSERT_NE(helper1->id(), helper2->id());
 }
 
 TEST_F(CachingStorageHelperCreatorTest,
@@ -103,6 +105,7 @@ TEST_F(CachingStorageHelperCreatorTest,
 
     // Then
     ASSERT_NE(helper1, helper2);
+    ASSERT_NE(helper1->id(), helper2->id());
 }
 
 TEST_F(CachingStorageHelperCreatorTest,
@@ -121,6 +124,7 @@ TEST_F(CachingStorageHelperCreatorTest,
 
     // Then
     ASSERT_EQ(helper1, helper2);
+    ASSERT_EQ(helper1->id(), helper2->id());
 }
 
 TEST_F(CachingStorageHelperCreatorTest, ShouldKeepHelperWhileReferenced)
@@ -134,7 +138,7 @@ TEST_F(CachingStorageHelperCreatorTest, ShouldKeepHelperWhileReferenced)
     auto helper2 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Release one reference
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper1.get()));
 
     // Get another reference - should return the same helper
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
@@ -142,6 +146,8 @@ TEST_F(CachingStorageHelperCreatorTest, ShouldKeepHelperWhileReferenced)
     // Then
     ASSERT_EQ(helper1, helper2);
     ASSERT_EQ(helper1, helper3);
+    ASSERT_EQ(helper1->id(), helper2->id());
+    ASSERT_EQ(helper1->id(), helper3->id());
 }
 
 TEST_F(CachingStorageHelperCreatorTest,
@@ -156,14 +162,17 @@ TEST_F(CachingStorageHelperCreatorTest,
     auto helper2 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Release all references
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper1.get()));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper2.get()));
 
     // Get a new helper - should be different since the cache was cleared
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Then
     ASSERT_EQ(helper1, helper2);
+    ASSERT_NE(helper1, helper3);
+    ASSERT_EQ(helper1->id(), helper2->id());
+    ASSERT_EQ(helper1->id(), helper3->id());
     ASSERT_NE(helper1, helper3);
 }
 
@@ -175,7 +184,8 @@ TEST_F(CachingStorageHelperCreatorTest,
     bool buffered = false;
 
     // When/Then
-    ASSERT_FALSE(m_cachingCreator->releaseStorageHelper(args, buffered));
+    auto helper = m_cachingCreator->getStorageHelper(args, buffered);
+    ASSERT_FALSE(m_cachingCreator->releaseStorageHelper(nullptr));
 }
 
 TEST_F(CachingStorageHelperCreatorTest,
@@ -191,15 +201,15 @@ TEST_F(CachingStorageHelperCreatorTest,
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Release in random order
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper2.get()));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper1.get()));
 
     // Get another reference before final release
     auto helper4 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Release remaining references
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(args, buffered));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper3.get()));
+    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper4.get()));
 
     // Get a new helper after all releases
     auto helper5 = m_cachingCreator->getStorageHelper(args, buffered);
@@ -208,5 +218,9 @@ TEST_F(CachingStorageHelperCreatorTest,
     ASSERT_EQ(helper1, helper2);
     ASSERT_EQ(helper2, helper3);
     ASSERT_EQ(helper3, helper4);
+    ASSERT_NE(helper4, helper5);
+    ASSERT_EQ(helper1->id(), helper2->id());
+    ASSERT_EQ(helper2->id(), helper3->id());
+    ASSERT_EQ(helper3->id(), helper4->id());
     ASSERT_NE(helper4, helper5);
 }

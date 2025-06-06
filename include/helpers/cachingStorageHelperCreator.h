@@ -61,6 +61,7 @@ public:
             // Key wasn't in cache, create new storage helper
             accessor->second.first =
                 m_creator->getStorageHelper(type, args, buffered);
+            accessor->second.first->id(key);
             accessor->second.second = 1; // Initialize reference count
         }
         else {
@@ -78,11 +79,9 @@ public:
      * cache.
      * @return true if the helper was found and released, false otherwise
      */
-    bool releaseStorageHelper(const folly::fbstring &type,
-        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
-        bool buffered)
+    bool releaseStorageHelper(const folly::fbstring &id)
     {
-        auto key = createCacheKey(type, args, buffered);
+        const auto key = id.toStdString();
 
         typename CacheMap::accessor accessor;
         if (m_cache.find(accessor, key)) {
@@ -94,18 +93,13 @@ public:
         return false;
     }
 
-    /**
-     * Release a storage helper instance.
-     * Decrements the reference count for the helper matching the given
-     * arguments. If the reference count reaches zero, removes the helper from
-     * cache.
-     * @return true if the helper was found and released, false otherwise
-     */
-    bool releaseStorageHelper(
-        const std::unordered_map<folly::fbstring, folly::fbstring> &args,
-        bool buffered)
+    bool releaseStorageHelper(StorageHelper *helper)
     {
-        return releaseStorageHelper(args.at("type"), args, buffered);
+        if (helper == nullptr) {
+            return false;
+        }
+
+        return releaseStorageHelper(helper->id());
     }
 
 private:
