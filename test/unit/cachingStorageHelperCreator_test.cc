@@ -40,7 +40,7 @@ public:
                 m_executor, m_executor, m_executor, m_executor);
         m_cachingCreator =
             std::make_shared<CachingStorageHelperCreator<MockCommunicator>>(
-                std::move(storageHelperCreator));
+                std::move(storageHelperCreator), std::chrono::seconds{2});
     }
 
     void TearDown() override { m_executor->join(); }
@@ -138,7 +138,7 @@ TEST_F(CachingStorageHelperCreatorTest, ShouldKeepHelperWhileReferenced)
     auto helper2 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Release one reference
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper1.get()));
+    ASSERT_FALSE(m_cachingCreator->clean());
 
     // Get another reference - should return the same helper
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
@@ -159,33 +159,20 @@ TEST_F(CachingStorageHelperCreatorTest,
 
     // When
     auto helper1 = m_cachingCreator->getStorageHelper(args, buffered);
-    auto helper2 = m_cachingCreator->getStorageHelper(args, buffered);
+    const auto *helper1Ptr = helper1.get();
+    const auto helper1Id = helper1->id();
+    helper1.reset();
 
-    // Release all references
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper1.get()));
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper2.get()));
+    // Clean stale cache entries
+    std::this_thread::sleep_for(std::chrono::seconds{3});
+    ASSERT_TRUE(m_cachingCreator->clean());
 
     // Get a new helper - should be different since the cache was cleared
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Then
-    ASSERT_EQ(helper1, helper2);
-    ASSERT_NE(helper1, helper3);
-    ASSERT_EQ(helper1->id(), helper2->id());
-    ASSERT_EQ(helper1->id(), helper3->id());
-    ASSERT_NE(helper1, helper3);
-}
-
-TEST_F(CachingStorageHelperCreatorTest,
-    ShouldReturnFalseWhenReleasingNonexistentHelper)
-{
-    // Given
-    auto args = createDefaultArgs();
-    bool buffered = false;
-
-    // When/Then
-    auto helper = m_cachingCreator->getStorageHelper(args, buffered);
-    ASSERT_FALSE(m_cachingCreator->releaseStorageHelper(nullptr));
+    ASSERT_NE(helper1Ptr, helper3.get());
+    ASSERT_EQ(helper1Id, helper3->id());
 }
 
 TEST_F(CachingStorageHelperCreatorTest,
@@ -201,26 +188,11 @@ TEST_F(CachingStorageHelperCreatorTest,
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Release in random order
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper2.get()));
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper1.get()));
+    helper1.reset();
+    helper2.reset();
 
     // Get another reference before final release
     auto helper4 = m_cachingCreator->getStorageHelper(args, buffered);
 
-    // Release remaining references
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper3.get()));
-    ASSERT_TRUE(m_cachingCreator->releaseStorageHelper(helper4.get()));
-
-    // Get a new helper after all releases
-    auto helper5 = m_cachingCreator->getStorageHelper(args, buffered);
-
-    // Then
-    ASSERT_EQ(helper1, helper2);
-    ASSERT_EQ(helper2, helper3);
     ASSERT_EQ(helper3, helper4);
-    ASSERT_NE(helper4, helper5);
-    ASSERT_EQ(helper1->id(), helper2->id());
-    ASSERT_EQ(helper2->id(), helper3->id());
-    ASSERT_EQ(helper3->id(), helper4->id());
-    ASSERT_NE(helper4, helper5);
 }

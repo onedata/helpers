@@ -14,6 +14,8 @@
 namespace one {
 namespace helpers {
 
+const auto kHelperCacheDefaultExpirySeconds{300};
+
 /**
  * A wrapper around StorageHelperCreator that provides caching of created
  * storage helpers. For the same combination of arguments and buffered flag, it
@@ -25,8 +27,11 @@ namespace helpers {
 template <typename CommunicatorT> class CachingStorageHelperCreator {
 public:
     explicit CachingStorageHelperCreator(
-        std::unique_ptr<StorageHelperCreator<CommunicatorT>> creator)
+        std::unique_ptr<StorageHelperCreator<CommunicatorT>> creator,
+        std::chrono::seconds expirySeconds =
+            std::chrono::seconds{kHelperCacheDefaultExpirySeconds})
         : m_creator{std::move(creator)}
+        , m_expirySeconds{expirySeconds}
     {
     }
 
@@ -55,6 +60,7 @@ public:
     {
         // Create a cache key from args and buffered flag
         auto key = createCacheKey(type, args, buffered);
+        auto now = std::chrono::steady_clock::now();
 
         typename CacheMap::accessor accessor;
         if (m_cache.insert(accessor, key)) {
@@ -62,50 +68,43 @@ public:
             accessor->second.first =
                 m_creator->getStorageHelper(type, args, buffered);
             accessor->second.first->id(key);
-            accessor->second.second = 1; // Initialize reference count
+            accessor->second.second = now; // Initialize reference count
         }
         else {
-            // Key was in cache, increment reference count
-            accessor->second.second++;
+            if (!accessor->second.first) {
+                accessor->second.first =
+                    m_creator->getStorageHelper(type, args, buffered);
+                accessor->second.first->id(key);
+            }
+            accessor->second.second = now;
         }
 
         return accessor->second.first;
     }
 
-    /**
-     * Release a storage helper instance.
-     * Decrements the reference count for the helper matching the given
-     * arguments. If the reference count reaches zero, removes the helper from
-     * cache.
-     * @return true if the helper was found and released, false otherwise
-     */
-    bool releaseStorageHelper(const folly::fbstring &id)
+    bool clean()
     {
-        const auto key = id.toStdString();
+        bool removed{false};
 
-        typename CacheMap::accessor accessor;
-        if (m_cache.find(accessor, key)) {
-            if (--accessor->second.second == 0) {
-                m_cache.erase(accessor);
+        auto now = std::chrono::steady_clock::now();
+        for (typename CacheMap::iterator it = m_cache.begin();
+             it != m_cache.end(); it++) {
+            const auto &lastAccess = it->second.second;
+            if (now - lastAccess > m_expirySeconds &&
+                it->second.first.use_count() == 1) {
+                it->second.first.reset();
+                removed = true;
             }
-            return true;
-        }
-        return false;
-    }
-
-    bool releaseStorageHelper(StorageHelper *helper)
-    {
-        if (helper == nullptr) {
-            return false;
         }
 
-        return releaseStorageHelper(helper->id());
+        return removed;
     }
 
 private:
     using CacheKey = std::string;
+    using Timestamp = std::chrono::steady_clock::time_point;
     // Pair of storage helper and its reference count
-    using CacheValue = std::pair<std::shared_ptr<StorageHelper>, std::size_t>;
+    using CacheValue = std::pair<std::shared_ptr<StorageHelper>, Timestamp>;
     using CacheMap = tbb::concurrent_hash_map<CacheKey, CacheValue>;
 
     /**
@@ -130,11 +129,14 @@ private:
         // Add buffered flag
         key += "buffered=" + std::to_string(buffered);
 
-        return key.toStdString();
+        std::size_t hashValue = std::hash<std::string>{}(key.toStdString());
+
+        return fmt::format("{:016x}-{}", hashValue, type.toStdString());
     }
 
     std::unique_ptr<StorageHelperCreator<CommunicatorT>> m_creator;
     CacheMap m_cache;
+    std::chrono::seconds m_expirySeconds;
 };
 
 } // namespace helpers
