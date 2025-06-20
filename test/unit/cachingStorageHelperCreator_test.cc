@@ -65,9 +65,14 @@ TEST_F(CachingStorageHelperCreatorTest, ShouldReturnSameHelperForSameArgs)
     auto args = createDefaultArgs();
     bool buffered = false;
 
+    ASSERT_TRUE(m_cachingCreator->cacheStats().empty());
+
     // When
     auto helper1 = m_cachingCreator->getStorageHelper(args, buffered);
     auto helper2 = m_cachingCreator->getStorageHelper(args, buffered);
+
+    ASSERT_EQ(m_cachingCreator->cacheStats().size(), 1);
+    ASSERT_EQ(m_cachingCreator->cacheStats().at(NULL_DEVICE_HELPER_NAME), 1);
 
     // Then
     ASSERT_EQ(helper1, helper2);
@@ -140,6 +145,8 @@ TEST_F(CachingStorageHelperCreatorTest, ShouldKeepHelperWhileReferenced)
     // Release one reference
     ASSERT_FALSE(m_cachingCreator->clean());
 
+    ASSERT_EQ(m_cachingCreator->cacheStats().at(NULL_DEVICE_HELPER_NAME), 1);
+
     // Get another reference - should return the same helper
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
 
@@ -167,12 +174,15 @@ TEST_F(CachingStorageHelperCreatorTest,
     std::this_thread::sleep_for(std::chrono::seconds{3});
     ASSERT_TRUE(m_cachingCreator->clean());
 
+    ASSERT_TRUE(m_cachingCreator->cacheStats().empty());
+
     // Get a new helper - should be different since the cache was cleared
     auto helper3 = m_cachingCreator->getStorageHelper(args, buffered);
 
     // Then
     ASSERT_NE(helper1Ptr, helper3.get());
     ASSERT_EQ(helper1Id, helper3->id());
+    ASSERT_EQ(m_cachingCreator->cacheStats().size(), 1);
 }
 
 TEST_F(CachingStorageHelperCreatorTest,

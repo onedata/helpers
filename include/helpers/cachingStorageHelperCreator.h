@@ -100,6 +100,19 @@ public:
         return removed;
     }
 
+    std::map<folly::fbstring, size_t> cacheStats()
+    {
+        std::map<folly::fbstring, size_t> result;
+
+        for (typename CacheMap::iterator it = m_cache.begin();
+             it != m_cache.end(); it++) {
+            if (it->second.first)
+                result[it->second.first->name()] += 1;
+        }
+
+        return result;
+    }
+
 private:
     using CacheKey = std::string;
     using Timestamp = std::chrono::steady_clock::time_point;
