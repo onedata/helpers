@@ -40,7 +40,8 @@ public:
                 m_executor, m_executor, m_executor, m_executor);
         m_cachingCreator =
             std::make_shared<CachingStorageHelperCreator<MockCommunicator>>(
-                std::move(storageHelperCreator), std::chrono::seconds{2});
+                std::move(storageHelperCreator),
+                std::chrono::milliseconds{2000});
     }
 
     void TearDown() override { m_executor->join(); }
@@ -205,4 +206,96 @@ TEST_F(CachingStorageHelperCreatorTest,
     auto helper4 = m_cachingCreator->getStorageHelper(args, buffered);
 
     ASSERT_EQ(helper3, helper4);
+}
+
+TEST_F(CachingStorageHelperCreatorTest, ShouldBeThreadSafeUnderConcurrentAccess)
+{
+    auto oldExpiry = m_cachingCreator->getExpiry();
+    m_cachingCreator->setExpiry(std::chrono::milliseconds{2});
+
+    constexpr int kThreadCount = 200;
+    std::vector<std::thread> threads;
+    std::vector<std::shared_ptr<StorageHelper>> results(kThreadCount);
+    std::atomic<bool> start{false};
+    auto args = createDefaultArgs();
+    bool buffered = false;
+
+    for (int i = 0; i < kThreadCount; ++i) {
+        threads.emplace_back([&, i] {
+            while (!start.load()) {
+                std::this_thread::yield();
+            }
+            results[i] = m_cachingCreator->getStorageHelper(args, buffered);
+        });
+    }
+
+    // Start all threads
+    start = true;
+
+    for (auto &t : threads)
+        t.join();
+
+    // All threads should have received the same helper
+    for (int i = 1; i < kThreadCount; ++i) {
+        ASSERT_EQ(results[0], results[i]);
+        ASSERT_EQ(results[0]->id(), results[i]->id());
+    }
+
+    // The cache should only contain one helper
+    auto stats = m_cachingCreator->cacheStats();
+    ASSERT_EQ(stats.size(), 1);
+    ASSERT_EQ(stats[NULL_DEVICE_HELPER_NAME], 1);
+
+    m_cachingCreator->setExpiry(oldExpiry);
+}
+
+TEST_F(CachingStorageHelperCreatorTest,
+    ShouldBeThreadSafeWithConcurrentCleanAndStats)
+{
+    auto oldExpiry = m_cachingCreator->getExpiry();
+    m_cachingCreator->setExpiry(std::chrono::milliseconds{2});
+
+    constexpr int kThreadCount = 100;
+    auto args = createDefaultArgs();
+    bool buffered = false;
+
+    std::vector<std::shared_ptr<StorageHelper>> helpers;
+    for (int i = 0; i < kThreadCount; ++i) {
+        helpers.push_back(m_cachingCreator->getStorageHelper(args, buffered));
+    }
+
+    std::atomic<bool> running{true};
+    std::thread cleaner([&] {
+        while (running.load()) {
+            m_cachingCreator->clean();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+
+    std::thread statsReader([&] {
+        while (running.load()) {
+            auto stats = m_cachingCreator->cacheStats();
+            ASSERT_LE(stats[NULL_DEVICE_HELPER_NAME], 1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+
+    std::thread accessor([&] {
+        for (int i = 0; i < 100; ++i) {
+            auto helper = m_cachingCreator->getStorageHelper(args, buffered);
+            ASSERT_NE(helper, nullptr);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        running = false;
+    });
+
+    cleaner.join();
+    statsReader.join();
+    accessor.join();
+
+    // After cleanup, the helper should still be valid if at least one ref
+    // remains
+    ASSERT_GE(helpers[0].use_count(), 2); // Including the vector reference
+
+    m_cachingCreator->setExpiry(oldExpiry);
 }

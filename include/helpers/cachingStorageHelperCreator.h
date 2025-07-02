@@ -28,8 +28,8 @@ template <typename CommunicatorT> class CachingStorageHelperCreator {
 public:
     explicit CachingStorageHelperCreator(
         std::unique_ptr<StorageHelperCreator<CommunicatorT>> creator,
-        std::chrono::seconds expirySeconds =
-            std::chrono::seconds{kHelperCacheDefaultExpirySeconds})
+        std::chrono::milliseconds expirySeconds =
+            std::chrono::milliseconds{kHelperCacheDefaultExpirySeconds * 1000})
         : m_creator{std::move(creator)}
         , m_expirySeconds{expirySeconds}
     {
@@ -113,6 +113,13 @@ public:
         return result;
     }
 
+    void setExpiry(std::chrono::milliseconds expiry)
+    {
+        m_expirySeconds = expiry;
+    }
+
+    std::chrono::milliseconds getExpiry() const { return m_expirySeconds; }
+
 private:
     using CacheKey = std::string;
     using Timestamp = std::chrono::steady_clock::time_point;
@@ -149,7 +156,7 @@ private:
 
     std::unique_ptr<StorageHelperCreator<CommunicatorT>> m_creator;
     CacheMap m_cache;
-    std::chrono::seconds m_expirySeconds;
+    std::chrono::milliseconds m_expirySeconds;
 };
 
 } // namespace helpers
