@@ -1,3 +1,11 @@
+/**
+ * @file cachingStorageHelperCreator.h
+ * @author Bartek Kryza
+ * @copyright (C) 2025 ACK CYFRONET AGH
+ * @copyright This software is released under the MIT license cited in
+ * 'LICENSE.txt'
+ */
+
 #ifndef HELPERS_CACHING_STORAGE_HELPER_CREATOR_H
 #define HELPERS_CACHING_STORAGE_HELPER_CREATOR_H
 
@@ -28,10 +36,10 @@ template <typename CommunicatorT> class CachingStorageHelperCreator {
 public:
     explicit CachingStorageHelperCreator(
         std::unique_ptr<StorageHelperCreator<CommunicatorT>> creator,
-        std::chrono::milliseconds expirySeconds =
+        std::chrono::milliseconds expiry =
             std::chrono::milliseconds{kHelperCacheDefaultExpirySeconds * 1000})
         : m_creator{std::move(creator)}
-        , m_expirySeconds{expirySeconds}
+        , m_expiry{expiry}
     {
     }
 
@@ -64,11 +72,11 @@ public:
 
         typename CacheMap::accessor accessor;
         if (m_cache.insert(accessor, key)) {
-            // Key wasn't in cache, create new storage helper
+            // Key wasn't in the cache, create new storage helper
             accessor->second.first =
                 m_creator->getStorageHelper(type, args, buffered);
             accessor->second.first->id(key);
-            accessor->second.second = now; // Initialize reference count
+            accessor->second.second = now;
         }
         else {
             if (!accessor->second.first) {
@@ -90,7 +98,7 @@ public:
         for (typename CacheMap::iterator it = m_cache.begin();
              it != m_cache.end(); it++) {
             const auto &lastAccess = it->second.second;
-            if (now - lastAccess > m_expirySeconds &&
+            if (now - lastAccess > m_expiry &&
                 it->second.first.use_count() == 1) {
                 it->second.first.reset();
                 removed = true;
@@ -113,12 +121,9 @@ public:
         return result;
     }
 
-    void setExpiry(std::chrono::milliseconds expiry)
-    {
-        m_expirySeconds = expiry;
-    }
+    void setExpiry(std::chrono::milliseconds expiry) { m_expiry = expiry; }
 
-    std::chrono::milliseconds getExpiry() const { return m_expirySeconds; }
+    std::chrono::milliseconds getExpiry() const { return m_expiry; }
 
 private:
     using CacheKey = std::string;
@@ -156,7 +161,7 @@ private:
 
     std::unique_ptr<StorageHelperCreator<CommunicatorT>> m_creator;
     CacheMap m_cache;
-    std::chrono::milliseconds m_expirySeconds;
+    std::chrono::milliseconds m_expiry;
 };
 
 } // namespace helpers
