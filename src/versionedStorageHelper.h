@@ -28,6 +28,10 @@ public:
     {
     }
 
+    void id(const folly::fbstring &id) override { m_helper->id(id); }
+
+    const folly::fbstring &id() const override { return m_helper->id(); }
+
     folly::fbstring name() const override { return getHelper()->name(); }
 
     folly::Future<folly::Unit> checkStorageAvailability() override
