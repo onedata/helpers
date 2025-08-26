@@ -371,6 +371,10 @@ void FileHandle::setOverrideParams(const Params &params)
     m_paramsOverride = params;
 }
 
+const folly::fbstring &StorageHelper::id() const { return m_id; }
+
+void StorageHelper::id(const folly::fbstring &id) { m_id = id; }
+
 folly::Future<folly::Unit> StorageHelper::checkStorageAvailability()
 {
     return folly::makeFuture<folly::Unit>(std::system_error{

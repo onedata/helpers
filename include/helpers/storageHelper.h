@@ -534,6 +534,10 @@ public:
 
     virtual folly::fbstring name() const = 0;
 
+    virtual void id(const folly::fbstring &id);
+
+    virtual const folly::fbstring &id() const;
+
     virtual folly::Future<folly::Unit> checkStorageAvailability();
 
     virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
@@ -667,6 +671,7 @@ public:
 
 private:
     const ExecutionContext m_executionContext;
+    folly::fbstring m_id;
 };
 
 /**
