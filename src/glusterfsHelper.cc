@@ -562,7 +562,7 @@ folly::Future<folly::Unit> GlusterFSHelper::checkStorageAvailability()
 {
     LOG_FCALL();
 
-    return access("", 0);
+    return access("/", 0);
 }
 
 folly::Future<struct stat> GlusterFSHelper::getattr(
