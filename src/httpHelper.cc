@@ -692,6 +692,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
                 auto host = std::get<0>(httpSession->key);
                 auto port = std::get<1>(httpSession->key);
                 auto isSecure = std::get<3>(httpSession->key);
+                httpSession->hostName = host.toStdString();
 
                 if (httpSession->address.empty())
                     httpSession->address =
@@ -884,8 +885,7 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
             m_request.getHeaders().add("Connection", "Keep-Alive");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
-        m_request.getHeaders().add(
-            "Host", m_helper->hostHeader().toStdString());
+        m_request.getHeaders().add("Host", session->hostName);
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U &&
         !isExternal) {
@@ -934,6 +934,14 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     const auto cookies = m_helper->cookies(host);
     for (const auto &cookie : cookies) {
         m_request.getHeaders().add("Cookie", cookie);
+    }
+
+    if (VLOG_IS_ON(4)) {
+        LOG_DBG(4) << "Seonding headers:";
+        m_request.getHeaders().forEach(
+            [](const std::string &h, const std::string &v) {
+                LOG_DBG(4) << "\t " << h << " : " << v;
+            });
     }
 }
 
@@ -997,6 +1005,7 @@ void HTTPRequest::onHeadersComplete(
 {
     try {
         if (VLOG_IS_ON(4)) {
+            LOG_DBG(4) << "Got status code: " << msg->getStatusCode();
             LOG_DBG(4) << "Got headers:";
             msg->getHeaders().forEach(
                 [](const std::string &h, const std::string &v) {

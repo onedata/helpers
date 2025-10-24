@@ -163,6 +163,8 @@ struct HTTPSession : public proxygen::HTTPSessionBase::InfoCallback,
     // Session key allowing connections to multiple hosts
     HTTPSessionPoolKey key;
     folly::SocketAddress address;
+    // Server hostname exactly as specified in URL to be added to the headers
+    std::string hostName;
 
     // Set to true when server returned 'Connection: close' header in response
     // to a request
