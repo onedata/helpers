@@ -97,6 +97,8 @@ namespace {
 boost::shared_ptr<HTTPHelperProxy> create(
     std::string endpoint, std::string credentials, std::string credentialsType)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<HTTPHelperProxy>(std::move(endpoint),
         std::move(credentials), std::move(credentialsType));
 }
