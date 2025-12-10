@@ -526,6 +526,14 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                     [&nsMap = self->m_nsMap, fileId, request,
                         fileMode = self->P()->fileMode()](
                         std::map<folly::fbstring, folly::fbstring> &&headers) {
+                        if (headers.count("accept-ranges") == 0 ||
+                            headers.at("accept-ranges") != "bytes") {
+                            LOG(ERROR) << "Server doesn't support ranges"
+                                       << headers.at("accept-ranges");
+                            return makeFuturePosixException<struct stat>(
+                                ENOTSUP);
+                        }
+
                         struct stat attrs {
                         };
                         attrs.st_mode = S_IFREG | fileMode;
@@ -559,7 +567,9 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                 attrs.st_size = 0;
                             }
                         }
-                        return attrs;
+
+                        return folly::makeFuture<struct stat>(
+                            std::move(attrs)); // NOLINT
                     })
                 .thenError(folly::tag_t<HTTPFoundException>{},
                     [fileId, self, retryCount](auto &&redirect) {
@@ -1221,18 +1231,15 @@ void HTTPHEAD::processHeaders(
             m_resultPromise.setException(makePosixException(result));
         }
         else {
-            if (msg->getHeaders().getNumberOfValues("content-type") != 0U) {
-                res.emplace(
-                    "content-type", msg->getHeaders().rawGet("content-type"));
-            }
-            if (msg->getHeaders().getNumberOfValues("last-modified") != 0U) {
-                res.emplace(
-                    "last-modified", msg->getHeaders().rawGet("last-modified"));
-            }
-            if (msg->getHeaders().getNumberOfValues("content-length") != 0U) {
-                res.emplace("content-length",
-                    msg->getHeaders().rawGet("content-length"));
-            }
+            msg->getHeaders().forEach(
+                [&](const std::string &header, const std::string & /*val*/) {
+                    std::string lowercaseHeader{header};
+                    for (char &c : lowercaseHeader)
+                        c = std::tolower(c); // NOLINT
+
+                    res.emplace(std::move(lowercaseHeader),
+                        msg->getHeaders().rawGet(header));
+                });
 
             m_resultPromise.setValue(std::move(res));
         }
