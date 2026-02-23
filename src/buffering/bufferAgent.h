@@ -134,6 +134,8 @@ public:
 
     folly::fbstring name() const override;
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
     std::shared_ptr<folly::Executor> executor() override;
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,

@@ -214,6 +214,11 @@ BufferAgent::BufferAgent(BufferLimits bufferLimits, StorageHelperPtr helper,
 
 folly::fbstring BufferAgent::name() const { return m_helper->name(); }
 
+folly::Future<folly::Unit> BufferAgent::checkStorageAvailability()
+{
+    return m_helper->checkStorageAvailability();
+}
+
 std::shared_ptr<folly::Executor> BufferAgent::executor()
 {
     return m_helper->executor();

@@ -526,6 +526,14 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                     [&nsMap = self->m_nsMap, fileId, request,
                         fileMode = self->P()->fileMode()](
                         std::map<folly::fbstring, folly::fbstring> &&headers) {
+                        if (headers.count("accept-ranges") == 0 ||
+                            headers.at("accept-ranges") != "bytes") {
+                            LOG(ERROR) << "Server doesn't support ranges"
+                                       << headers.at("accept-ranges");
+                            return makeFuturePosixException<struct stat>(
+                                ENOTSUP);
+                        }
+
                         struct stat attrs {
                         };
                         attrs.st_mode = S_IFREG | fileMode;
@@ -559,7 +567,9 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                 attrs.st_size = 0;
                             }
                         }
-                        return attrs;
+
+                        return folly::makeFuture<struct stat>(
+                            std::move(attrs)); // NOLINT
                     })
                 .thenError(folly::tag_t<HTTPFoundException>{},
                     [fileId, self, retryCount](auto &&redirect) {
@@ -692,6 +702,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
                 auto host = std::get<0>(httpSession->key);
                 auto port = std::get<1>(httpSession->key);
                 auto isSecure = std::get<3>(httpSession->key);
+                httpSession->hostName = host.toStdString();
 
                 if (httpSession->address.empty())
                     httpSession->address =
@@ -884,8 +895,7 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
             m_request.getHeaders().add("Connection", "Keep-Alive");
     }
     if (m_request.getHeaders().getNumberOfValues("Host") == 0U) {
-        m_request.getHeaders().add(
-            "Host", m_helper->hostHeader().toStdString());
+        m_request.getHeaders().add("Host", session->hostName);
     }
     if (m_request.getHeaders().getNumberOfValues("Authorization") == 0U &&
         !isExternal) {
@@ -934,6 +944,14 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     const auto cookies = m_helper->cookies(host);
     for (const auto &cookie : cookies) {
         m_request.getHeaders().add("Cookie", cookie);
+    }
+
+    if (VLOG_IS_ON(4)) {
+        LOG_DBG(4) << "Seonding headers:";
+        m_request.getHeaders().forEach(
+            [](const std::string &h, const std::string &v) {
+                LOG_DBG(4) << "\t " << h << " : " << v;
+            });
     }
 }
 
@@ -997,6 +1015,7 @@ void HTTPRequest::onHeadersComplete(
 {
     try {
         if (VLOG_IS_ON(4)) {
+            LOG_DBG(4) << "Got status code: " << msg->getStatusCode();
             LOG_DBG(4) << "Got headers:";
             msg->getHeaders().forEach(
                 [](const std::string &h, const std::string &v) {
@@ -1212,18 +1231,15 @@ void HTTPHEAD::processHeaders(
             m_resultPromise.setException(makePosixException(result));
         }
         else {
-            if (msg->getHeaders().getNumberOfValues("content-type") != 0U) {
-                res.emplace(
-                    "content-type", msg->getHeaders().rawGet("content-type"));
-            }
-            if (msg->getHeaders().getNumberOfValues("last-modified") != 0U) {
-                res.emplace(
-                    "last-modified", msg->getHeaders().rawGet("last-modified"));
-            }
-            if (msg->getHeaders().getNumberOfValues("content-length") != 0U) {
-                res.emplace("content-length",
-                    msg->getHeaders().rawGet("content-length"));
-            }
+            msg->getHeaders().forEach(
+                [&](const std::string &header, const std::string & /*val*/) {
+                    std::string lowercaseHeader{header};
+                    for (char &c : lowercaseHeader)
+                        c = std::tolower(c); // NOLINT
+
+                    res.emplace(std::move(lowercaseHeader),
+                        msg->getHeaders().rawGet(header));
+                });
 
             m_resultPromise.setValue(std::move(res));
         }
