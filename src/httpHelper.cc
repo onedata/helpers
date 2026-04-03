@@ -262,9 +262,25 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                         return makeFuturePosixException<folly::IOBufQueue>(
                             e.code().value());
                     })
-                .thenValue([timer = std::move(timer), getRequest, helper](
-                               folly::IOBufQueue &&buf) {
+                .thenValue([timer = std::move(timer), getRequest, offset, size,
+                               helper](folly::IOBufQueue &&buf)
+                               -> folly::Future<folly::IOBufQueue> {
                     ONE_METRIC_TIMERCTX_STOP(timer, buf.chainLength());
+
+                    if (!getRequest->responseHasContentRange() ||
+                        !getRequest->responseHasContentLength()) {
+
+                        if ((size_t)0 + offset > buf.chainLength())
+                            return makeFuturePosixException<folly::IOBufQueue>(
+                                ERANGE);
+
+                        buf.trimStart(offset);
+                        folly::IOBufQueue res{
+                            folly::IOBufQueue::cacheChainLength()};
+                        res.append(std::move(buf).splitAtMost(size));
+                        return res;
+                    }
+
                     return std::move(buf);
                 });
         });
@@ -488,6 +504,54 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId)
     return getattr(fileId, kHTTPRetryCount);
 }
 
+folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
+    const folly::fbstring &fileId, const int retryCount,
+    const Poco::URI &redirectURL)
+{
+    LOG_FCALL() << LOG_FARG(fileId);
+
+    HTTPSessionPoolKey sessionPoolKey{};
+    folly::fbstring effectiveFileId{};
+
+    // Try to parse the fileId as URL - if it contains Host - treat it
+    // as an external resource and create a separate HTTP session pool key
+    auto poolKeyAndUri = relativizeURI(fileId);
+    sessionPoolKey = std::move(poolKeyAndUri.first);
+    effectiveFileId = std::move(poolKeyAndUri.second);
+
+    if (!redirectURL.getHost().empty()) {
+        sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
+            redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+    }
+
+    const auto maxReadSize = this->maxEmulatedRangeReadFileSize();
+    // Try to read up to maximum (+1) bytes from the server to
+    // determine the file size
+    return open(fileId, {}, {})
+        .thenValue([maxReadSize, fileId](auto &&fileHandlePtr) {
+            return fileHandlePtr->read(0, maxReadSize + 1);
+        })
+        .thenValue([maxReadSize, fileId](auto &&bytes) {
+            if (bytes.chainLength() > maxReadSize)
+                return makeFuturePosixException<struct stat>(EFBIG);
+
+            const Poco::DateTime dateTime;
+
+            struct stat attrs {
+            };
+            attrs.st_mode = S_IFREG;
+
+            attrs.st_atim.tv_sec = attrs.st_mtim.tv_sec = attrs.st_ctim.tv_sec =
+                dateTime.timestamp().epochTime();
+            attrs.st_atim.tv_nsec = attrs.st_mtim.tv_nsec =
+                attrs.st_ctim.tv_nsec = 0;
+
+            attrs.st_size = bytes.chainLength();
+
+            return folly::makeFuture<struct stat>(std::move(attrs)); // NOLINT
+        });
+}
+
 folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
     const int retryCount, const Poco::URI &redirectURL)
 {
@@ -511,7 +575,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
 
     return connect(sessionPoolKey)
         .thenValue([fileId = effectiveFileId, timer = std::move(timer),
-                       retryCount,
+                       retryCount, redirectURL,
                        s = std::weak_ptr<HTTPHelper>{shared_from_this()}](
                        HTTPSession *session) {
             auto self = s.lock();
@@ -524,12 +588,31 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
             return (*request)(fileId)
                 .thenValue(
                     [&nsMap = self->m_nsMap, fileId, request,
-                        fileMode = self->P()->fileMode()](
+                        fileMode = self->P()->fileMode(),
+                        emulateReadRange = self->emulateReadRange()](
                         std::map<folly::fbstring, folly::fbstring> &&headers) {
-                        if (headers.count("accept-ranges") == 0 ||
-                            headers.at("accept-ranges") != "bytes") {
-                            LOG(ERROR) << "Server doesn't support ranges"
-                                       << headers.at("accept-ranges");
+                        if (VLOG_IS_ON(4)) {
+                            LOG_DBG(4) << "Got headers:";
+                            for (const auto &h : headers)
+                                LOG_DBG(4) << "\t ___ " << h.first << " : "
+                                           << h.second;
+                        }
+
+                        const bool hasAcceptRangesHeader =
+                            headers.count("accept-ranges") > 0 &&
+                            headers.at("accept-ranges") == "bytes";
+                        if (!hasAcceptRangesHeader && !emulateReadRange) {
+                            LOG(ERROR) << "Server doesn't support ranges";
+                            return makeFuturePosixException<struct stat>(
+                                ENOTSUP);
+                        }
+
+                        const bool hasContentLength =
+                            headers.find("content-length") != headers.end();
+
+                        if (!hasContentLength) {
+                            LOG(ERROR)
+                                << "Server doesn't support content-length";
                             return makeFuturePosixException<struct stat>(
                                 ENOTSUP);
                         }
@@ -552,7 +635,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                 attrs.st_ctim.tv_nsec = 0;
                         }
 
-                        if (headers.find("content-length") != headers.end()) {
+                        if (hasContentLength) {
                             try {
                                 attrs.st_size = std::stoll(
                                     headers["content-length"].toStdString());
@@ -567,6 +650,10 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                 attrs.st_size = 0;
                             }
                         }
+                        else {
+                            LOG_DBG(2) << "Valid HEAD response must contain "
+                                          "content-length header";
+                        }
 
                         return folly::makeFuture<struct stat>(
                             std::move(attrs)); // NOLINT
@@ -580,7 +667,14 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                             Poco::URI(redirect.location));
                     })
                 .thenError(folly::tag_t<std::system_error>{},
-                    [=](auto &&e) {
+                    [=, emulateReadRange = self->emulateReadRange()](auto &&e) {
+                        if (e.code().value() == ENOTSUP && emulateReadRange) {
+                            // Try to download up to
+                            // maxEmulatedRangeReadFileSize
+                            return self->getattrEmulateRange(
+                                fileId, retryCount, redirectURL);
+                        }
+
                         if (shouldRetryError(e.code().value()) &&
                             retryCount > 0) {
                             ONE_METRIC_COUNTER_INC(
@@ -645,7 +739,8 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
 
     if (!idleSessionAvailable) {
         LOG(ERROR)
-            << "HTTP idle session connection pool empty - delaying request by "
+            << "HTTP idle session connection pool empty - delaying request "
+               "by "
                "10ms. In case this message shows frequently, consider "
                "increasing connectionPoolSize for the given storage.";
         const auto kHTTPIdleSessionWaitDelay = 10UL;
@@ -947,7 +1042,7 @@ HTTPRequest::HTTPRequest(HTTPHelper *helper, HTTPSession *session)
     }
 
     if (VLOG_IS_ON(4)) {
-        LOG_DBG(4) << "Seonding headers:";
+        LOG_DBG(4) << "Sending headers:";
         m_request.getHeaders().forEach(
             [](const std::string &h, const std::string &v) {
                 LOG_DBG(4) << "\t " << h << " : " << v;
@@ -1014,15 +1109,6 @@ void HTTPRequest::onHeadersComplete(
     std::unique_ptr<proxygen::HTTPMessage> msg) noexcept
 {
     try {
-        if (VLOG_IS_ON(4)) {
-            LOG_DBG(4) << "Got status code: " << msg->getStatusCode();
-            LOG_DBG(4) << "Got headers:";
-            msg->getHeaders().forEach(
-                [](const std::string &h, const std::string &v) {
-                    LOG_DBG(4) << "\t " << h << " : " << v;
-                });
-        }
-
         if (msg->getHeaders().getNumberOfValues("Connection") != 0U) {
             if (msg->getHeaders().rawGet("Connection") == "close") {
                 LOG_DBG(4) << "Received 'Connection: close'";
@@ -1096,7 +1182,7 @@ void HTTPRequest::updateRequestURL(const folly::fbstring &resource)
 folly::Future<folly::IOBufQueue> HTTPGET::operator()(
     const folly::fbstring &resource, const off_t offset, const size_t size)
 {
-    if (size == 0)
+    if (offset > 0 && size == 0)
         return folly::via(m_session->evb, [] {
             return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
         });
@@ -1105,7 +1191,11 @@ folly::Future<folly::IOBufQueue> HTTPGET::operator()(
 
     updateRequestURL(resource);
 
-    if (offset == 0 && size == 1) {
+    if (offset == 0 && size == 0) {
+        m_acceptRangeDetectRequest = true;
+        m_request.getHeaders().add("Range", "bytes=0-0");
+    }
+    else if (offset == 0 && size == 1) {
         m_firstByteRequest = true;
         m_request.getHeaders().add("Range", "bytes=0-1");
     }
@@ -1124,6 +1214,49 @@ folly::Future<folly::IOBufQueue> HTTPGET::operator()(
         });
 }
 #endif
+
+void HTTPGET::processHeaders(
+    const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept
+{
+    try {
+        std::map<folly::fbstring, folly::fbstring> res{};
+
+        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+            // The request is being redirected to another URL
+            m_resultPromise.setException(
+                HTTPFoundException{m_redirectURL.toString()});
+            return;
+        }
+
+        auto result = httpStatusToPosixError(m_resultCode);
+
+        if (result != 0) {
+            m_resultPromise.setException(makePosixException(result));
+        }
+        else {
+            msg->getHeaders().forEach(
+                [&](const std::string &header, const std::string & /*val*/) {
+                    std::string lowercaseHeader{header};
+                    for (char &c : lowercaseHeader)
+                        c = std::tolower(c); // NOLINT
+
+                    res.emplace(std::move(lowercaseHeader),
+                        msg->getHeaders().rawGet(header));
+                });
+
+            m_responseHasContentRange = res.count("content-range") > 0U;
+            m_responseHasContentLength = res.count("content-length") > 0U;
+
+            const bool shouldEmulateRangeRead = m_helper->emulateReadRange();
+
+            if (!responseHasContentRange() && !shouldEmulateRangeRead) {
+                m_resultPromise.setException(makePosixException(ENOTSUP));
+            }
+        }
+    }
+    catch (...) {
+    }
+}
 
 void HTTPGET::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 {
@@ -1168,6 +1301,16 @@ void HTTPGET::onEOM() noexcept
     }
     catch (...) {
     }
+}
+
+bool HTTPGET::responseHasContentLength() const
+{
+    return m_responseHasContentLength;
+}
+
+bool HTTPGET::responseHasContentRange() const
+{
+    return m_responseHasContentRange;
 }
 
 /**
@@ -1215,9 +1358,9 @@ folly::Future<std::map<folly::fbstring, folly::fbstring>> HTTPHEAD::operator()(
 void HTTPHEAD::processHeaders(
     const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept
 {
-    std::map<folly::fbstring, folly::fbstring> res{};
-
     try {
+        std::map<folly::fbstring, folly::fbstring> res{};
+
         if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
             // The request is being redirected to another URL
             m_resultPromise.setException(

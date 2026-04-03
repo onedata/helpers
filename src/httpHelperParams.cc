@@ -50,6 +50,10 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
         parameters, "maxRequestsPerSession", kDefaultMaxRequestsPerSession);
     const auto fileMode = getParam(parameters, "fileMode", "0664");
     const auto dirMode = getParam(parameters, "dirMode", "0775");
+    const auto emulateRangeRead =
+        getParam(parameters, "emulateRangeRead", "false");
+    const auto maxEmulatedRangeReadFileSize = getParam<size_t>(parameters,
+        "maxEmulatedRangeReadFileSize", DEFAULT_MAX_EMULATE_RANGE_FILE_SIZE);
 
     if (authorizationHeader.empty())
         authorizationHeader = kDefaultAuthorizationHeader;
@@ -156,6 +160,8 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
     m_testTokenRefreshMode = (testTokenRefreshMode == "true");
     m_fileMode = parsePosixPermissions(fileMode);
     m_dirMode = parsePosixPermissions(dirMode);
+    m_emulateReadRange = (emulateRangeRead == "true");
+    m_maxEmulatedRangeReadFileSize = maxEmulatedRangeReadFileSize;
 }
 
 const Poco::URI &HTTPHelperParams::endpoint() const { return m_endpoint; }
@@ -164,6 +170,7 @@ bool HTTPHelperParams::verifyServerCertificate() const
 {
     return m_verifyServerCertificate;
 }
+
 HTTPCredentialsType HTTPHelperParams::credentialsType() const
 {
     return m_credentialsType;
@@ -217,5 +224,13 @@ bool HTTPHelperParams::testTokenRefreshMode() const
 mode_t HTTPHelperParams::fileMode() const { return m_fileMode; }
 
 mode_t HTTPHelperParams::dirMode() const { return m_dirMode; }
+
+bool HTTPHelperParams::emulateReadRange() const { return m_emulateReadRange; }
+
+size_t HTTPHelperParams::maxEmulatedRangeReadFileSize() const
+{
+    return m_maxEmulatedRangeReadFileSize;
+}
+
 } // namespace helpers
 } // namespace one

@@ -20,6 +20,8 @@ namespace helpers {
 
 enum class HTTPCredentialsType { NONE, BASIC, TOKEN, OAUTH2 };
 
+constexpr size_t DEFAULT_MAX_EMULATE_RANGE_FILE_SIZE{64 * 1024 * 1024LLU};
+
 /**
  * @c HTTPHelperParams stores the internal helper parameters specific to
  * HTTPHelper.
@@ -58,6 +60,10 @@ public:
 
     mode_t dirMode() const;
 
+    bool emulateReadRange() const;
+
+    size_t maxEmulatedRangeReadFileSize() const;
+
 private:
     Poco::URI m_endpoint;
     bool m_verifyServerCertificate;
@@ -72,6 +78,8 @@ private:
     std::chrono::system_clock::time_point m_createdOn;
     mode_t m_fileMode;
     mode_t m_dirMode;
+    bool m_emulateReadRange;
+    size_t m_maxEmulatedRangeReadFileSize;
 
     // This is for integration tests only
     bool m_testTokenRefreshMode;
