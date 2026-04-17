@@ -270,7 +270,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                     if (!getRequest->responseHasContentRange() ||
                         !getRequest->responseHasContentLength()) {
 
-                        if ((size_t)0 + offset > buf.chainLength())
+                        if (static_cast<size_t>(0) + offset > buf.chainLength())
                             return makeFuturePosixException<folly::IOBufQueue>(
                                 ERANGE);
 
@@ -505,7 +505,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId)
 }
 
 folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
-    const folly::fbstring &fileId, const int retryCount,
+    const folly::fbstring &fileId, const int /*retryCount*/,
     const Poco::URI &redirectURL)
 {
     LOG_FCALL() << LOG_FARG(fileId);
