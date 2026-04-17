@@ -42,7 +42,7 @@ class HTTPHelperProxy {
 public:
     HTTPHelperProxy(std::string endpoint, std::string credentials,
         std::string credentialsType, bool emulateRangeRead = false,
-        size_t maxEmulateRangeReadFileSize = 1024)
+        size_t maxEmulatedRangeReadFileSize = 1024)
         : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               kHTTPHelperThreadCount)}
     {
@@ -56,7 +56,7 @@ public:
         params["connectionPoolSize"] = std::to_string(kHTTPConnectionPoolSize);
         params["emulateRangeRead"] = emulateRangeRead ? "true" : "false";
         params["maxEmulatedRangeReadFileSize"] =
-            std::to_string(maxEmulateRangeReadFileSize);
+            std::to_string(maxEmulatedRangeReadFileSize);
 
         m_helper = std::make_shared<HTTPHelper>(
             HTTPHelperParams::create(params), m_executor);
@@ -100,13 +100,13 @@ private:
 namespace {
 boost::shared_ptr<HTTPHelperProxy> create(std::string endpoint,
     std::string credentials, std::string credentialsType, bool emulateRangeRead,
-    size_t maxEmulateRangeReadFileSize)
+    size_t maxEmulatedRangeReadFileSize)
 {
-    FLAGS_v = 4;
+    FLAGS_v = 0;
 
     return boost::make_shared<HTTPHelperProxy>(std::move(endpoint),
         std::move(credentials), std::move(credentialsType), emulateRangeRead,
-        maxEmulateRangeReadFileSize);
+        maxEmulatedRangeReadFileSize);
 }
 } // namespace
 

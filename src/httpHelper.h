@@ -367,7 +367,7 @@ public:
 
     uint32_t connectionPoolSize() const { return P()->connectionPoolSize(); }
 
-    bool emulateReadRange() const { return P()->emulateReadRange(); }
+    bool emulateRangeRead() const { return P()->emulateRangeRead(); }
 
     size_t maxEmulatedRangeReadFileSize() const
     {

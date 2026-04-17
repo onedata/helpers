@@ -60,7 +60,7 @@ public:
 
     mode_t dirMode() const;
 
-    bool emulateReadRange() const;
+    bool emulateRangeRead() const;
 
     size_t maxEmulatedRangeReadFileSize() const;
 
@@ -78,7 +78,7 @@ private:
     std::chrono::system_clock::time_point m_createdOn;
     mode_t m_fileMode;
     mode_t m_dirMode;
-    bool m_emulateReadRange;
+    bool m_emulateRangeRead;
     size_t m_maxEmulatedRangeReadFileSize;
 
     // This is for integration tests only

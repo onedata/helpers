@@ -574,7 +574,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.http.getattr");
 
     return connect(sessionPoolKey)
-        .thenValue([fileId = effectiveFileId, timer = std::move(timer),
+        .thenValue([effectiveFileId, fileId, timer = std::move(timer),
                        retryCount, redirectURL,
                        s = std::weak_ptr<HTTPHelper>{shared_from_this()}](
                        HTTPSession *session) {
@@ -585,11 +585,11 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
             auto request = std::make_shared<HTTPHEAD>(self.get(), session);
             folly::fbvector<folly::fbstring> propFilter;
 
-            return (*request)(fileId)
+            return (*request)(effectiveFileId)
                 .thenValue(
-                    [&nsMap = self->m_nsMap, fileId, request,
+                    [&nsMap = self->m_nsMap, effectiveFileId, request,
                         fileMode = self->P()->fileMode(),
-                        emulateReadRange = self->emulateReadRange()](
+                        emulateRangeRead = self->emulateRangeRead()](
                         std::map<folly::fbstring, folly::fbstring> &&headers) {
                         if (VLOG_IS_ON(4)) {
                             LOG_DBG(4) << "Got headers:";
@@ -601,7 +601,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                         const bool hasAcceptRangesHeader =
                             headers.count("accept-ranges") > 0 &&
                             headers.at("accept-ranges") == "bytes";
-                        if (!hasAcceptRangesHeader && !emulateReadRange) {
+                        if (!hasAcceptRangesHeader && !emulateRangeRead) {
                             LOG(ERROR) << "Server doesn't support ranges";
                             return makeFuturePosixException<struct stat>(
                                 ENOTSUP);
@@ -645,7 +645,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                     << "Failed to parse resource content "
                                        "length: '"
                                     << headers["content-length"]
-                                    << "' for resource: " << fileId;
+                                    << "' for resource: " << effectiveFileId;
 
                                 attrs.st_size = 0;
                             }
@@ -667,8 +667,9 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                             Poco::URI(redirect.location));
                     })
                 .thenError(folly::tag_t<std::system_error>{},
-                    [=, emulateReadRange = self->emulateReadRange()](auto &&e) {
-                        if (e.code().value() == ENOTSUP && emulateReadRange) {
+                    [self, fileId, redirectURL, retryCount,
+                        emulateRangeRead = self->emulateRangeRead()](auto &&e) {
+                        if (e.code().value() == ENOTSUP && emulateRangeRead) {
                             // Try to download up to
                             // maxEmulatedRangeReadFileSize
                             return self->getattrEmulateRange(
@@ -1229,25 +1230,24 @@ void HTTPGET::processHeaders(
         }
 
         auto result = httpStatusToPosixError(m_resultCode);
+        msg->getHeaders().forEach(
+            [&](const std::string &header, const std::string & /*val*/) {
+                std::string lowercaseHeader{header};
+                for (char &c : lowercaseHeader)
+                    c = std::tolower(c); // NOLINT
+
+                res.emplace(std::move(lowercaseHeader),
+                    msg->getHeaders().rawGet(header));
+            });
 
         if (result != 0) {
             m_resultPromise.setException(makePosixException(result));
         }
         else {
-            msg->getHeaders().forEach(
-                [&](const std::string &header, const std::string & /*val*/) {
-                    std::string lowercaseHeader{header};
-                    for (char &c : lowercaseHeader)
-                        c = std::tolower(c); // NOLINT
-
-                    res.emplace(std::move(lowercaseHeader),
-                        msg->getHeaders().rawGet(header));
-                });
-
             m_responseHasContentRange = res.count("content-range") > 0U;
             m_responseHasContentLength = res.count("content-length") > 0U;
 
-            const bool shouldEmulateRangeRead = m_helper->emulateReadRange();
+            const bool shouldEmulateRangeRead = m_helper->emulateRangeRead();
 
             if (!responseHasContentRange() && !shouldEmulateRangeRead) {
                 m_resultPromise.setException(makePosixException(ENOTSUP));
@@ -1370,20 +1370,20 @@ void HTTPHEAD::processHeaders(
 
         auto result = httpStatusToPosixError(m_resultCode);
 
+        msg->getHeaders().forEach(
+            [&](const std::string &header, const std::string & /*val*/) {
+                std::string lowercaseHeader{header};
+                for (char &c : lowercaseHeader)
+                    c = std::tolower(c); // NOLINT
+
+                res.emplace(std::move(lowercaseHeader),
+                    msg->getHeaders().rawGet(header));
+            });
+
         if (result != 0) {
             m_resultPromise.setException(makePosixException(result));
         }
         else {
-            msg->getHeaders().forEach(
-                [&](const std::string &header, const std::string & /*val*/) {
-                    std::string lowercaseHeader{header};
-                    for (char &c : lowercaseHeader)
-                        c = std::tolower(c); // NOLINT
-
-                    res.emplace(std::move(lowercaseHeader),
-                        msg->getHeaders().rawGet(header));
-                });
-
             m_resultPromise.setValue(std::move(res));
         }
     }

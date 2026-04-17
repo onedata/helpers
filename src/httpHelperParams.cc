@@ -160,7 +160,7 @@ void HTTPHelperParams::initializeFromParams(const Params &parameters)
     m_testTokenRefreshMode = (testTokenRefreshMode == "true");
     m_fileMode = parsePosixPermissions(fileMode);
     m_dirMode = parsePosixPermissions(dirMode);
-    m_emulateReadRange = (emulateRangeRead == "true");
+    m_emulateRangeRead = (emulateRangeRead == "true");
     m_maxEmulatedRangeReadFileSize = maxEmulatedRangeReadFileSize;
 }
 
@@ -225,7 +225,7 @@ mode_t HTTPHelperParams::fileMode() const { return m_fileMode; }
 
 mode_t HTTPHelperParams::dirMode() const { return m_dirMode; }
 
-bool HTTPHelperParams::emulateReadRange() const { return m_emulateReadRange; }
+bool HTTPHelperParams::emulateRangeRead() const { return m_emulateRangeRead; }
 
 size_t HTTPHelperParams::maxEmulatedRangeReadFileSize() const
 {
