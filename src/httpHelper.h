@@ -577,6 +577,9 @@ private:
     // request properly, in which case we have to download the first 2
     // bytes i.e. "Range: bytes=0-1", and then return the first byte
     bool m_firstByteRequest{false};
+
+    off_t m_requestOffset{};
+    size_t m_requestSize{};
 };
 
 /**

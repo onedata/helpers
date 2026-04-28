@@ -27,6 +27,7 @@
 #include <openssl/ssl.h>
 
 #include <functional>
+#include <regex>
 
 namespace one {
 namespace helpers {
@@ -140,6 +141,38 @@ inline std::string ensureHttpPath(const folly::fbstring &path)
 
     return folly::sformat("{}", result);
 }
+
+struct ContentRange {
+    off_t first{};
+    off_t last{};
+    size_t total{}; // 0 when total is "*"
+};
+
+bool parseContentRange(const folly::fbstring &s, ContentRange &r)
+{
+    static const std::regex re(
+        R"(^\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$)", std::regex::icase);
+
+    std::smatch m;
+    const std::string headerValue = s.toStdString();
+    if (!std::regex_match(headerValue, m, re)) {
+        return false;
+    }
+
+    r.first = std::stoull(m[1].str());
+    r.last = std::stoull(m[2].str());
+
+    if (r.last < r.first) {
+        return false;
+    }
+
+    if (m[3].str() != "*") {
+        r.total = std::stoull(m[3].str());
+    }
+
+    return true;
+}
+
 } // namespace
 
 void HTTPSession::reset()
@@ -1189,6 +1222,8 @@ folly::Future<folly::IOBufQueue> HTTPGET::operator()(
         });
 
     m_request.setMethod("GET");
+    m_requestOffset = offset;
+    m_requestSize = size;
 
     updateRequestURL(resource);
 
@@ -1244,7 +1279,17 @@ void HTTPGET::processHeaders(
             m_resultPromise.setException(makePosixException(result));
         }
         else {
-            m_responseHasContentRange = res.count("content-range") > 0U;
+            if (res.count("content-range") > 0U) {
+                // Check if the returned content-range is valid and matches
+                // the request
+                ContentRange contentRange;
+                auto isValid =
+                    parseContentRange(res.at("content-range"), contentRange);
+                m_responseHasContentRange = isValid &&
+                    contentRange.first == m_requestOffset &&
+                    contentRange.total <= m_requestSize;
+            }
+
             m_responseHasContentLength = res.count("content-length") > 0U;
 
             const bool shouldEmulateRangeRead = m_helper->emulateRangeRead();
