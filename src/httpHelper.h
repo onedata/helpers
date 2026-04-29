@@ -580,6 +580,11 @@ private:
 
     off_t m_requestOffset{};
     size_t m_requestSize{};
+
+    // This flag is set to true when downloaded bytes exceeded the requested
+    // amount of bytes, this can happen on servers that don't properly handle
+    // range requests.
+    bool m_downloadOverflow{};
 };
 
 /**

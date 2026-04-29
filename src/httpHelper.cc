@@ -570,8 +570,7 @@ folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
 
             const Poco::DateTime dateTime;
 
-            struct stat attrs {
-            };
+            struct stat attrs { };
             attrs.st_mode = S_IFREG;
 
             attrs.st_atim.tv_sec = attrs.st_mtim.tv_sec = attrs.st_ctim.tv_sec =
@@ -635,7 +634,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                             headers.count("accept-ranges") > 0 &&
                             headers.at("accept-ranges") == "bytes";
                         if (!hasAcceptRangesHeader && !emulateRangeRead) {
-                            LOG(ERROR) << "Server doesn't support ranges";
+                            LOG_DBG(2) << "Server doesn't support ranges";
                             return makeFuturePosixException<struct stat>(
                                 ENOTSUP);
                         }
@@ -650,8 +649,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                 ENOTSUP);
                         }
 
-                        struct stat attrs {
-                        };
+                        struct stat attrs { };
                         attrs.st_mode = S_IFREG | fileMode;
 
                         if (headers.find("last-modified") != headers.end()) {
@@ -1134,6 +1132,7 @@ void HTTPRequest::detachTransaction() noexcept
             m_session = nullptr;
         }
         m_destructionGuard.reset();
+        m_txn = nullptr;
     }
     catch (...) {
     }
@@ -1305,13 +1304,45 @@ void HTTPGET::processHeaders(
 
 void HTTPGET::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 {
-    m_resultBody->append(std::move(chain));
+    try {
+        m_resultBody->append(std::move(chain));
+
+        bool isOverflow{false};
+
+        if (m_helper->emulateRangeRead()) {
+            isOverflow =
+                m_resultBody->chainLength() > m_requestOffset + m_requestSize;
+        }
+        else {
+            isOverflow = m_resultBody->chainLength() > m_requestSize;
+        }
+
+        if (m_txn != nullptr && isOverflow) {
+            LOG_DBG(2) << "HTTP helper received more bytes than requested ("
+                       << m_resultBody->chainLength()
+                       << ") - canceling download";
+
+            m_downloadOverflow = true;
+            m_txn->getTransport().sendAbort(m_txn, proxygen::ErrorCode::CANCEL);
+            return;
+        }
+    }
+    catch (...) {
+    }
 }
 
 void HTTPGET::onError(const proxygen::HTTPException &error) noexcept
 {
     try {
-        m_resultPromise.setException(error);
+        if (m_downloadOverflow) {
+            LOG_DBG(2) << "Downloaded more bytes than requested - terminating "
+                          "ingress early";
+
+            m_resultPromise.setValue(std::move(*m_resultBody));
+        }
+        else {
+            m_resultPromise.setException(error);
+        }
     }
     catch (...) {
     }

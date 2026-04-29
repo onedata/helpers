@@ -42,16 +42,20 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urlparse(self.path)
 
-        if parsed_path.path == "/with_ranges":
-            self.handle_with_ranges()
-        elif parsed_path.path == "/without_ranges":
-            self.handle_without_ranges()
-        elif parsed_path.path == "/without_ranges_without_content_length":
-            self.handle_without_ranges_without_content_length()
-        elif parsed_path.path == "/chunked":
-            self.handle_chunked()
-        else:
-            self.send_error(404, "Not Found")
+
+        try:
+            if parsed_path.path == "/with_ranges":
+                self.handle_with_ranges()
+            elif parsed_path.path == "/without_ranges":
+                self.handle_without_ranges()
+            elif parsed_path.path == "/without_ranges_without_content_length":
+                self.handle_without_ranges_without_content_length()
+            elif parsed_path.path == "/chunked":
+                self.handle_chunked()
+            else:
+                self.send_error(404, "Not Found")
+        except ConnectionResetError as e:
+            pass
 
     def do_HEAD(self):
         parsed_path = urlparse(self.path)
