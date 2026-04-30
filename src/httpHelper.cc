@@ -570,7 +570,8 @@ folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
 
             const Poco::DateTime dateTime;
 
-            struct stat attrs { };
+            struct stat attrs {
+            };
             attrs.st_mode = S_IFREG;
 
             attrs.st_atim.tv_sec = attrs.st_mtim.tv_sec = attrs.st_ctim.tv_sec =
@@ -649,7 +650,8 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
                                 ENOTSUP);
                         }
 
-                        struct stat attrs { };
+                        struct stat attrs {
+                        };
                         attrs.st_mode = S_IFREG | fileMode;
 
                         if (headers.find("last-modified") != headers.end()) {
@@ -772,8 +774,7 @@ folly::Future<HTTPSession *> HTTPHelper::connect(HTTPSessionPoolKey key)
     if (!idleSessionAvailable) {
         LOG(ERROR)
             << "HTTP idle session connection pool empty - delaying request "
-               "by "
-               "10ms. In case this message shows frequently, consider "
+               "by 10ms. In case this message shows frequently, consider "
                "increasing connectionPoolSize for the given storage.";
         const auto kHTTPIdleSessionWaitDelay = 10UL;
         return folly::makeFuture()
