@@ -142,11 +142,9 @@ inline std::string ensureHttpPath(const folly::fbstring &path)
     return folly::sformat("{}", result);
 }
 
-struct ContentRange {
-    off_t first{};
-    off_t last{};
-    size_t total{}; // 0 when total is "*"
-};
+} // namespace
+
+namespace detail {
 
 bool parseContentRange(const folly::fbstring &s, ContentRange &r)
 {
@@ -173,7 +171,7 @@ bool parseContentRange(const folly::fbstring &s, ContentRange &r)
     return true;
 }
 
-} // namespace
+} // namespace detail
 
 void HTTPSession::reset()
 {
@@ -1282,9 +1280,9 @@ void HTTPGET::processHeaders(
             if (res.count("content-range") > 0U) {
                 // Check if the returned content-range is valid and matches
                 // the request
-                ContentRange contentRange;
-                auto isValid =
-                    parseContentRange(res.at("content-range"), contentRange);
+                detail::ContentRange contentRange;
+                auto isValid = detail::parseContentRange(
+                    res.at("content-range"), contentRange);
                 m_responseHasContentRange = isValid &&
                     contentRange.first == m_requestOffset &&
                     contentRange.total <= m_requestSize;

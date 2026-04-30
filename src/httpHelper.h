@@ -706,5 +706,17 @@ private:
     std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
+namespace detail {
+
+struct ContentRange {
+    off_t first{};
+    off_t last{};
+    size_t total{}; // 0 when total is "*"
+};
+
+bool parseContentRange(const folly::fbstring &s, ContentRange &r);
+
+} // namespace detail
+
 } // namespace helpers
 } // namespace one
