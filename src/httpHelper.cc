@@ -562,7 +562,8 @@ folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
         .thenValue([maxReadSize, fileId](auto &&fileHandlePtr) {
             return fileHandlePtr->read(0, maxReadSize + 1);
         })
-        .thenValue([maxReadSize, fileId](auto &&bytes) {
+        .thenValue([maxReadSize, fileId, fileMode = P()->fileMode()](
+                       auto &&bytes) {
             if (bytes.chainLength() > maxReadSize)
                 return makeFuturePosixException<struct stat>(EFBIG);
 
@@ -570,7 +571,7 @@ folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
 
             struct stat attrs {
             };
-            attrs.st_mode = S_IFREG;
+            attrs.st_mode = S_IFREG | fileMode;
 
             attrs.st_atim.tv_sec = attrs.st_mtim.tv_sec = attrs.st_ctim.tv_sec =
                 dateTime.timestamp().epochTime();
