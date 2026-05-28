@@ -149,11 +149,12 @@ namespace detail {
 bool parseContentRange(const folly::fbstring &s, ContentRange &r)
 {
     static const std::regex re(
-        R"(^\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$)", std::regex::icase);
+        R"(^\s*(?:bytes\s+)?(\d+)-(\d+)/(\d+|\*)\s*$)", std::regex::icase);
 
     std::smatch m;
     const std::string headerValue = s.toStdString();
     if (!std::regex_match(headerValue, m, re)) {
+        LOG_DBG(1) << "Server returned content range but it is invalid";
         return false;
     }
 
@@ -161,6 +162,7 @@ bool parseContentRange(const folly::fbstring &s, ContentRange &r)
     r.last = std::stoull(m[2].str());
 
     if (r.last < r.first) {
+        LOG_DBG(1) << "Server returned content range but it is reversed";
         return false;
     }
 
@@ -1170,6 +1172,14 @@ void HTTPRequest::onHeadersComplete(
         }
         m_resultCode = msg->getStatusCode();
 
+        if (VLOG_IS_ON(4)) {
+            LOG_DBG(4) << "Got headers:";
+            msg->getHeaders().forEach(
+                [](const std::string &header, const std::string &val) {
+                    LOG_DBG(4) << "\t ___ " << header << " : " << val;
+                });
+        }
+
         processHeaders(msg);
     }
     catch (...) {
@@ -1284,9 +1294,8 @@ void HTTPGET::processHeaders(
                 detail::ContentRange contentRange;
                 auto isValid = detail::parseContentRange(
                     res.at("content-range"), contentRange);
-                m_responseHasContentRange = isValid &&
-                    contentRange.first == m_requestOffset &&
-                    contentRange.total <= m_requestSize;
+                m_responseHasContentRange =
+                    isValid && contentRange.first == m_requestOffset;
             }
 
             m_responseHasContentLength = res.count("content-length") > 0U;

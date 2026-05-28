@@ -85,13 +85,21 @@ TEST_F(HTTPHelperTest, parseContentRangeShouldParseSingleByteRange)
     EXPECT_EQ(r.total, 100U);
 }
 
+TEST_F(HTTPHelperTest, parseContentRangeShouldParseRangeWithoutUnits)
+{
+    detail::ContentRange r;
+    EXPECT_TRUE(detail::parseContentRange("1024-2048/36772086", r));
+    EXPECT_EQ(r.first, 1024);
+    EXPECT_EQ(r.last, 2048);
+    EXPECT_EQ(r.total, 36772086U);
+}
+
 TEST_F(HTTPHelperTest, parseContentRangeShouldRejectInvalidFormat)
 {
     detail::ContentRange r;
     EXPECT_FALSE(detail::parseContentRange("", r));
     EXPECT_FALSE(detail::parseContentRange("invalid", r));
     EXPECT_FALSE(detail::parseContentRange("bytes 0-499", r));
-    EXPECT_FALSE(detail::parseContentRange("0-499/1234", r));
     EXPECT_FALSE(detail::parseContentRange("bytes/0-499/1234", r));
 }
 
