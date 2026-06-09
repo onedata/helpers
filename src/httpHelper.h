@@ -324,6 +324,10 @@ public:
     folly::Future<struct stat> getattr(const folly::fbstring &fileId,
         const int retryCount, const Poco::URI &redirectURL = {});
 
+    folly::Future<struct stat> getattrEmulateRange(
+        const folly::fbstring &fileId, const int retryCount,
+        const Poco::URI &redirectURL = {});
+
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int /*flags*/, const Params & /*openParams*/) override;
 
@@ -362,6 +366,13 @@ public:
     }
 
     uint32_t connectionPoolSize() const { return P()->connectionPoolSize(); }
+
+    bool emulateRangeRead() const { return P()->emulateRangeRead(); }
+
+    size_t maxEmulatedRangeReadFileSize() const
+    {
+        return P()->maxEmulatedRangeReadFileSize();
+    }
 
     /**
      * Returns a HTTPSession instance to the idle connection pool
@@ -484,6 +495,12 @@ public:
 
     proxygen::HTTPMessage &request() { return m_request; }
 
+    /**
+     * Custom handler for headers to be overridden by specific HTTP method
+     * handlers.
+     *
+     * @param msg
+     */
     virtual void processHeaders(
         const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept {};
 
@@ -542,13 +559,32 @@ public:
     void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override;
     void onError(const proxygen::HTTPException &error) noexcept override;
 
+    void processHeaders(
+        const std::unique_ptr<proxygen::HTTPMessage> &msg) noexcept override;
+
+    bool responseHasContentLength() const;
+    bool responseHasContentRange() const;
+
 private:
     folly::Promise<folly::IOBufQueue> m_resultPromise;
+
+    bool m_acceptRangeDetectRequest{false};
+
+    bool m_responseHasContentLength{false};
+    bool m_responseHasContentRange{false};
 
     // Some HTTP server implementations do not handle "Range: bytes=0-0"
     // request properly, in which case we have to download the first 2
     // bytes i.e. "Range: bytes=0-1", and then return the first byte
     bool m_firstByteRequest{false};
+
+    off_t m_requestOffset{};
+    size_t m_requestSize{};
+
+    // This flag is set to true when downloaded bytes exceeded the requested
+    // amount of bytes, this can happen on servers that don't properly handle
+    // range requests.
+    bool m_downloadOverflow{};
 };
 
 /**
@@ -669,6 +705,18 @@ public:
 private:
     std::shared_ptr<folly::IOExecutor> m_executor;
 };
+
+namespace detail {
+
+struct ContentRange {
+    off_t first{};
+    off_t last{};
+    size_t total{}; // 0 when total is "*"
+};
+
+bool parseContentRange(const folly::fbstring &s, ContentRange &r);
+
+} // namespace detail
 
 } // namespace helpers
 } // namespace one
