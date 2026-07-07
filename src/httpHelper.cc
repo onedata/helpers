@@ -300,14 +300,29 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                -> folly::Future<folly::IOBufQueue> {
                     ONE_METRIC_TIMERCTX_STOP(timer, buf.chainLength());
 
-                    if (static_cast<size_t>(0) + offset > buf.chainLength())
-                        return makeFuturePosixException<folly::IOBufQueue>(
-                            ERANGE);
+                    if (!getRequest->responseHasContentRange() ||
+                        !getRequest->responseHasContentLength()) {
 
-                    buf.trimStart(offset);
+                        // In emulate range mode we download the file from the
+                        // beginning, so we need to trim the file from the
+                        // buffer starting at offset and taking size bytes
+                        if (static_cast<size_t>(0) + offset > buf.chainLength())
+                            return makeFuturePosixException<folly::IOBufQueue>(
+                                ERANGE);
+
+                        buf.trimStart(offset);
+                        folly::IOBufQueue res{
+                            folly::IOBufQueue::cacheChainLength()};
+                        res.append(std::move(buf).splitAtMost(size));
+                        return res;
+                    }
+
+                    // In case a regular server returned more data than
+                    // requested trim it to the requested size
                     folly::IOBufQueue res{
                         folly::IOBufQueue::cacheChainLength()};
                     res.append(std::move(buf).splitAtMost(size));
+
                     return res;
                 });
         });
