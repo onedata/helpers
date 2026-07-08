@@ -1317,7 +1317,17 @@ void HTTPGET::processHeaders(
 
             const bool shouldEmulateRangeRead = m_helper->emulateRangeRead();
 
-            if (!responseHasContentRange() && !shouldEmulateRangeRead) {
+            // A server which supports byte ranges may still ignore an
+            // invalid or unsatisfiable Range header (e.g. crossing EOF)
+            // and respond with 200 and the entire resource body - in such
+            // case the requested range is trimmed from the full body
+            const bool serverIgnoredRange =
+                static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::OK &&
+                res.count("accept-ranges") > 0U &&
+                res.at("accept-ranges") == "bytes";
+
+            if (!responseHasContentRange() && !shouldEmulateRangeRead &&
+                !serverIgnoredRange) {
                 m_resultPromise.setException(makePosixException(ENOTSUP));
             }
         }
@@ -1333,7 +1343,11 @@ void HTTPGET::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept
 
         bool isOverflow{false};
 
-        if (m_helper->emulateRangeRead()) {
+        if (m_helper->emulateRangeRead() || !m_responseHasContentRange) {
+            // Without a valid content-range the body starts at the
+            // beginning of the resource, so the requested range has to be
+            // trimmed from the full body - up to offset + size bytes are
+            // needed
             isOverflow =
                 m_resultBody->chainLength() > m_requestOffset + m_requestSize;
         }
