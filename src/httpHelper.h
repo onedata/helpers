@@ -50,6 +50,8 @@ constexpr auto kHTTPVersionMinor = 1;
 constexpr auto kHTTPRetryCount = 6;
 const auto kHTTPRetryMinimumDelay = std::chrono::milliseconds{5}; // NOLINT
 
+const auto kHTTPHelperEmulateRangeReadBlockSize = 10 * 1024 * 1024ULL;
+
 /**
  * HTTP Status Codes
  */
@@ -330,6 +332,9 @@ public:
 
     folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int /*flags*/, const Params & /*openParams*/) override;
+
+    folly::Future<std::size_t> blockSizeForPath(
+        const folly::fbstring &fileId) override;
 
     /**
      * Establishes connection to the HTTP storage cluster.
