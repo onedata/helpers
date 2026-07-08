@@ -237,7 +237,48 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                 getRequest->setRedirectURL(redirectURL);
             }
 
+            // NOTE: the trimming continuation must be attached directly to
+            // the request future, so that it is only applied to a direct
+            // response of this request - results of redirected or retried
+            // requests (executed in the error continuations below) are
+            // already trimmed and must be returned unmodified
             return (*getRequest)(fileId, offset, size)
+                .thenValue([timer = std::move(timer), getRequest, offset, size,
+                               helper](folly::IOBufQueue &&buf)
+                               -> folly::Future<folly::IOBufQueue> {
+                    ONE_METRIC_TIMERCTX_STOP(timer, buf.chainLength());
+
+                    if (!getRequest->responseHasContentRange() ||
+                        !getRequest->responseHasContentLength()) {
+
+                        // In emulate range mode we download the file from the
+                        // beginning, so we need to trim the file from the
+                        // buffer starting at offset and taking size bytes
+                        if (static_cast<size_t>(0) + offset >
+                            buf.chainLength()) {
+                            // Reading at or past EOF - return an empty
+                            // buffer (POSIX read of 0 bytes), this also
+                            // covers 416 responses already converted to an
+                            // empty buffer upstream
+                            return folly::IOBufQueue{
+                                folly::IOBufQueue::cacheChainLength()};
+                        }
+
+                        buf.trimStart(offset);
+                        folly::IOBufQueue res{
+                            folly::IOBufQueue::cacheChainLength()};
+                        res.append(std::move(buf).splitAtMost(size));
+                        return res;
+                    }
+
+                    // In case a regular server returned more data than
+                    // requested trim it to the requested size
+                    folly::IOBufQueue res{
+                        folly::IOBufQueue::cacheChainLength()};
+                    res.append(std::move(buf).splitAtMost(size));
+
+                    return res;
+                })
                 .thenError(folly::tag_t<HTTPFoundException>{},
                     [fileId, self, offset, size, retryCount](auto &&redirect) {
                         LOG_DBG(2) << "Redirecting HTTP read request of file "
@@ -294,43 +335,7 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                                    << " due to " << e.what();
                         return makeFuturePosixException<folly::IOBufQueue>(
                             e.code().value());
-                    })
-                .thenValue([timer = std::move(timer), getRequest, offset, size,
-                               helper](folly::IOBufQueue &&buf)
-                               -> folly::Future<folly::IOBufQueue> {
-                    ONE_METRIC_TIMERCTX_STOP(timer, buf.chainLength());
-
-                    if (!getRequest->responseHasContentRange() ||
-                        !getRequest->responseHasContentLength()) {
-
-                        // In emulate range mode we download the file from the
-                        // beginning, so we need to trim the file from the
-                        // buffer starting at offset and taking size bytes
-                        if (static_cast<size_t>(0) + offset >
-                            buf.chainLength()) {
-                            // Reading at or past EOF - return an empty
-                            // buffer (POSIX read of 0 bytes), this also
-                            // covers 416 responses already converted to an
-                            // empty buffer upstream
-                            return folly::IOBufQueue{
-                                folly::IOBufQueue::cacheChainLength()};
-                        }
-
-                        buf.trimStart(offset);
-                        folly::IOBufQueue res{
-                            folly::IOBufQueue::cacheChainLength()};
-                        res.append(std::move(buf).splitAtMost(size));
-                        return res;
-                    }
-
-                    // In case a regular server returned more data than
-                    // requested trim it to the requested size
-                    folly::IOBufQueue res{
-                        folly::IOBufQueue::cacheChainLength()};
-                    res.append(std::move(buf).splitAtMost(size));
-
-                    return res;
-                });
+                    });
         });
 }
 
