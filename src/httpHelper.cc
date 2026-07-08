@@ -406,6 +406,16 @@ folly::Future<FileHandlePtr> HTTPHelper::open(const folly::fbstring &fileId,
     return folly::makeFuture(handle);
 }
 
+folly::Future<std::size_t> HTTPHelper::blockSizeForPath(
+    const folly::fbstring & /*fileId*/)
+{
+    if (emulateRangeRead())
+        return blockSize() > 0 ? blockSize()
+                               : kHTTPHelperEmulateRangeReadBlockSize;
+
+    return 0;
+}
+
 std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
     const folly::fbstring &fileId) const
 {
@@ -420,8 +430,8 @@ std::pair<HTTPSessionPoolKey, folly::fbstring> HTTPHelper::relativizeURI(
         if (fileURI.getHost() == endpoint.getHost() &&
             fileURI.getPort() == endpoint.getPort() &&
             fileURI.getScheme() == endpoint.getScheme()) {
-            // This is a request using an absolute URL to the registered host
-            // Relativize the path and use registered credentials
+            // This is a request using an absolute URL to the registered
+            // host Relativize the path and use registered credentials
             sessionPoolKey = HTTPSessionPoolKey{fileURI.getHost(),
                 fileURI.getPort(), false, fileURI.getScheme() == "https"};
             if (endpoint.getPath().empty())
