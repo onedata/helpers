@@ -306,9 +306,15 @@ folly::Future<folly::IOBufQueue> HTTPFileHandle::read(const off_t offset,
                         // In emulate range mode we download the file from the
                         // beginning, so we need to trim the file from the
                         // buffer starting at offset and taking size bytes
-                        if (static_cast<size_t>(0) + offset > buf.chainLength())
-                            return makeFuturePosixException<folly::IOBufQueue>(
-                                ERANGE);
+                        if (static_cast<size_t>(0) + offset >
+                            buf.chainLength()) {
+                            // Reading at or past EOF - return an empty
+                            // buffer (POSIX read of 0 bytes), this also
+                            // covers 416 responses already converted to an
+                            // empty buffer upstream
+                            return folly::IOBufQueue{
+                                folly::IOBufQueue::cacheChainLength()};
+                        }
 
                         buf.trimStart(offset);
                         folly::IOBufQueue res{
