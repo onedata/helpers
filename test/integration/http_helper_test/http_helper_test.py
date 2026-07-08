@@ -52,24 +52,72 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
                 self.handle_without_ranges_without_content_length()
             elif parsed_path.path == "/chunked":
                 self.handle_chunked()
+            elif parsed_path.path == "/with_ranges_conformant":
+                self.handle_with_ranges_conformant()
+            elif parsed_path.path == "/with_ranges_extra_data":
+                self.handle_with_ranges_extra_data()
+            elif parsed_path.path == "/with_ranges_from_zero":
+                self.handle_with_ranges_from_zero()
+            elif parsed_path.path == "/with_ranges_star_total":
+                self.handle_with_ranges_star_total()
+            elif parsed_path.path == "/empty_file":
+                self.handle_empty_file()
+            elif parsed_path.path == "/empty_file_no_ranges":
+                self.handle_empty_file_no_ranges()
+            elif parsed_path.path == "/redirect":
+                self.handle_redirect()
+            elif parsed_path.path == "/accept_ranges_none":
+                self.handle_accept_ranges_none()
+            elif parsed_path.path == "/head_no_content_length":
+                self.handle_head_no_content_length()
             else:
                 self.send_error(404, "Not Found")
-        except ConnectionResetError as e:
+        except ConnectionError as e:
             pass
 
     def do_HEAD(self):
         parsed_path = urlparse(self.path)
 
-        if parsed_path.path == "/with_ranges":
-            self.handle_with_ranges_head()
-        elif parsed_path.path == "/without_ranges":
-            self.handle_without_ranges_head()
-        elif parsed_path.path == "/without_ranges_without_content_length":
-            self.send_error(405, "Method Not Allowed")
-        elif parsed_path.path == "/chunked":
-            self.handle_chunked_head()
-        else:
-            self.send_error(404, "Not Found")
+        try:
+            if parsed_path.path == "/with_ranges":
+                self.handle_with_ranges_head()
+            elif parsed_path.path == "/without_ranges":
+                self.handle_without_ranges_head()
+            elif parsed_path.path == "/without_ranges_without_content_length":
+                self.send_error(405, "Method Not Allowed")
+            elif parsed_path.path == "/chunked":
+                self.handle_chunked_head()
+            elif parsed_path.path in ("/with_ranges_conformant",
+                                      "/with_ranges_extra_data",
+                                      "/with_ranges_from_zero",
+                                      "/with_ranges_star_total"):
+                self.handle_with_ranges_head()
+            elif parsed_path.path == "/empty_file":
+                self.handle_empty_file_head()
+            elif parsed_path.path == "/empty_file_no_ranges":
+                self.handle_empty_file_no_ranges_head()
+            elif parsed_path.path == "/redirect":
+                self.handle_redirect()
+            elif parsed_path.path == "/accept_ranges_none":
+                self.handle_accept_ranges_none_head()
+            elif parsed_path.path == "/head_no_content_length":
+                self.handle_head_no_content_length_head()
+            else:
+                self.send_error(404, "Not Found")
+        except ConnectionError as e:
+            pass
+
+    def parse_range_header(self, content_length):
+        range_header = self.headers.get('Range')
+        if not range_header:
+            return None
+        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if not range_match:
+            return None
+        start = int(range_match.group(1))
+        end = int(range_match.group(2)) if range_match.group(2) \
+            else content_length - 1
+        return (start, end)
 
     def handle_with_ranges(self):
         content = self.alphabet_content.encode('utf-8')
@@ -102,6 +150,204 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
         self.wfile.write(content)
+
+    def handle_with_ranges_conformant(self):
+        """Fully RFC 7233 conformant server: clamps range end to resource
+        size and returns 416 for unsatisfiable ranges."""
+        content = self.alphabet_content.encode('utf-8')
+        content_length = len(content)
+
+        r = self.parse_range_header(content_length)
+        if r:
+            start, end = r
+            if start >= content_length:
+                self.send_response(416)
+                self.send_header('Content-Range', f'bytes */{content_length}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+
+            end = min(end, content_length - 1)
+            partial_content = content[start:end + 1]
+
+            self.send_response(206)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(len(partial_content)))
+            self.send_header('Content-Range',
+                             f'bytes {start}-{end}/{content_length}')
+            self.end_headers()
+            self.wfile.write(partial_content)
+            return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(content_length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_with_ranges_extra_data(self):
+        """Broken server: returns correct Content-Range header for the
+        requested range, but the body contains more data than requested
+        (everything from start until EOF)."""
+        content = self.alphabet_content.encode('utf-8')
+        content_length = len(content)
+
+        r = self.parse_range_header(content_length)
+        if r:
+            start, end = r
+            end = min(end, content_length - 1)
+            if start < content_length:
+                body = content[start:]
+
+                self.send_response(206)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Content-Range',
+                                 f'bytes {start}-{end}/{content_length}')
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(content_length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_with_ranges_from_zero(self):
+        """Broken server: responds to any Range request with 206 but
+        always returns the entire resource from the beginning, with an
+        honest Content-Range header starting at 0."""
+        content = self.alphabet_content.encode('utf-8')
+        content_length = len(content)
+
+        r = self.parse_range_header(content_length)
+        if r:
+            self.send_response(206)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Length', str(content_length))
+            self.send_header('Content-Range',
+                             f'bytes 0-{content_length - 1}/{content_length}')
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(content_length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_with_ranges_star_total(self):
+        """Server which returns valid range responses but with unknown
+        total size in Content-Range header (bytes X-Y/*)."""
+        content = self.alphabet_content.encode('utf-8')
+        content_length = len(content)
+
+        r = self.parse_range_header(content_length)
+        if r:
+            start, end = r
+            end = min(end, content_length - 1)
+            if start < content_length:
+                partial_content = content[start:end + 1]
+
+                self.send_response(206)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Content-Length',
+                                 str(len(partial_content)))
+                self.send_header('Content-Range', f'bytes {start}-{end}/*')
+                self.end_headers()
+                self.wfile.write(partial_content)
+                return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(content_length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_empty_file(self):
+        """Zero-length resource on a range-supporting server. Any Range
+        request on an empty resource is unsatisfiable -> 416."""
+        if self.headers.get('Range'):
+            self.send_response(416)
+            self.send_header('Content-Range', 'bytes */0')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', '0')
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
+
+    def handle_empty_file_head(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', '0')
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
+
+    def handle_empty_file_no_ranges(self):
+        """Zero-length resource on a server which ignores Range headers."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def handle_empty_file_no_ranges_head(self):
+        self.handle_empty_file_no_ranges()
+
+    def handle_redirect(self):
+        """Redirects (302) to /with_ranges."""
+        self.send_response(302)
+        self.send_header(
+            'Location',
+            f'http://127.0.0.1:{MOCK_HTTP_SERVER_PORT}/with_ranges')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def handle_accept_ranges_none(self):
+        """Server explicitly declaring 'Accept-Ranges: none', ignoring
+        Range headers in GET requests."""
+        content = self.alphabet_content.encode('utf-8')
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(len(content)))
+        self.send_header('Accept-Ranges', 'none')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_accept_ranges_none_head(self):
+        content = self.alphabet_content.encode('utf-8')
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(len(content)))
+        self.send_header('Accept-Ranges', 'none')
+        self.end_headers()
+
+    def handle_head_no_content_length(self):
+        """Server which advertises range support in HEAD but returns no
+        Content-Length, and ignores Range headers in GET requests."""
+        content = self.alphabet_content.encode('utf-8')
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_head_no_content_length_head(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Accept-Ranges', 'bytes')
+        self.end_headers()
 
     def handle_without_ranges(self):
         content = self.alphabet_content.encode('utf-8')
@@ -478,3 +724,419 @@ def test_read_should_emulate_range_read_with_chunked_encoding(mock_helper_emulat
     data = mock_helper_emulate_range_read.read(f, 10, 15)
 
     assert len(data) == 15
+
+
+ALPHABET = b"abcdefghijklmnopqrstuvwxyz"
+
+
+def alphabet_pattern(size):
+    """Content served by /without_ranges_without_content_length?size=N"""
+    return (ALPHABET * (size // len(ALPHABET) + 1))[:size]
+
+
+def mock_url(path):
+    return f'http://127.0.0.1:{MOCK_HTTP_SERVER_PORT}{path}'
+
+
+#
+# Range server - data correctness tests
+#
+def test_read_should_return_correct_range_data(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_read_should_return_first_byte(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges'), 0, 1)
+
+    assert data == b"a"
+
+
+def test_read_should_return_last_byte(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges'), 25, 1)
+
+    assert data == b"z"
+
+
+def test_read_zero_size_should_return_empty(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges'), 0, 0)
+
+    assert data == b""
+
+
+def test_read_full_file_should_return_all_data(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges'), 0, 26)
+
+    assert data == ALPHABET
+
+
+#
+# Range server - EOF boundary tests
+#
+def test_read_crossing_eof_should_return_remaining_bytes_conformant(mock_helper):
+    # Conformant server clamps bytes=20-29 to bytes 20-25/26
+    data = mock_helper.read(mock_url('/with_ranges_conformant'), 20, 10)
+
+    assert data == b"uvwxyz"
+
+
+def test_read_at_eof_should_return_empty_conformant(mock_helper):
+    # Server returns 416 for bytes=26-... on a 26 byte resource
+    data = mock_helper.read(mock_url('/with_ranges_conformant'), 26, 5)
+
+    assert data == b""
+
+
+def test_read_beyond_eof_should_return_empty_conformant(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges_conformant'), 100, 10)
+
+    assert data == b""
+
+
+def test_read_oversized_should_return_short_read_conformant(mock_helper):
+    # bytes=0-99 on a 26 byte resource clamped to bytes 0-25/26
+    data = mock_helper.read(mock_url('/with_ranges_conformant'), 0, 100)
+
+    assert data == ALPHABET
+
+
+def test_read_crossing_eof_on_server_ignoring_invalid_range(mock_helper):
+    # /with_ranges responds with 200 and full content to a Range request
+    # exceeding the resource size (bytes=25-29), instead of clamping it.
+    # A FUSE read at EOF boundary must still return the last byte.
+    data = mock_helper.read(mock_url('/with_ranges'), 25, 5)
+
+    assert data == b"z"
+
+
+#
+# Broken/non-conformant range servers
+#
+def test_read_should_handle_server_returning_extra_data(mock_helper):
+    # Server returns correct Content-Range but body contains all bytes
+    # from start until EOF
+    data = mock_helper.read(mock_url('/with_ranges_extra_data'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_read_full_file_from_server_returning_extra_data(mock_helper):
+    data = mock_helper.read(mock_url('/with_ranges_extra_data'), 0, 26)
+
+    assert data == ALPHABET
+
+
+def test_read_should_handle_content_range_with_star_total(mock_helper):
+    # Content-Range: bytes 10-14/* is valid per RFC 7233
+    data = mock_helper.read(mock_url('/with_ranges_star_total'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_read_should_return_enotsup_when_server_ignores_range_offset(mock_helper):
+    # Server responds 206 with Content-Range starting always at 0 -
+    # without range emulation this cannot be handled
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_helper.read(mock_url('/with_ranges_from_zero'), 10, 5)
+
+    assert "Operation not supported" in str(excinfo.value)
+
+
+def test_read_emulate_should_handle_server_ignoring_range_offset(mock_helper_emulate_range_read):
+    # With range emulation, the 206 response starting at 0 should be
+    # trimmed to the requested range
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/with_ranges_from_zero'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_getattr_should_return_enotsup_with_accept_ranges_none(mock_helper):
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_helper.getattr(mock_url('/accept_ranges_none'))
+
+    assert "Operation not supported" in str(excinfo.value)
+
+
+def test_getattr_emulate_should_handle_accept_ranges_none(mock_helper_emulate_range_read):
+    stat = mock_helper_emulate_range_read.getattr(
+        mock_url('/accept_ranges_none'))
+
+    assert stat.st_size == 26
+
+
+def test_read_emulate_should_handle_accept_ranges_none(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/accept_ranges_none'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_getattr_should_return_enotsup_without_content_length_in_head(mock_helper):
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_helper.getattr(mock_url('/head_no_content_length'))
+
+    assert "Operation not supported" in str(excinfo.value)
+
+
+def test_getattr_emulate_should_handle_head_without_content_length(mock_helper_emulate_range_read):
+    stat = mock_helper_emulate_range_read.getattr(
+        mock_url('/head_no_content_length'))
+
+    assert stat.st_size == 26
+
+
+#
+# Redirects
+#
+def test_read_should_follow_redirect(mock_helper):
+    data = mock_helper.read(mock_url('/redirect'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_read_should_follow_redirect_from_zero_offset(mock_helper):
+    data = mock_helper.read(mock_url('/redirect'), 0, 26)
+
+    assert data == ALPHABET
+
+
+def test_read_emulate_should_follow_redirect(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(mock_url('/redirect'), 10, 5)
+
+    assert data == b"klmno"
+
+
+@pytest.mark.skip(reason="getattr does not update effectiveFileId from "
+                         "redirect location and does not limit redirect "
+                         "count - infinite redirect loop hangs the test")
+def test_getattr_should_follow_redirect(mock_helper):
+    stat = mock_helper.getattr(mock_url('/redirect'))
+
+    assert stat.st_size == 26
+
+
+#
+# Empty (zero-length) files
+#
+def test_getattr_empty_file(mock_helper):
+    stat = mock_helper.getattr(mock_url('/empty_file'))
+
+    assert stat.st_size == 0
+
+
+def test_read_empty_file_should_return_empty(mock_helper):
+    data = mock_helper.read(mock_url('/empty_file'), 0, 10)
+
+    assert data == b""
+
+
+def test_read_empty_file_first_byte_should_return_empty(mock_helper):
+    data = mock_helper.read(mock_url('/empty_file'), 0, 1)
+
+    assert data == b""
+
+
+def test_getattr_emulate_empty_file(mock_helper_emulate_range_read):
+    stat = mock_helper_emulate_range_read.getattr(
+        mock_url('/empty_file_no_ranges'))
+
+    assert stat.st_size == 0
+
+
+def test_read_emulate_empty_file_should_return_empty(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/empty_file_no_ranges'), 0, 10)
+
+    assert data == b""
+
+
+def test_read_emulate_empty_file_nonzero_offset_should_return_empty(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/empty_file_no_ranges'), 5, 10)
+
+    assert data == b""
+
+
+#
+# Range read emulation - data correctness
+#
+def test_read_emulate_should_return_correct_data(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 10, 5)
+
+    assert data == b"klmno"
+
+
+def test_read_emulate_full_file(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 0, 26)
+
+    assert data == ALPHABET
+
+
+def test_read_emulate_oversized_should_return_short_read(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 0, 100)
+
+    assert data == ALPHABET
+
+
+def test_read_emulate_first_byte(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 0, 1)
+
+    assert data == b"a"
+
+
+def test_read_emulate_last_byte(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 25, 1)
+
+    assert data == b"z"
+
+
+def test_read_emulate_zero_size_should_return_empty(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 0, 0)
+
+    assert data == b""
+
+
+def test_read_emulate_crossing_eof_should_return_remaining_bytes(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 20, 10)
+
+    assert data == b"uvwxyz"
+
+
+def test_read_emulate_at_eof_should_return_empty(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 26, 10)
+
+    assert data == b""
+
+
+def test_read_emulate_beyond_eof_should_return_empty(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/without_ranges'), 100, 10)
+
+    assert data == b""
+
+
+def test_read_emulate_sequential_reads(mock_helper_emulate_range_read):
+    # Emulated range reads may abort connections mid-download - make sure
+    # subsequent reads on fresh sessions still return correct data
+    f = mock_url('/without_ranges')
+
+    for i in range(5):
+        offset = i * 5
+        size = min(5, 26 - offset)
+        data = mock_helper_emulate_range_read.read(f, offset, 5)
+        assert data == ALPHABET[offset:offset + size]
+
+
+def test_read_emulate_without_content_length_correct_data(mock_helper_emulate_range_read):
+    f = mock_url('/without_ranges_without_content_length?size=100')
+
+    data = mock_helper_emulate_range_read.read(f, 30, 20)
+
+    assert data == alphabet_pattern(100)[30:50]
+
+
+def test_read_emulate_without_content_length_crossing_eof(mock_helper_emulate_range_read):
+    f = mock_url('/without_ranges_without_content_length?size=100')
+
+    data = mock_helper_emulate_range_read.read(f, 95, 10)
+
+    assert data == alphabet_pattern(100)[95:100]
+
+
+def test_read_emulate_without_content_length_beyond_eof(mock_helper_emulate_range_read):
+    f = mock_url('/without_ranges_without_content_length?size=100')
+
+    data = mock_helper_emulate_range_read.read(f, 150, 10)
+
+    assert data == b""
+
+
+def test_getattr_emulate_should_fail_above_max_file_size(mock_helper_emulate_range_read):
+    # maxEmulatedRangeReadFileSize is 1024
+    f = mock_url('/without_ranges_without_content_length?size=2000')
+
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_helper_emulate_range_read.getattr(f)
+
+    assert "too large" in str(excinfo.value).lower()
+
+
+def test_getattr_emulate_should_work_at_exactly_max_file_size(mock_helper_emulate_range_read):
+    f = mock_url('/without_ranges_without_content_length?size=1024')
+
+    stat = mock_helper_emulate_range_read.getattr(f)
+
+    assert stat.st_size == 1024
+
+
+def test_getattr_emulate_should_fail_one_byte_above_max_file_size(mock_helper_emulate_range_read):
+    f = mock_url('/without_ranges_without_content_length?size=1025')
+
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_helper_emulate_range_read.getattr(f)
+
+    assert "too large" in str(excinfo.value).lower()
+
+
+#
+# Range read emulation - chunked transfer encoding boundaries
+#
+def test_read_emulate_chunked_full_size(mock_helper_emulate_range_read):
+    f = mock_url('/chunked?size=1000&chunks=7')
+
+    data = mock_helper_emulate_range_read.read(f, 0, 1000)
+
+    assert len(data) == 1000
+
+
+def test_read_emulate_chunked_crossing_eof(mock_helper_emulate_range_read):
+    f = mock_url('/chunked?size=1000&chunks=3')
+
+    data = mock_helper_emulate_range_read.read(f, 990, 20)
+
+    assert len(data) == 10
+
+
+def test_read_emulate_chunked_at_eof(mock_helper_emulate_range_read):
+    f = mock_url('/chunked?size=1000&chunks=3')
+
+    data = mock_helper_emulate_range_read.read(f, 1000, 10)
+
+    assert len(data) == 0
+
+
+#
+# Range read emulation on a server which does support ranges - ranges
+# should still be used directly
+#
+def test_getattr_emulate_with_range_server(mock_helper_emulate_range_read):
+    stat = mock_helper_emulate_range_read.getattr(mock_url('/with_ranges'))
+
+    assert stat.st_size == 26
+
+
+def test_read_emulate_with_range_server(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(mock_url('/with_ranges'), 10, 5)
+
+    assert data == b"klmno"
+
+
+# NOTE: keep this test last - reading the first byte of an empty file in
+# emulated range read mode exercises HTTPGET::onEOM firstByteRequest path
+# with an empty body (pop_front() on empty IOBufQueue), which may crash
+# the process
+def test_read_emulate_empty_file_first_byte_should_return_empty(mock_helper_emulate_range_read):
+    data = mock_helper_emulate_range_read.read(
+        mock_url('/empty_file_no_ranges'), 0, 1)
+
+    assert data == b""
