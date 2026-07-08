@@ -1407,10 +1407,11 @@ void HTTPGET::onEOM() noexcept
                 m_resultPromise.setValue(std::move(*m_resultBody));
             }
             else {
-                auto str = m_resultBody->pop_front()->moveToFbString();
+                // Return at most the first byte of the response body -
+                // the body may be empty (e.g. a zero-length resource)
                 auto iobufq =
                     folly::IOBufQueue(folly::IOBufQueue::cacheChainLength());
-                iobufq.append(str.c_str(), 1);
+                iobufq.append(m_resultBody->splitAtMost(1));
                 m_resultPromise.setValue(std::move(iobufq));
             }
         }
