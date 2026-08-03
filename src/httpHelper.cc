@@ -33,6 +33,19 @@ namespace one {
 namespace helpers {
 
 namespace {
+
+/**
+ * Check if HTTP status code is a redirect
+ *
+ * @param status
+ * @return True if response is a redirect
+ */
+bool isRedirect(uint16_t status)
+{
+    return static_cast<HTTPStatus>(status) >= HTTPStatus::MultipleChoices &&
+        static_cast<HTTPStatus>(status) <= HTTPStatus::PermanentRedirect;
+}
+
 /**
  * Convert HTTP Status Code to appropriate POSIX error
  */
@@ -483,6 +496,7 @@ folly::Future<folly::Unit> HTTPHelper::options(
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
             redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+        effectiveFileId = redirectURL.getPath();
     }
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.http.getattr");
@@ -585,6 +599,7 @@ folly::Future<struct stat> HTTPHelper::getattrEmulateRange(
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
             redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+        effectiveFileId = redirectURL.getPath();
     }
 
     const auto maxReadSize = this->maxEmulatedRangeReadFileSize();
@@ -633,6 +648,7 @@ folly::Future<struct stat> HTTPHelper::getattr(const folly::fbstring &fileId,
     if (!redirectURL.getHost().empty()) {
         sessionPoolKey = HTTPSessionPoolKey{redirectURL.getHost(),
             redirectURL.getPort(), false, redirectURL.getScheme() == "https"};
+        effectiveFileId = redirectURL.getPath();
     }
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.http.getattr");
@@ -1296,7 +1312,7 @@ void HTTPGET::processHeaders(
     try {
         std::map<folly::fbstring, folly::fbstring> res{};
 
-        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+        if (isRedirect(m_resultCode)) {
             // The request is being redirected to another URL
             m_resultPromise.setException(
                 HTTPFoundException{m_redirectURL.toString()});
@@ -1404,7 +1420,7 @@ void HTTPGET::onError(const proxygen::HTTPException &error) noexcept
 void HTTPGET::onEOM() noexcept
 {
     try {
-        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+        if (isRedirect(m_resultCode)) {
             // The request is being redirected to another URL
             m_resultPromise.setException(
                 HTTPFoundException{m_redirectURL.toString()});
@@ -1491,7 +1507,7 @@ void HTTPHEAD::processHeaders(
     try {
         std::map<folly::fbstring, folly::fbstring> res{};
 
-        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+        if (isRedirect(m_resultCode)) {
             // The request is being redirected to another URL
             m_resultPromise.setException(
                 HTTPFoundException{m_redirectURL.toString()});
@@ -1538,7 +1554,7 @@ void HTTPOPTIONS::processHeaders(
     std::map<folly::fbstring, folly::fbstring> res{};
 
     try {
-        if (static_cast<HTTPStatus>(m_resultCode) == HTTPStatus::Found) {
+        if (isRedirect(m_resultCode)) {
             // The request is being redirected to another URL
             m_resultPromise.setException(
                 HTTPFoundException{m_redirectURL.toString()});
