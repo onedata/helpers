@@ -25,8 +25,8 @@ WITH_NFS    		?= ON
 
 # Detect compilation on CentOS using Software Collections environment
 ifeq ($(shell awk -F= '/^ID=/{print $$2}' /etc/os-release), "centos")
-		OPENSSL_ROOT_DIR ?= /opt/onedata/onedata2102/root/usr
-		TBB_INSTALL_DIR ?= /opt/onedata/onedata2102/root/usr
+		OPENSSL_ROOT_DIR ?= /opt/onedata/onedata25/root/usr
+		TBB_INSTALL_DIR ?= /opt/onedata/onedata25/root/usr
 endif
 
 %/CMakeCache.txt: **/CMakeLists.txt test/integration/* test/integration/**/*
