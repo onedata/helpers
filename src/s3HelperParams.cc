@@ -28,6 +28,17 @@ void S3HelperParams::initializeFromParams(const Params &parameters)
 
     m_scheme = getParam(parameters, "scheme", "https");
     m_hostname = getParam(parameters, "hostname");
+
+    // Strip any scheme prefix that the user may have included in the hostname
+    // (e.g. "https://s3.amazonaws.com" → "s3.amazonaws.com").  The scheme is
+    // stored separately in m_scheme, and the AWS SDK expects a bare host in
+    // endpointOverride.
+    for (const auto &prefix : {"https://", "http://"}) {
+        if (m_hostname.find(prefix) == 0) {
+            m_hostname = m_hostname.substr(std::strlen(prefix));
+            break;
+        }
+    }
     m_bucketName = getParam(parameters, "bucketName");
     m_accessKey = getParam<std::string>(parameters, "accessKey", "");
     m_secretKey = getParam<std::string>(parameters, "secretKey", "");

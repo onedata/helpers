@@ -145,6 +145,30 @@ public:
 private:
     folly::fbstring getRegion(const folly::fbstring &hostname) const;
 
+    /**
+     * Creates or recreates m_client using the given endpoint override and
+     * region. Extracted from the constructor so it can be called a second time
+     * when a PermanentRedirect reveals the bucket's real region.
+     */
+    void initializeS3Client(
+        const std::string &endpointOverride, const std::string &region);
+
+    /**
+     * Returns true when @p hostname is the AWS global S3 endpoint
+     * (s3.amazonaws.com, optionally with a port suffix).  For such endpoints
+     * the SDK does not automatically follow PermanentRedirect responses, so
+     * the redirect must be handled explicitly.
+     */
+    static bool isGlobalAwsEndpoint(const folly::fbstring &hostname);
+
+    /**
+     * Issues a HeadBucket request against the current client.  If AWS replies
+     * with a PermanentRedirect (indicated by the presence of the
+     * x-amz-bucket-region response header), reinitialises m_client to point
+     * at the correct regional endpoint.
+     */
+    void handleGlobalAwsEndpointRedirect();
+
     folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
     folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;
 

@@ -92,7 +92,7 @@ public:
     S3HelperProxy(std::string scheme, std::string hostName,
         std::string bucketName, std::string accessKey, std::string secretKey,
         int threadNumber, std::size_t blockSize, std::string storagePathType,
-        int timeout)
+        int timeout, std::string region = "")
         : m_communicator{1, 1, "", 8080, false, true, false}
         , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
               threadNumber, std::make_shared<StorageWorkerFactory>("s3_t"))}
@@ -116,6 +116,8 @@ public:
         params["maxCanonicalObjectSize"] =
             std::to_string(kMaxCanonicakObjectSize);
         params["maxConnections"] = "25";
+        if (!region.empty())
+            params["region"] = region;
 
         auto parameters = S3HelperParams::create(params);
 
@@ -277,14 +279,15 @@ namespace {
 boost::shared_ptr<S3HelperProxy> create(std::string scheme,
     std::string hostName, std::string bucketName, std::string accessKey,
     std::string secretKey, std::size_t threadNumber, std::size_t blockSize,
-    std::string storagePathType = "flat", int timeout = 20)
+    std::string storagePathType = "flat", int timeout = 20,
+    std::string region = "")
 {
     FLAGS_v = 0;
 
     return boost::make_shared<S3HelperProxy>(std::move(scheme),
         std::move(hostName), std::move(bucketName), std::move(accessKey),
-        std::move(secretKey), threadNumber, blockSize, storagePathType,
-        timeout);
+        std::move(secretKey), threadNumber, blockSize, storagePathType, timeout,
+        std::move(region));
 }
 }
 
@@ -303,7 +306,17 @@ BOOST_PYTHON_MODULE(s3_helper)
         .def("__eq__", &Stat::operator==);
 
     class_<S3HelperProxy, boost::noncopyable>("S3HelperProxy", no_init)
-        .def("__init__", make_constructor(create))
+        .def("__init__",
+            make_constructor(create, boost::python::default_call_policies(),
+                (boost::python::arg("scheme"), boost::python::arg("hostName"),
+                    boost::python::arg("bucketName"),
+                    boost::python::arg("accessKey"),
+                    boost::python::arg("secretKey"),
+                    boost::python::arg("threadNumber"),
+                    boost::python::arg("blockSize"),
+                    boost::python::arg("storagePathType") = std::string("flat"),
+                    boost::python::arg("timeout") = 20,
+                    boost::python::arg("region") = std::string(""))))
         .def("access", &S3HelperProxy::access)
         .def("getattr", &S3HelperProxy::getattr)
         .def("mknod", &S3HelperProxy::mknod)

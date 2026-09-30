@@ -72,6 +72,23 @@ const std::map<Aws::S3::S3Errors, std::errc> &ErrorMappings()
     return g_errors;
 }
 
+// Canonical list of all known AWS S3 regions.  The first entry doubles as the
+// default region used when none can be inferred from the endpoint hostname.
+// Returned as a function-local static to avoid cert-err58-cpp (throwing
+// constructor at static storage duration).
+const std::vector<std::string> &awsRegions()
+{
+    static const std::vector<std::string> regions{"us-east-1", "us-east-2",
+        "us-west-1", "us-west-2", "af-south-1", "ap-east-1", "ap-south-1",
+        "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1",
+        "ap-southeast-2", "ca-central-1", "cn-north-1", "cn-northwest-1",
+        "eu-central-1", "eu-north-1", "eu-south-1", "eu-west-1", "eu-west-2",
+        "eu-west-3", "me-south-1", "sa-east-1"};
+    return regions;
+}
+
+constexpr auto kDefaultAwsRegion = "us-east-1"; // == awsRegions().front()
+
 // Retry only in case one of these errors occured
 const std::set<Aws::S3::S3Errors> &S3RetryErrors()
 {
@@ -191,6 +208,44 @@ S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
             '/', ++pathComponents.begin(), pathComponents.end(), m_prefix);
     }
 
+    initializeS3Client(
+        hostname().toStdString(), getRegion(hostname()).toStdString());
+
+    if (isGlobalAwsEndpoint(hostname()))
+        handleGlobalAwsEndpointRedirect();
+}
+
+folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname) const
+{
+    LOG_FCALL() << LOG_FARG(hostname);
+
+    LOG_DBG(1) << "Attempting to determine S3 region based on hostname: "
+               << hostname;
+
+    for (const auto &region : awsRegions()) {
+        if (hostname.find(region) != folly::fbstring::npos) {
+            LOG_DBG(1) << "Using S3 region: " << region;
+            return region.c_str();
+        }
+    }
+
+    LOG_DBG(1) << "Using default S3 region " << region();
+
+    return region();
+}
+
+bool S3Helper::isGlobalAwsEndpoint(const folly::fbstring &hostname)
+{
+    // Match "s3.amazonaws.com" with or without a port suffix (e.g. ":443")
+    return hostname == "s3.amazonaws.com" ||
+        hostname.find("s3.amazonaws.com:") == 0;
+}
+
+void S3Helper::initializeS3Client(
+    const std::string &endpointOverride, const std::string &region)
+{
+    LOG_FCALL() << LOG_FARG(endpointOverride) << LOG_FARG(region);
+
     Aws::Client::ClientConfiguration configuration;
     configuration.enableClockSkewAdjustment = enableClockSkewAdjustment();
     configuration.verifySSL = verifyServerCertificate();
@@ -198,9 +253,8 @@ S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
     configuration.maxConnections = maxConnections();
     configuration.connectTimeoutMs = to_ms(timeout());
     configuration.requestTimeoutMs = to_ms(timeout());
-
-    configuration.region = getRegion(hostname()).c_str();
-    configuration.endpointOverride = hostname().c_str();
+    configuration.region = region;
+    configuration.endpointOverride = endpointOverride;
     if (scheme() != std::string{"https"})
         configuration.scheme = Aws::Http::Scheme::HTTP;
 
@@ -217,30 +271,72 @@ S3Helper::S3Helper(std::shared_ptr<S3HelperParams> params)
     }
 }
 
-folly::fbstring S3Helper::getRegion(const folly::fbstring &hostname) const
+void S3Helper::handleGlobalAwsEndpointRedirect()
 {
-    LOG_FCALL() << LOG_FARG(hostname);
+    LOG_FCALL();
 
-    folly::fbvector<folly::fbstring> regions{"us-east-2", "us-east-1",
-        "us-west-1", "us-west-2", "af-south-1", "ap-east-1", "ap-south-1",
-        "ap-northeast-3", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2",
-        "ap-northeast-1", "ca-central-1", "cn-north-1", "cn-northwest-1",
-        "eu-central-1", "eu-west-1", "eu-west-2", "eu-south-1", "eu-west-3",
-        "eu-north-1", "me-south-1", "sa-east-1"};
-
-    LOG_DBG(1) << "Attempting to determine S3 region based on hostname: "
-               << hostname;
-
-    for (const auto &region : regions) {
-        if (hostname.find(region) != folly::fbstring::npos) {
-            LOG_DBG(1) << "Using S3 region: " << region;
-            return region;
-        }
+    // Optimisation: if the user has already provided a non-default region
+    // alongside the global endpoint, construct the correct regional endpoint
+    // directly without any network round-trip.
+    const auto configuredRegion = region().toStdString();
+    if (configuredRegion != kDefaultAwsRegion) {
+        const auto regionalEndpoint =
+            std::string{"s3."} + configuredRegion + ".amazonaws.com";
+        LOG(INFO) << "Global AWS endpoint detected with explicit region '"
+                  << configuredRegion << "'. Using regional endpoint '"
+                  << regionalEndpoint << "' directly.";
+        initializeS3Client(regionalEndpoint, configuredRegion);
+        return;
     }
 
-    LOG_DBG(1) << "Using default S3 region " << region();
+    // No explicit region configured: probe with a HeadBucket request to
+    // discover the bucket's actual region from the PermanentRedirect response.
+    using Aws::Client::AsyncCallerContext;
+    using Aws::S3::S3Client;
+    using Aws::S3::Model::HeadBucketOutcome;
+    using Aws::S3::Model::HeadBucketRequest;
 
-    return region();
+    HeadBucketRequest request;
+    request.SetBucket(m_bucket.c_str());
+
+    folly::Promise<HeadBucketOutcome> outcomePromise;
+    auto outcomeFuture = outcomePromise.getFuture();
+
+    m_client->HeadBucketAsync(
+        request,
+        [&outcomePromise](const S3Client * /*client*/,
+            const HeadBucketRequest & /*request*/,
+            HeadBucketOutcome headBucketOutcome,
+            const std::shared_ptr<const AsyncCallerContext> & /*ctx*/) {
+            outcomePromise.setValue(std::move(headBucketOutcome));
+        },
+        nullptr);
+
+    auto outcome = std::move(outcomeFuture).get();
+
+    if (outcome.IsSuccess())
+        return;
+
+    // AWS includes the x-amz-bucket-region header in every PermanentRedirect
+    // response, even for HEAD requests (which have no body).  This is the
+    // cleanest way to discover the bucket's actual region without XML parsing.
+    const auto &responseHeaders = outcome.GetError().GetResponseHeaders();
+    const auto regionHeaderIt = responseHeaders.find("x-amz-bucket-region");
+
+    if (regionHeaderIt == responseHeaders.end())
+        return;
+
+    const auto detectedRegion = regionHeaderIt->second;
+
+    LOG(INFO) << "Bucket '" << m_bucket << "' requires a regional endpoint. "
+              << "Detected region '" << detectedRegion
+              << "' from PermanentRedirect response. "
+              << "Reinitialising S3 client.";
+
+    const auto regionalEndpoint =
+        std::string{"s3."} + detectedRegion + ".amazonaws.com";
+
+    initializeS3Client(regionalEndpoint, detectedRegion);
 }
 
 folly::fbstring S3Helper::toEffectiveKey(const folly::fbstring &key) const
