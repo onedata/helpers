@@ -88,7 +88,8 @@ def test_helper_check_availability_error(helper_invalid):
     with pytest.raises(RuntimeError) as excinfo:
         helper_invalid.check_storage_availability()
 
-    assert 'Network is unreachable' in str(excinfo)
+    assert 'Network is unreachable' in str(excinfo) \
+           or 'Invalid DNS Label found in URI host' in str(excinfo)
 
 
 @pytest.mark.readwrite_operations_tests

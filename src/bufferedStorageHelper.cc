@@ -143,7 +143,7 @@ folly::Future<folly::Unit> BufferedStorageFileHandle::loadBufferBlocks(
         .via(executor)
         .thenValue([](const std::vector<folly::Try<std::size_t>> &res) {
             std::for_each(res.begin(), res.end(),
-                [](const auto &v) { v.throwIfFailed(); });
+                [](const auto &v) { v.throwUnlessValue(); });
             return folly::makeFuture();
         });
 }
@@ -173,8 +173,8 @@ folly::Future<std::pair<T, T>> BufferedStorageHelper::applyAsync(
     return folly::collectAll(futs).via(executor).thenValue(
         [ignoreBufferError](std::vector<folly::Try<T>> &&res) {
             if (!ignoreBufferError)
-                res[0].throwIfFailed();
-            res[1].throwIfFailed();
+                res[0].throwUnlessValue();
+            res[1].throwUnlessValue();
 
             return std::make_pair<T, T>(
                 std::move(res[0].value()), std::move(res[1].value()));
@@ -231,7 +231,7 @@ folly::Future<folly::Unit> BufferedStorageHelper::checkStorageAvailability()
         m_bufferStorage->checkStorageAvailability())
         .thenTry([](folly::Try<std::pair<folly::Unit, folly::Unit>> &&maybe) {
             if (maybe.hasException())
-                maybe.throwIfFailed();
+                maybe.throwUnlessValue();
 
             return folly::makeFuture();
         });
@@ -362,7 +362,7 @@ folly::Future<FileHandlePtr> BufferedStorageHelper::open(
             [this, fileId](folly::Try<std::pair<FileHandlePtr, FileHandlePtr>>
                     &&maybeHandles) {
                 if (maybeHandles.hasException())
-                    maybeHandles.throwIfFailed();
+                    maybeHandles.throwUnlessValue();
 
                 LOG_DBG(3) << "Got buffered storage handles";
 

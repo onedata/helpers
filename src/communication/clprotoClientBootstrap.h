@@ -59,6 +59,8 @@ public:
 
     bool connected();
 
+    void stop();
+
     void setEOFCallbackCalled(bool v);
 
     bool handshakeDone() const;

@@ -34,7 +34,7 @@ public:
 
     std::shared_ptr<folly::Executor> executor()
     {
-        return folly::getIOExecutor();
+        return folly::getUnsafeMutableGlobalIOExecutor();
     }
 
     void setOnMessageCallback(std::function<void(std::string)>) { }

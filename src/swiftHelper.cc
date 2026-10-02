@@ -455,7 +455,7 @@ SwiftToken SwiftClient::authenticateIfNeeded()
         Poco::JSON::Object::Ptr rootObj =
             parsedResult.extract<Poco::JSON::Object::Ptr>();
         Poco::JSON::Object::Ptr tokenObj = rootObj->getObject("token");
-        std::string expiresAt = tokenObj->getValue<std::string>("expires_at");
+        const auto expiresAt = tokenObj->getValue<std::string>("expires_at");
 
         // Parse the expiration time (assuming format "YYYY-MM-DDTHH:MM:SS")
         Poco::DateTime dt;
@@ -469,13 +469,13 @@ SwiftToken SwiftClient::authenticateIfNeeded()
         m_swiftToken.swiftEndpoint.clear();
         for (size_t i = 0; i < catalog->size(); ++i) {
             Poco::JSON::Object::Ptr service = catalog->getObject(i);
-            std::string type = service->getValue<std::string>("type");
+            const auto type = service->getValue<std::string>("type");
             if (type == "object-store") {
                 Poco::JSON::Array::Ptr endpoints =
                     service->getArray("endpoints");
                 for (size_t j = 0; j < endpoints->size(); ++j) {
                     Poco::JSON::Object::Ptr endpoint = endpoints->getObject(j);
-                    std::string iface =
+                    const auto iface =
                         endpoint->getValue<std::string>("interface");
                     if (iface == "public") {
                         m_swiftToken.swiftEndpoint =

@@ -114,7 +114,7 @@ def test_helper_check_availability_error_invalid_host(helper_invalid_host):
     with pytest.raises(RuntimeError) as excinfo:
         helper_invalid_host.check_storage_availability()
 
-    assert "Couldn't resolve host name" in str(excinfo)
+    assert "Invalid DNS Label found in URI host" in str(excinfo)
 
 
 def test_helper_check_availability_error_invalid_key(helper_invalid_key):

@@ -359,7 +359,7 @@ folly::Future<folly::Unit> KeyValueAdapter::unlink(
         .via(m_executor.get())
         .thenValue([](std::vector<folly::Try<folly::Unit>> &&res) {
             std::for_each(res.begin(), res.end(),
-                [](const auto &v) { v.throwIfFailed(); });
+                [](const auto &v) { v.throwUnlessValue(); });
             return folly::makeFuture();
         });
 }
@@ -529,7 +529,7 @@ folly::Future<folly::Unit> KeyValueAdapter::truncate(
                 .via(executor.get())
                 .thenValue([](std::vector<folly::Try<folly::Unit>> &&res) {
                     std::for_each(res.begin(), res.end(),
-                        [](const auto &v) { v.throwIfFailed(); });
+                        [](const auto &v) { v.throwUnlessValue(); });
                     return folly::makeFuture();
                 });
         });
@@ -784,7 +784,7 @@ folly::Future<folly::Unit> KeyValueAdapter::fillMissingFileBlocks(
         .via(m_executor.get())
         .thenValue([](std::vector<folly::Try<std::size_t>> &&res) {
             std::for_each(res.begin(), res.end(),
-                [](const auto &v) { v.throwIfFailed(); });
+                [](const auto &v) { v.throwUnlessValue(); });
             return folly::makeFuture();
         });
 }

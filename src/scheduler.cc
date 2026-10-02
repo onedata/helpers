@@ -60,9 +60,19 @@ void Scheduler::stop()
 {
     LOG_FCALL();
 
+    if (m_ioService.stopped())
+        return;
+
+    LOG_DBG(3) << "Stopping scheduler io_server";
+
     m_ioService.stop();
+
+    LOG_DBG(3) << "Stopped scheduler io_server";
+
     for (auto &t : m_workers)
         t.join();
+
+    LOG_DBG(3) << "Clearing scheduler workers";
 
     m_workers.clear();
 }

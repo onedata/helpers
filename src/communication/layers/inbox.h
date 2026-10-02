@@ -185,6 +185,7 @@ void Inbox<LowerLayer>::communicate(
                                  const std::error_code &ec) {
         if (ec) {
             typename decltype(m_callbacks)::accessor acc;
+
             if (m_callbacks.find(acc, messageId)) {
                 auto cb = std::move(*(acc->second.callback));
                 auto messageName = std::move(acc->second.messageName);
@@ -199,6 +200,13 @@ void Inbox<LowerLayer>::communicate(
                 m_callbacks.erase(acc);
                 cb(ec, {});
             }
+            else {
+                LOG_DBG(4) << "Got error response but no message with id "
+                           << messageId << " in inbox";
+            }
+        }
+        else {
+            LOG_DBG(4) << "Got response without error for " << messageId;
         }
     };
 

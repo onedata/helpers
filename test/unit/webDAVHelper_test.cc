@@ -39,7 +39,7 @@ struct WebDAVHelperTest : public ::testing::Test {
 
 TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
 {
-    WebDAVHelperFactory factory{folly::getIOExecutor()};
+    WebDAVHelperFactory factory{folly::getUnsafeMutableGlobalIOExecutor()};
 
     Params p1;
     p1.emplace("type", "webdav");
@@ -92,7 +92,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPWebDAVURLs)
 
 TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
 {
-    WebDAVHelperFactory factory{folly::getIOExecutor()};
+    WebDAVHelperFactory factory{folly::getUnsafeMutableGlobalIOExecutor()};
 
     Params p1;
     p1.emplace("type", "webdav");
@@ -137,7 +137,7 @@ TEST_F(WebDAVHelperTest, webDAVHelperShouldParseHTTPSWebDAVURLs)
 
 TEST_F(WebDAVHelperTest, webDAVHelperShouldCheckAccessTokenTTL)
 {
-    WebDAVHelperFactory factory{folly::getIOExecutor()};
+    WebDAVHelperFactory factory{folly::getUnsafeMutableGlobalIOExecutor()};
 
     Params p1;
     p1.emplace("type", "webdav");

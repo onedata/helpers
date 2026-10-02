@@ -62,7 +62,7 @@ public:
             LOG_DBG(2) << "Switching socket protocol to clproto";
 
             // Clear the buffer for consecutive clproto messages
-            buf.clear();
+            buf.reset();
             m_promise.setValue();
             ctx->fireRead(buf);
         }

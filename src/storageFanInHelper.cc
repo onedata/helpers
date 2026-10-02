@@ -38,7 +38,7 @@ folly::Future<folly::Unit> StorageFanInHelper::checkStorageAvailability()
             std::vector<folly::Unit> results;
             for (const auto &tryAccess : res) {
                 if (tryAccess.hasException()) {
-                    tryAccess.throwIfFailed();
+                    tryAccess.throwUnlessValue();
                 }
             }
 

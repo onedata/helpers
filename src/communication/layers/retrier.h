@@ -67,10 +67,21 @@ folly::Future<folly::Unit> Retrier<LowerLayer>::send(
             (std::string{"handshake"} != ec.category().name() &&
                 ec.value() != ETIMEDOUT && ec.value() != ECONNRESET &&
                 ec.value() != ECONNABORTED) &&
-            retries > 0) {
-            LOG(WARNING) << "Resending message due to error (" << ec.message()
-                         << ") - remaining retry count: " << retries;
-            send(std::move(message), std::move(callback), retries - 1);
+            (retries > 0 || retries == CLOSE_CONNECTION_AFTER_SEND)) {
+
+            if (retries == CLOSE_CONNECTION_AFTER_SEND) {
+                LOG(WARNING)
+                    << "Sending connection close message due to error ("
+                    << ec.message() << ") - remaining retry count: " << retries;
+                send(std::move(message), std::move(callback),
+                    CLOSE_CONNECTION_AFTER_SEND);
+            }
+            else {
+                LOG(WARNING)
+                    << "Resending message due to error (" << ec.message()
+                    << ") - remaining retry count: " << retries;
+                send(std::move(message), std::move(callback), retries - 1);
+            }
         }
         else {
             if (!ec)
