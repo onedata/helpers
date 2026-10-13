@@ -51,9 +51,15 @@ def result():
 def pytest_addoption(parser):
     parser.addoption('--performance', '-P', action='store_true',
                      help='run performance tests')
+    parser.addoption('--public-aws-bucket', action='store_true',
+                     help='run tests that access public AWS S3 buckets')
 
 
 def pytest_configure(config):
+    config.addinivalue_line(
+        'markers',
+        'public_aws_bucket: accesses a public AWS S3 bucket '
+        '(requires --public-aws-bucket)')
     custom_markers = [
         'simulated_filesystem_tests',
         'readwrite_operations_tests',
@@ -109,6 +115,13 @@ def pytest_generate_tests(metafunc):
 
 
 def pytest_collection_modifyitems(config, items):
+    if not config.getoption('--public-aws-bucket'):
+        skip_public_aws_bucket = pytest.mark.skip(
+            reason='requires --public-aws-bucket')
+        for item in items:
+            if 'public_aws_bucket' in item.keywords:
+                item.add_marker(skip_public_aws_bucket)
+
     perf_items = []
     for item in items:
         if item.config.getoption('--performance'):

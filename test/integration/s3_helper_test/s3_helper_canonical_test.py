@@ -101,3 +101,118 @@ def test_helper_params(helper):
     assert helper.block_size() == 0
     assert helper.block_size_for_path("/any") == 0
     assert helper.storage_path_type() == "canonical"
+
+
+@pytest.fixture
+def aws_argo_gdac_public_helper():
+    """Fixture for testing with a public AWS S3 bucket via the global AWS endpoint.
+
+    The bucket 'argo-gdac-sandbox' resides in eu-west-3. When accessed via the
+    global endpoint 's3.amazonaws.com', AWS returns a 301 Permanent Redirect to
+    the regional endpoint. This fixture verifies that such redirects are handled
+    correctly by the S3 helper.
+    """
+    return S3HelperProxy(
+        "https",
+        "s3.amazonaws.com",
+        "argo-gdac-sandbox",
+        "",
+        "",
+        THREAD_NUMBER,
+        0,
+        "canonical",
+        30,
+        "")  # no explicit region — will be discovered via HeadBucket probe
+
+
+@pytest.mark.public_aws_bucket
+def test_list_objects_on_public_aws_bucket_via_global_endpoint(
+        aws_argo_gdac_public_helper):
+    """
+    Tests that a public AWS S3 bucket (argo-gdac-sandbox, located in eu-west-3)
+    registered using the global AWS endpoint (s3.amazonaws.com) can be accessed
+    and objects can be listed successfully. AWS returns a 301 Permanent Redirect
+    for buckets not in the default region — the S3 helper must follow it.
+    """
+    _marker, objects = aws_argo_gdac_public_helper.listobjects("", "", 5)
+
+    assert len(objects) > 0, \
+        "Expected to list at least one object from public bucket " \
+        "'argo-gdac-sandbox' via global AWS endpoint 's3.amazonaws.com'"
+
+
+@pytest.fixture
+def aws_argo_gdac_public_helper_with_region():
+    """Fixture for testing the optimised path where the bucket region is
+    provided explicitly alongside the global AWS endpoint.  The helper must
+    derive s3.eu-west-3.amazonaws.com directly without any HeadBucket probe.
+    """
+    return S3HelperProxy(
+        "https",
+        "s3.amazonaws.com",
+        "argo-gdac-sandbox",
+        "",
+        "",
+        THREAD_NUMBER,
+        0,
+        "canonical",
+        30,
+        "eu-west-3")
+
+
+@pytest.mark.public_aws_bucket
+def test_list_objects_on_public_aws_bucket_via_global_endpoint_with_explicit_region(
+        aws_argo_gdac_public_helper_with_region):
+    """
+    Tests the optimised initialisation path: when the bucket region is supplied
+    explicitly (eu-west-3) together with the global AWS endpoint
+    (s3.amazonaws.com), the S3 helper must build the regional endpoint
+    s3.eu-west-3.amazonaws.com directly — without a HeadBucket probe — and
+    successfully list objects.
+    """
+    _marker, objects = aws_argo_gdac_public_helper_with_region.listobjects(
+        "", "", 5)
+
+    assert len(objects) > 0, \
+        "Expected to list at least one object from public bucket " \
+        "'argo-gdac-sandbox' via global AWS endpoint with explicit region " \
+        "'eu-west-3'"
+
+
+@pytest.fixture
+def aws_argo_gdac_public_helper_with_scheme_in_hostname():
+    """Fixture that passes the scheme as part of the hostname string
+    (https://s3.amazonaws.com) to verify that the params layer strips the
+    prefix before the helper processes it.
+    """
+    return S3HelperProxy(
+        "https",
+        "https://s3.amazonaws.com",
+        "argo-gdac-sandbox",
+        "",
+        "",
+        THREAD_NUMBER,
+        0,
+        "canonical",
+        30,
+        "eu-west-3")
+
+
+@pytest.mark.public_aws_bucket
+def test_list_objects_on_public_aws_bucket_with_scheme_prefix_in_hostname(
+        aws_argo_gdac_public_helper_with_scheme_in_hostname):
+    """
+    Tests that passing 'https://s3.amazonaws.com' as the hostname (with the
+    scheme prefix included) works correctly.  The params layer must strip the
+    prefix so that downstream code sees a bare 's3.amazonaws.com', allowing
+    both isGlobalAwsEndpoint detection and endpointOverride to function as
+    expected.
+    """
+    _marker, objects = \
+        aws_argo_gdac_public_helper_with_scheme_in_hostname.listobjects(
+            "", "", 5)
+
+    assert len(objects) > 0, \
+        "Expected to list at least one object from public bucket " \
+        "'argo-gdac-sandbox' when hostname contains scheme prefix " \
+        "'https://s3.amazonaws.com'"
