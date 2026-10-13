@@ -282,9 +282,9 @@ void S3Helper::handleGlobalAwsEndpointRedirect()
     if (configuredRegion != kDefaultAwsRegion) {
         const auto regionalEndpoint =
             std::string{"s3."} + configuredRegion + ".amazonaws.com";
-        LOG(INFO) << "Global AWS endpoint detected with explicit region '"
-                  << configuredRegion << "'. Using regional endpoint '"
-                  << regionalEndpoint << "' directly.";
+        LOG_DBG(1) << "Global AWS endpoint detected with explicit region '"
+                   << configuredRegion << "'. Using regional endpoint '"
+                   << regionalEndpoint << "' directly.";
         initializeS3Client(regionalEndpoint, configuredRegion);
         return;
     }
@@ -328,10 +328,10 @@ void S3Helper::handleGlobalAwsEndpointRedirect()
 
     const auto detectedRegion = regionHeaderIt->second;
 
-    LOG(INFO) << "Bucket '" << m_bucket << "' requires a regional endpoint. "
-              << "Detected region '" << detectedRegion
-              << "' from PermanentRedirect response. "
-              << "Reinitialising S3 client.";
+    LOG_DBG(1) << "Bucket '" << m_bucket << "' requires a regional endpoint. "
+               << "Detected region '" << detectedRegion
+               << "' from PermanentRedirect response. "
+               << "Reinitialising S3 client.";
 
     const auto regionalEndpoint =
         std::string{"s3."} + detectedRegion + ".amazonaws.com";

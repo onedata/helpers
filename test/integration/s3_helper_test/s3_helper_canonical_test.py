@@ -125,6 +125,7 @@ def aws_argo_gdac_public_helper():
         "")  # no explicit region — will be discovered via HeadBucket probe
 
 
+@pytest.mark.public_aws_bucket
 def test_list_objects_on_public_aws_bucket_via_global_endpoint(
         aws_argo_gdac_public_helper):
     """
@@ -159,6 +160,7 @@ def aws_argo_gdac_public_helper_with_region():
         "eu-west-3")
 
 
+@pytest.mark.public_aws_bucket
 def test_list_objects_on_public_aws_bucket_via_global_endpoint_with_explicit_region(
         aws_argo_gdac_public_helper_with_region):
     """
@@ -196,6 +198,7 @@ def aws_argo_gdac_public_helper_with_scheme_in_hostname():
         "eu-west-3")
 
 
+@pytest.mark.public_aws_bucket
 def test_list_objects_on_public_aws_bucket_with_scheme_prefix_in_hostname(
         aws_argo_gdac_public_helper_with_scheme_in_hostname):
     """
