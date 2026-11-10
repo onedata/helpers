@@ -2182,6 +2182,23 @@ void WebDAVRequest::updateRequestURL(const folly::fbstring &resource)
     }
 }
 
+void WebDAVRequest::updateRequestURL(const folly::fbstring &resource)
+{
+    if (m_redirectURL.empty()) {
+        m_request.rawSetURL(
+            ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+    }
+    else {
+        if (m_redirectURL.getQuery().empty())
+            m_request.rawSetURL(
+                ensureHttpPath(folly::sformat("{}/{}", m_path, resource)));
+        else
+            m_request.rawSetURL(folly::sformat("{}?{}",
+                ensureHttpPath(folly::sformat("{}/{}", m_path, resource)),
+                m_redirectURL.getQuery()));
+    }
+}
+
 /**
  * GET
  */
