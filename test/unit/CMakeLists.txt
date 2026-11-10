@@ -2,11 +2,17 @@ add_subdirectory(
     ${CMAKE_SOURCE_DIR}/deps/gmock
     ${PROJECT_BINARY_DIR}/deps/gmock)
 
+
+# Setup backward-cpp
+set(BACKWARD_CPP_INCLUDE_DIRS )
+
 include_directories(SYSTEM
     ${CMAKE_SOURCE_DIR}/deps/gmock/include
-    ${CMAKE_SOURCE_DIR}/deps/gtest/include)
+    ${CMAKE_SOURCE_DIR}/deps/gtest/include
+    ${CMAKE_SOURCE_DIR}/deps/backward-cpp)
 
 include_directories(include)
+
 
 file(GLOB_RECURSE HELPER_TEST_HEADERS include/*.h)
 add_library(testRunner OBJECT testRunner.cc)
@@ -30,6 +36,7 @@ foreach(TEST_FILE ${HELPER_TEST_SOURCES})
         ${HELPER_TEST_HEADERS}
         $<TARGET_OBJECTS:testRunner>)
     target_link_libraries(${TEST_NAME}
+        gflags
         helpersShared
         gmock_main
         gtest)

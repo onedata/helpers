@@ -29,10 +29,10 @@ public:
      * @note The constructor throws an applicable std::system_error exception if
      * received message's status is not OK.
      */
-    ProxyIOResponse(
+    explicit ProxyIOResponse(
         const std::unique_ptr<ProtocolServerMessage> &serverMessage);
 
-    virtual ~ProxyIOResponse() = default;
+    ~ProxyIOResponse() override = default;
 };
 
 } // namespace proxyio

@@ -15,10 +15,6 @@ namespace one {
 namespace communication {
 namespace codec {
 
-static const std::string CLPROTO_UPGRADE_ENDPOINT{"/clproto"};
-static const std::string CLPROTO_UPGRADE_RESPONSE_STATUS{
-    "HTTP/1.1 101 Switching Protocols"};
-
 /**
  * @c CLProtoUpgradeResponseHandler is responsible for reading the inbound data
  * stream on the socket after the clproto upgrade has been sent until the HTTP
@@ -32,6 +28,9 @@ public:
 
     void read(Context *ctx, folly::IOBufQueue &buf) override
     {
+        const std::string CLPROTO_UPGRADE_RESPONSE_STATUS{
+            "HTTP/1.1 101 Switching Protocols"};
+
         if (m_promise.isFulfilled()) {
             ctx->fireRead(buf);
             return;
@@ -49,7 +48,7 @@ public:
             return;
         }
 
-        if (!(bufStringView.find(CLPROTO_UPGRADE_RESPONSE_STATUS) == 0u)) {
+        if (!(bufStringView.find(CLPROTO_UPGRADE_RESPONSE_STATUS) == 0U)) {
             LOG(ERROR) << "Invalid response during clproto protocol upgrade: "
                        << bufStringView << ". Expected:\n '"
                        << CLPROTO_UPGRADE_RESPONSE_STATUS << "'";
@@ -71,8 +70,10 @@ public:
 
     folly::Future<folly::Unit> done() { return m_promise.getFuture(); }
 
-    std::unique_ptr<folly::IOBuf> makeUpgradeRequest(std::string host)
+    static std::unique_ptr<folly::IOBuf> makeUpgradeRequest(
+        const std::string &host)
     {
+        const std::string CLPROTO_UPGRADE_ENDPOINT{"/clproto"};
         std::string request;
         request += "GET " + CLPROTO_UPGRADE_ENDPOINT + " HTTP/1.1\r\n";
         request += "Host: " + host + "\r\n";

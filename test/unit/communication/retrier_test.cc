@@ -6,6 +6,7 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
 #include "communication/exception.h"
 #include "communication/layers/retrier.h"
 #include "testUtils.h"
@@ -26,14 +27,19 @@ struct LowerLayer {
 
     LowerLayer &mock = static_cast<LowerLayer &>(*this);
 
+    MOCK_METHOD1(logClientMessage, void(const clproto::ClientMessage &));
+    MOCK_METHOD1(logServerMessage, void(const clproto::ServerMessage &));
+
     MOCK_METHOD2(sendProxy, bool(std::string, int));
 
-    void send(std::string msg, Callback callback, int i)
+    folly::Future<folly::Unit> send(std::string msg, Callback callback, int i)
     {
         if (!sendProxy(std::move(msg), i))
             callback(std::make_error_code(std::errc::owner_dead));
         else
             callback(std::error_code{});
+
+        return folly::makeFuture();
     }
 };
 
@@ -48,7 +54,8 @@ TEST_F(RetrierTest, sendShouldRetryCommunicationOnError)
         .WillOnce(Return(false))
         .WillOnce(Return(true));
 
-    retrier.send(randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 2);
+    retrier.send(
+        randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 2);
 }
 
 TEST_F(RetrierTest, sendShouldFinishOnFirstSuccess)
@@ -57,7 +64,8 @@ TEST_F(RetrierTest, sendShouldFinishOnFirstSuccess)
         .WillOnce(Return(false))
         .WillOnce(Return(true));
 
-    retrier.send(randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 30);
+    retrier.send(
+        randomString(), [](auto &ec) { ASSERT_FALSE(!!ec); }, 30);
 }
 
 TEST_F(RetrierTest, sendShouldPassExceptionAfterUnsuccessfulRetries)
@@ -66,7 +74,8 @@ TEST_F(RetrierTest, sendShouldPassExceptionAfterUnsuccessfulRetries)
         .WillOnce(Return(false))
         .WillOnce(Return(false));
 
-    retrier.send(randomString(), [](auto &ec) { ASSERT_TRUE(!!ec); }, 1);
+    retrier.send(
+        randomString(), [](auto &ec) { ASSERT_TRUE(!!ec); }, 1);
 }
 
 TEST_F(RetrierTest, sendShouldPassUninterestingArgumentsDown)
@@ -78,5 +87,6 @@ TEST_F(RetrierTest, sendShouldPassUninterestingArgumentsDown)
         .WillOnce(Return(false))
         .WillOnce(Return(true));
 
-    retrier.send(msg, [](auto &ec) { ASSERT_FALSE(!!ec); }, 3);
+    retrier.send(
+        msg, [](auto &ec) { ASSERT_FALSE(!!ec); }, 3);
 }

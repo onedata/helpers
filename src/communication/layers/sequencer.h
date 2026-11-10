@@ -13,6 +13,7 @@
 #include "helpers/logging.h"
 #include "scheduler.h"
 
+#include <folly/futures/Future.h>
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/concurrent_priority_queue.h>
 
@@ -122,19 +123,19 @@ public:
          * @return Sequence number of expected message, i.e. message that can be
          * immediately forwarded by sequencer.
          */
-        const uint64_t sequenceNumber() const { return m_seqNum; }
+        uint64_t sequenceNumber() const { return m_seqNum; }
 
         /**
          * @return Sequence number of first message that has not been
          * acknowledged.
          */
-        const uint64_t sequenceNumberAck() const { return m_seqNumAck; }
+        uint64_t sequenceNumberAck() const { return m_seqNumAck; }
 
     private:
-        uint64_t m_seqNum;    // expected sequence number
-        uint64_t m_seqNumAck; // first unacknowledged sequence number
+        uint64_t m_seqNum{};    // expected sequence number
+        uint64_t m_seqNumAck{}; // first unacknowledged sequence number
         // buffer of messages with sequence number greater than expected
-        // sequnece number sorted in ascending sequence number order
+        // sequence number sorted in ascending sequence number order
         tbb::concurrent_priority_queue<ServerMessagePtr, GreaterSeqNum>
             m_buffer;
     };
@@ -142,12 +143,17 @@ public:
     using Callback = typename LowerLayer::Callback;
     using SchedulerPtr = std::shared_ptr<Scheduler>;
     using LowerLayer::LowerLayer;
-    virtual ~Sequencer();
+    virtual ~Sequencer(); // NOLINT
+
+    Sequencer(const Sequencer &) = delete;
+    Sequencer(Sequencer &&) = delete;
+    Sequencer &operator=(const Sequencer &) = delete;
+    Sequencer &operator=(Sequencer &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Sequencer.
      */
-    Sequencer<LowerLayer, Scheduler> &sequencer = *this;
+    Sequencer<LowerLayer, Scheduler> &sequencer = *this; // NOLINT
 
     /**
      * Wraps lower layer's @c setOnMessageCallback.
@@ -175,25 +181,33 @@ public:
      */
     void connect();
 
-private:
-    void sendMessageStreamReset();
-
-    void sendMessageRequest(const uint64_t streamId, const uint64_t lowerSeqNum,
-        const uint64_t upperSeqNum);
-
-    void sendMessageAcknowledgement(
-        const uint64_t streamId, const uint64_t seqNum);
-
-    void periodicMessageRequest();
+    void stop()
+    {
+        cancelPeriodicMessageRequest();
+        LowerLayer::stop();
+    }
 
     void schedulePeriodicMessageRequest();
+
+    folly::Future<folly::Unit> sendMessageStreamReset();
+
+private:
+    void sendMessageRequest(
+        uint64_t streamId, uint64_t lowerSeqNum, uint64_t upperSeqNum);
+
+    void sendMessageAcknowledgement(uint64_t streamId, uint64_t seqNum);
+
+    void periodicMessageRequest();
+    void cancelPeriodicMessageRequest();
 
     std::vector<std::pair<uint64_t, uint64_t>> getStreamSequenceNumbers();
 
     SchedulerPtr m_scheduler;
     std::function<void()> m_cancelPeriodicMessageRequest = [] {};
     BuffersMutexType m_buffersMutex;
-    tbb::concurrent_hash_map<uint64_t, Buffer> m_buffers;
+    tbb::concurrent_hash_map</* stream id */ uint64_t,
+        /* stream messages */ Buffer>
+        m_buffers;
 };
 
 template <class LowerLayer, class Scheduler>
@@ -207,7 +221,7 @@ auto Sequencer<LowerLayer, Scheduler>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
     return LowerLayer::setOnMessageCallback(
-        [ this, onMessageCallback = std::move(onMessageCallback) ](
+        [this, onMessageCallback = std::move(onMessageCallback)](
             ServerMessagePtr serverMsg) {
             if (!serverMsg->has_message_stream())
                 onMessageCallback(std::move(serverMsg));
@@ -248,16 +262,17 @@ template <class LowerLayer, class Scheduler>
 void Sequencer<LowerLayer, Scheduler>::connect()
 {
     LowerLayer::connect();
-    sendMessageStreamReset();
-    schedulePeriodicMessageRequest();
+    if (LowerLayer::isConnected())
+        sendMessageStreamReset().get();
 }
 
 template <class LowerLayer, class Scheduler>
-void Sequencer<LowerLayer, Scheduler>::sendMessageStreamReset()
+folly::Future<folly::Unit>
+Sequencer<LowerLayer, Scheduler>::sendMessageStreamReset()
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
     clientMsg->mutable_message_stream_reset();
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    return LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -266,11 +281,11 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageRequest(
     const uint64_t upperSeqNum)
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
-    auto msgReq = clientMsg->mutable_message_request();
+    auto *msgReq = clientMsg->mutable_message_request();
     msgReq->set_stream_id(streamId);
     msgReq->set_lower_sequence_number(lowerSeqNum);
     msgReq->set_upper_sequence_number(upperSeqNum);
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -278,10 +293,10 @@ void Sequencer<LowerLayer, Scheduler>::sendMessageAcknowledgement(
     const uint64_t streamId, const uint64_t seqNum)
 {
     auto clientMsg = std::make_unique<clproto::ClientMessage>();
-    auto msgAck = clientMsg->mutable_message_acknowledgement();
+    auto *msgAck = clientMsg->mutable_message_acknowledgement();
     msgAck->set_stream_id(streamId);
     msgAck->set_sequence_number(seqNum);
-    LowerLayer::send(std::move(clientMsg), [](auto) {});
+    LowerLayer::send(std::move(clientMsg), [](auto /*unused*/) {});
 }
 
 template <class LowerLayer, class Scheduler>
@@ -302,6 +317,12 @@ void Sequencer<LowerLayer, Scheduler>::schedulePeriodicMessageRequest()
         m_scheduler->schedule(STREAM_MSG_REQ_WINDOW,
             std::bind(&Sequencer<LowerLayer, Scheduler>::periodicMessageRequest,
                 this));
+}
+
+template <class LowerLayer, class Scheduler>
+void Sequencer<LowerLayer, Scheduler>::cancelPeriodicMessageRequest()
+{
+    m_cancelPeriodicMessageRequest();
 }
 
 template <class LowerLayer, class Scheduler>

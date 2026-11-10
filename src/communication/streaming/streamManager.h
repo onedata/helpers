@@ -38,7 +38,8 @@ public:
      * and for subscription to incoming messages.
      * @todo Communicator as a reference
      */
-    StreamManager(std::shared_ptr<Communicator> communicator);
+    explicit StreamManager(std::shared_ptr<Communicator> communicator,
+        std::chrono::seconds providerTimeout);
 
     /**
      * Creates a new @c Stream.
@@ -46,6 +47,11 @@ public:
      * @return A new stream instance.
      */
     std::shared_ptr<Stream> create();
+
+    /**
+     * Reset all streams.
+     */
+    void reset();
 
 private:
     void handleMessageRequest(const clproto::MessageRequest &msg);
@@ -61,15 +67,20 @@ private:
     tbb::concurrent_vector<std::weak_ptr<Stream>> m_streams;
     tbb::concurrent_queue<typename decltype(m_streams)::iterator>
         m_streamsSlots;
+    const std::chrono::seconds m_providerTimeout;
 };
 
 template <class Communicator>
 StreamManager<Communicator>::StreamManager(
-    std::shared_ptr<Communicator> communicator)
+    std::shared_ptr<Communicator> communicator,
+    const std::chrono::seconds providerTimeout)
     : m_communicator{std::move(communicator)}
+    , m_providerTimeout{providerTimeout}
 {
-    auto predicate = [](const clproto::ServerMessage &msg, const bool) {
-        return msg.has_message_request() || msg.has_message_acknowledgement();
+    auto predicate = [](const clproto::ServerMessage &msg,
+                         const bool /*unused*/) {
+        return msg.has_message_request() || msg.has_message_acknowledgement() ||
+            msg.has_message_stream_reset();
     };
 
     auto callback = [this](const clproto::ServerMessage &msg) {
@@ -95,7 +106,7 @@ auto StreamManager<Communicator>::create() -> std::shared_ptr<Stream>
 
     std::uint64_t streamId = m_nextStreamId++;
     auto stream = std::make_shared<Stream>(
-        m_communicator, streamId, [this, streamId, it] {
+        m_communicator, streamId, m_providerTimeout, [this, streamId, it] {
             m_idMap.erase(streamId);
             m_streamsSlots.emplace(std::move(it));
         });
@@ -118,9 +129,17 @@ void StreamManager<Communicator>::handleMessageRequest(
     LOG_FCALL() << LOG_FARG(msg.stream_id());
 
     typename decltype(m_idMap)::const_accessor acc;
-    if (m_idMap.find(acc, msg.stream_id()))
+    if (m_idMap.find(acc, msg.stream_id())) {
         if (auto stream = acc->second.lock())
             stream->handleMessageRequest(msg);
+        else
+            LOG(ERROR) << "Cannot handle message request for stream id: "
+                       << msg.stream_id() << " - cannot lock stream pointer...";
+    }
+    else {
+        LOG(ERROR) << "Cannot handle message request for stream id: "
+                   << msg.stream_id();
+    }
 }
 
 template <class Communicator>
@@ -142,18 +161,24 @@ void StreamManager<Communicator>::handleMessageStreamReset(
     LOG_FCALL();
 
     if (msg.has_stream_id()) {
-        LOG_DBG(1) << "Resetting stream with stream id " << msg.stream_id();
+        LOG_DBG(3) << "Resetting stream with stream id " << msg.stream_id();
         typename decltype(m_idMap)::const_accessor acc;
         if (m_idMap.find(acc, msg.stream_id()))
             if (auto stream = acc->second.lock())
                 stream->reset();
     }
     else {
-        LOG_DBG(1) << "No stream id in message - resetting all streams";
-        for (const auto &stream : m_streams)
-            if (auto s = stream.lock())
-                s->reset();
+        LOG_DBG(3)
+            << "No stream id in stream reset message - resetting all streams";
+        reset();
     }
+}
+
+template <class Communicator> void StreamManager<Communicator>::reset()
+{
+    for (const auto &stream : m_streams)
+        if (auto s = stream.lock())
+            s->reset();
 }
 
 } // namespace streaming

@@ -31,8 +31,8 @@ RemoteWrite::RemoteWrite(
 std::string RemoteWrite::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'RemoteWrite', parameters: '" << m_parameters
-           << "', storageId: '" << m_storageId << "', fileId: '" << m_fileId
+    stream << "type: 'RemoteWrite', parameters: '" << parameters()
+           << "', storageId: '" << storageId() << "', fileId: '" << fileId()
            << "', byte sequences: " << m_data.size();
     return stream.str();
 }
@@ -40,11 +40,11 @@ std::string RemoteWrite::toString() const
 std::unique_ptr<ProtocolClientMessage> RemoteWrite::serializeAndDestroy()
 {
     auto clientMsg = ProxyIORequest::serializeAndDestroy();
-    auto writeMsg =
+    auto *writeMsg =
         clientMsg->mutable_proxyio_request()->mutable_remote_write();
 
     for (auto &e : m_data) {
-        auto byteSequence = writeMsg->add_byte_sequence();
+        auto *byteSequence = writeMsg->add_byte_sequence();
         byteSequence->set_offset(e.first);
         byteSequence->set_data(e.second.toStdString());
     }

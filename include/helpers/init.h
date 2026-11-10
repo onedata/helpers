@@ -22,6 +22,11 @@ namespace helpers {
 void init(void);
 
 /**
+ * Start read/write perf logger.
+ */
+void startReadWritePerfLogger(const std::string &logDirectory);
+
+/**
  * Initialize the monitoring configuration
  *
  * @param conf Monitoring configuration necessary to setup Graphite
@@ -32,7 +37,7 @@ void init(void);
 void configureMonitoring(
     std::shared_ptr<one::monitoring::MonitoringConfiguration> conf,
     bool start = false);
-}
-}
+} // namespace helpers
+} // namespace one
 
 #endif /* HELPERS_INIT_H */

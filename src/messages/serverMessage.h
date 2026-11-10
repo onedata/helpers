@@ -15,7 +15,7 @@ namespace one {
 
 namespace clproto {
 class ServerMessage;
-}
+} // namespace clproto
 
 namespace messages {
 

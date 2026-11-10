@@ -11,6 +11,8 @@
 
 #include "helpers/storageHelper.h"
 
+#include "keyValueAdapterParams.h"
+
 #include <folly/Executor.h>
 #include <folly/Hash.h>
 #include <tbb/concurrent_hash_map.h>
@@ -21,8 +23,6 @@
 
 namespace one {
 namespace helpers {
-
-constexpr std::size_t DEFAULT_BLOCK_SIZE = 10 * 1024 * 1024;
 
 template <typename T> struct StdHashCompare {
     bool equal(const T &a, const T &b) const { return a == b; }
@@ -56,19 +56,32 @@ public:
         std::shared_ptr<Locks> locks,
         std::shared_ptr<folly::Executor> executor);
 
-    virtual folly::Future<folly::IOBufQueue> read(
+    folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    virtual folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        WriteCallback &&writeCb) override;
 
     const Timeout &timeout() override;
 
     bool isConcurrencyEnabled() const override { return true; }
 
 private:
-    folly::Future<folly::IOBufQueue> readBlocks(
-        const off_t offset, const std::size_t requestedSize);
+    folly::Future<std::size_t> writeFlat(const off_t offset,
+        folly::IOBufQueue buf, std::size_t storageBlockSize,
+        WriteCallback &&writeCb);
+
+    folly::Future<folly::IOBufQueue> readFlat(const off_t offset,
+        const std::size_t size, const std::size_t storageBlockSize);
+
+    folly::Future<std::size_t> writeCanonical(
+        const off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb);
+
+    folly::Future<folly::IOBufQueue> readCanonical(
+        const off_t offset, const std::size_t size);
+
+    folly::Future<folly::IOBufQueue> readBlocks(const off_t offset,
+        const std::size_t requestedSize, const std::size_t storageBlockSize);
 
     folly::IOBufQueue readBlock(const uint64_t blockId, const off_t blockOffset,
         const std::size_t size);
@@ -92,61 +105,89 @@ class KeyValueAdapter : public StorageHelper,
         StdHashCompare<folly::fbstring>>;
 
 public:
+    using params_type = KeyValueAdapterParams;
+
     /**
      * Constructor.
      * @param helper @c KeyValueHelper instance that provides low level storage
      * access.
-     * @param service IO service used for asynchronous operations.
-     * @param locks Map of locks used to exclude concurrent operations on the
-     * same storage block.
+     * @param storagePathType Type of storage path mapping
      * @param blockSize Size of storage block.
      * @param randomAccess Specifies whether the underlying object storage
      *                     provides random access read/write functionality.
      */
     KeyValueAdapter(std::shared_ptr<KeyValueHelper> helper,
+        std::shared_ptr<KeyValueAdapterParams> params,
         std::shared_ptr<folly::Executor> executor,
-        std::size_t blockSize = DEFAULT_BLOCK_SIZE);
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
 
-    virtual folly::fbstring name() const override;
+    KeyValueAdapter(const KeyValueAdapter &) = delete;
+    KeyValueAdapter &operator=(const KeyValueAdapter &) = delete;
+    KeyValueAdapter(KeyValueAdapter &&) = delete;
+    KeyValueAdapter &operator=(KeyValueAdapter &&) = delete;
 
-    virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+    virtual ~KeyValueAdapter() = default;
+
+    folly::fbstring name() const override;
+
+    HELPER_PARAM_GETTER(maxCanonicalObjectSize)
+
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
+    folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
         const int flags, const Params &openParams) override;
 
-    virtual folly::Future<folly::Unit> unlink(
+    folly::Future<folly::Unit> unlink(
         const folly::fbstring &fileId, const size_t currentSize) override;
 
-    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
+    folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
         const off_t size, const size_t currentSize) override;
 
-    virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override
-    {
-        return folly::makeFuture();
-    }
+    folly::Future<struct stat> getattr(const folly::fbstring &fileId) override;
 
-    virtual folly::Future<folly::Unit> mkdir(
+    folly::Future<folly::Unit> access(
+        const folly::fbstring &fileId, const int mask) override;
+
+    folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
+        const mode_t mode, const FlagsSet &flags, const dev_t rdev) override;
+
+    folly::Future<folly::Unit> mkdir(
         const folly::fbstring &fileId, const mode_t mode) override
     {
         return folly::makeFuture();
     }
 
-    virtual folly::Future<folly::Unit> chmod(
+    folly::Future<folly::Unit> chmod(
         const folly::fbstring &fileId, const mode_t mode) override
     {
         return folly::makeFuture();
     }
 
-    const Timeout &timeout() override;
+    folly::Future<folly::Unit> multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size) override;
+
+    folly::Future<ListObjectsResult> listobjects(const folly::fbstring &prefix,
+        const folly::fbstring &marker, const off_t offset,
+        const size_t count) override;
+
+    virtual folly::Future<folly::Unit> fillMissingFileBlocks(
+        const folly::fbstring &fileId, std::size_t size);
+
+    bool isObjectStorage() const override { return true; }
+
+    std::size_t blockSize() const noexcept override;
 
     std::shared_ptr<folly::Executor> executor() override { return m_executor; };
 
-    std::shared_ptr<KeyValueHelper> helper() { return m_helper; };
+    std::shared_ptr<KeyValueHelper> helper() const { return m_helper; };
+
+    std::vector<folly::fbstring> handleOverridableParams() const override;
 
 private:
     std::shared_ptr<KeyValueHelper> m_helper;
     std::shared_ptr<folly::Executor> m_executor;
     std::shared_ptr<Locks> m_locks;
-    const std::size_t m_blockSize;
 };
 
 } // namespace helpers

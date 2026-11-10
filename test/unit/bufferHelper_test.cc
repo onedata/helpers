@@ -1,11 +1,9 @@
-#include "asioExecutor.h"
 #include "buffering/bufferAgent.h"
 #include "helpers/storageHelper.h"
 #include "scheduler.h"
 
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <folly/FBString.h>
+#include <folly/Singleton.h>
 #include <folly/futures/Future.h>
 #include <folly/io/IOBufQueue.h>
 #include <gtest/gtest.h>
@@ -18,20 +16,21 @@ class StorageHelper;
 
 class FileHandle : public one::helpers::FileHandle {
 public:
-    FileHandle(const folly::fbstring &fileId, folly::Executor &executor,
+    FileHandle(const folly::fbstring &fileId,
+        std::shared_ptr<folly::Executor> executor,
         std::atomic<bool> &wasSimultaneous,
         std::shared_ptr<StorageHelper> helper);
 
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        one::helpers::WriteCallback &&writeCb) override;
 
     const one::helpers::Timeout &timeout() override;
 
 private:
-    folly::Executor &m_executor;
+    std::shared_ptr<folly::Executor> m_executor;
     std::atomic<bool> &m_wasSimultaneous;
     std::atomic<size_t> m_simultaneous{0};
 };
@@ -39,8 +38,9 @@ private:
 class StorageHelper : public one::helpers::StorageHelper,
                       public std::enable_shared_from_this<StorageHelper> {
 public:
-    StorageHelper(folly::Executor &executor, std::atomic<bool> &wasSimultaneous)
-        : m_executor{executor}
+    StorageHelper(std::shared_ptr<folly::Executor> executor,
+        std::atomic<bool> &wasSimultaneous)
+        : m_executor{std::move(executor)}
         , m_wasSimultaneous{wasSimultaneous}
     {
     }
@@ -58,11 +58,13 @@ public:
 
     const one::helpers::Timeout &timeout() override
     {
-        return one::helpers::ASYNC_OPS_TIMEOUT;
+        return one::helpers::constants::ASYNC_OPS_TIMEOUT;
     }
 
+    std::shared_ptr<folly::Executor> executor() override { return m_executor; }
+
 private:
-    folly::Executor &m_executor;
+    std::shared_ptr<folly::Executor> m_executor;
     std::atomic<bool> &m_wasSimultaneous;
 };
 
@@ -79,17 +81,18 @@ protected:
             one::helpers::buffering::BufferAgentsMemoryLimitGuard>(limits);
     }
 
-    one::helpers::buffering::BufferLimits limits = {};
+    one::helpers::buffering::BufferLimits limits{};
     std::shared_ptr<one::helpers::buffering::BufferAgentsMemoryLimitGuard>
         limitGuard;
 };
 
 // FileHandle implementation
 
-FileHandle::FileHandle(const folly::fbstring &fileId, folly::Executor &executor,
+FileHandle::FileHandle(const folly::fbstring &fileId,
+    std::shared_ptr<folly::Executor> executor,
     std::atomic<bool> &wasSimultaneous, std::shared_ptr<StorageHelper> helper)
     : one::helpers::FileHandle{fileId, std::move(helper)}
-    , m_executor{executor}
+    , m_executor{std::move(executor)}
     , m_wasSimultaneous{wasSimultaneous}
 {
 }
@@ -100,21 +103,24 @@ folly::Future<folly::IOBufQueue> FileHandle::read(
     return folly::IOBufQueue{folly::IOBufQueue::cacheChainLength()};
 }
 
-folly::Future<std::size_t> FileHandle::write(
-    const off_t offset, folly::IOBufQueue buf)
+folly::Future<std::size_t> FileHandle::write(const off_t offset,
+    folly::IOBufQueue buf, one::helpers::WriteCallback &&writeCb)
 {
-    return folly::via(&m_executor, [ this, size = buf.chainLength() ] {
-        if (++m_simultaneous > 1)
-            m_wasSimultaneous = true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        --m_simultaneous;
-        return size;
-    });
+    return folly::via(m_executor.get(),
+        [this, size = buf.chainLength(), writeCb = std::move(writeCb)] {
+            if (++m_simultaneous > 1)
+                m_wasSimultaneous = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            --m_simultaneous;
+            if (writeCb)
+                writeCb(size);
+            return size;
+        });
 }
 
 const one::helpers::Timeout &FileHandle::timeout()
 {
-    return one::helpers::ASYNC_OPS_TIMEOUT;
+    return one::helpers::constants::ASYNC_OPS_TIMEOUT;
 }
 
 // FileHandle implementation
@@ -140,8 +146,8 @@ struct BufferHelperTest : public ::testing::Test {
 protected:
     BufferHelperTest()
     {
-        for (int i = 0; i < 100; ++i)
-            workers.emplace_back(std::thread{[&] { service.run(); }});
+        scheduler = std::make_shared<one::Scheduler>(1);
+        executor = std::make_shared<folly::IOThreadPoolExecutor>(100);
 
         one::helpers::buffering::BufferLimits limits;
         limits.readBufferMaxSize = 10 * 1024 * 1024;
@@ -154,31 +160,25 @@ protected:
 
         auto wrappedHelper =
             std::make_shared<StorageHelper>(executor, wasSimultaneous);
+
         helper = std::make_shared<one::helpers::buffering::BufferAgent>(
             limits, wrappedHelper, scheduler, std::move(memoryLimitGuard));
     }
 
-    ~BufferHelperTest()
-    {
-        service.stop();
-        for (auto &worker : workers)
-            worker.join();
-    }
+    ~BufferHelperTest() { }
 
     std::atomic<bool> wasSimultaneous{false};
     one::helpers::StorageHelperPtr helper;
 
 private:
-    asio::io_service service{100};
-    asio::executor_work_guard<asio::io_service::executor_type> idleWork{
-        asio::make_work_guard(service)};
-    folly::fbvector<std::thread> workers;
-    one::Scheduler scheduler{1};
-    one::AsioExecutor executor{service};
+    std::shared_ptr<one::Scheduler> scheduler;
+    std::shared_ptr<folly::IOThreadPoolExecutor> executor;
 };
 
 TEST_F(BufferHelperTest, shouldNotWriteSimultaneously)
 {
+    folly::SingletonVault::singleton()->registrationComplete();
+
     auto handle = helper->open("fileId", 0, {}).get();
 
     ASSERT_TRUE(
@@ -189,7 +189,7 @@ TEST_F(BufferHelperTest, shouldNotWriteSimultaneously)
         for (int j = 0; j < 1000; ++j) {
             folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
             buf.allocate(1024 * 1024);
-            handle->write(j * 1024 * 1024, std::move(buf));
+            handle->write(j * 1024 * 1024, std::move(buf), {});
         }
     }
     handle->release().get();

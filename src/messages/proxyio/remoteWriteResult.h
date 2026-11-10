@@ -11,8 +11,6 @@
 
 #include "proxyIOResponse.h"
 
-#include <asio/buffer.hpp>
-
 #include <memory>
 #include <string>
 
@@ -31,7 +29,8 @@ public:
      * @param serverMessage Protocol Buffers message representing
      * @c RemoteWriteResult counterpart.
      */
-    RemoteWriteResult(std::unique_ptr<ProtocolServerMessage> serverMessage);
+    explicit RemoteWriteResult(
+        std::unique_ptr<ProtocolServerMessage> serverMessage);
 
     /**
      * @return The number of bytes written.

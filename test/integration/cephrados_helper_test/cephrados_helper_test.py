@@ -8,7 +8,7 @@ import os
 import sys
 import threading
 import random
-from Queue import Queue, Empty
+from queue import Queue, Empty
 
 import pytest
 
@@ -60,10 +60,43 @@ def server(request):
 
     return  server
 
+
 @pytest.fixture
 def helper(server):
     return CephRadosHelperProxy(server.mon_host, server.username, server.key,
-                           server.pool_name, THREAD_NUMBER, BLOCK_SIZE)
+                           server.pool_name, THREAD_NUMBER, BLOCK_SIZE, "flat")
+
+
+@pytest.fixture
+def helper_invalid(server):
+    return CephRadosHelperProxy(server.mon_host, server.username, server.key,
+                                "no_such_pool", THREAD_NUMBER, BLOCK_SIZE,
+                                "flat")
+
+
+@pytest.fixture
+def helper_invalid_mon_host(server):
+    return CephRadosHelperProxy("no_such_host.invalid:80800", server.username, server.key,
+                                server.pool_name, THREAD_NUMBER, BLOCK_SIZE,
+                                "flat")
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_mon_host(helper_invalid_mon_host):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_mon_host.check_storage_availability()
+
+    assert "Couldn't connect to cluster." in str(excinfo)
+
+
+def test_helper_check_availability_error_invalid_pool(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert "Couldn't set up ioCTX." in str(excinfo)
 
 
 def read_and_validate_block(h, results, file_id, iteration_count, offset_range):
@@ -71,8 +104,10 @@ def read_and_validate_block(h, results, file_id, iteration_count, offset_range):
         offset = random.randint(0, offset_range)
         moff = offset % len(VALIDATE_PATTERN)
         block = h.read(file_id, offset, len(VALIDATE_PATTERN))
-        if block != VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff]:
-            results.put(block + "!=" + VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff])
+        if block.decode('utf-8') != VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff]:
+            results.put(block.decode('utf-8') + "!=" + VALIDATE_PATTERN[moff:]+VALIDATE_PATTERN[:moff])
+        else:
+            results.put("OK")
             return
 
 
@@ -101,6 +136,6 @@ def test_multithread_read_should_work(helper, file_id):
     while True:
         try:
             res = results.get(block=False)
-            assert res == ""
+            assert res == 'OK'
         except Empty:
             break

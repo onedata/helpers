@@ -24,7 +24,7 @@ public:
     using This = FlatOpScheduler<OpVariant, OpVisitor>;
 
     static std::shared_ptr<This> create(
-        std::shared_ptr<folly::Executor> executor,
+        const std::shared_ptr<folly::Executor> &executor,
         std::shared_ptr<OpVisitor> opVisitor)
     {
         return std::shared_ptr<This>(new This{executor, opVisitor});

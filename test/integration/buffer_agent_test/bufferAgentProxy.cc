@@ -11,7 +11,6 @@
 #include "buffering/bufferAgent.h"
 #include "communication/communicator.h"
 
-#include <asio/buffer.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
@@ -36,13 +35,14 @@ class BufferAgentProxy {
 public:
     BufferAgentProxy(
         std::string storageId, std::string host, const unsigned short port)
-        : m_communicator{5, 2, host, port, false, true, false}
+        : m_communicator{1, 1, host, port, false, true, false}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
         , m_helper{std::make_shared<one::helpers::buffering::BufferAgent>(
               one::helpers::buffering::BufferLimits{},
-              std::make_shared<one::helpers::ProxyHelper>(
+              std::make_shared<
+                  one::helpers::ProxyHelper<one::communication::Communicator>>(
                   storageId, m_communicator),
-              *m_scheduler,
+              m_scheduler,
               std::make_shared<
                   one::helpers::buffering::BufferAgentsMemoryLimitGuard>(
                   one::helpers::buffering::BufferLimits{}))}
@@ -50,6 +50,18 @@ public:
         m_communicator.setScheduler(m_scheduler);
         m_communicator.connect();
     }
+
+    ~BufferAgentProxy() { stop(); }
+
+    void stop()
+    {
+        ReleaseGIL guard;
+        if (!m_stopped.test_and_set()) {
+            m_communicator.stop();
+        }
+    }
+
+    bool isBuffered() { return m_helper->isBuffered(); }
 
     one::helpers::FileHandlePtr open(std::string fileId,
         const std::unordered_map<folly::fbstring, folly::fbstring> &parameters)
@@ -62,17 +74,19 @@ public:
     {
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-        buf.append(data);
-        return handle->write(offset, std::move(buf)).get();
+        buf.append(std::move(data));
+        return handle->write(offset, std::move(buf), {})
+            .thenValue([handle](int &&size) { return size; })
+            .get();
     }
 
     std::string read(one::helpers::FileHandlePtr handle, int offset, int size)
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([&](const folly::IOBufQueue &buf) {
+            .thenTry([handle](folly::Try<folly::IOBufQueue> buf) {
                 std::string data;
-                buf.appendToString(data);
+                std::move(buf.value()).appendToString(data);
                 return data;
             })
             .get();
@@ -81,6 +95,10 @@ public:
     void release(one::helpers::FileHandlePtr handle)
     {
         ReleaseGIL guard;
+
+        assert(m_communicator.executor().get() ==
+            handle->helper()->executor().get());
+
         handle->release().get();
     }
 
@@ -88,6 +106,7 @@ private:
     one::communication::Communicator m_communicator;
     std::shared_ptr<one::Scheduler> m_scheduler;
     std::shared_ptr<one::helpers::buffering::BufferAgent> m_helper;
+    std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
 };
 
 namespace {
@@ -121,6 +140,8 @@ BOOST_PYTHON_MODULE(buffer_agent)
     class_<BufferAgentProxy, boost::noncopyable>("BufferAgentProxy", no_init)
         .def("__init__", make_constructor(create))
         .def("open", raw_function(raw_open))
+        .def("is_buffered", &BufferAgentProxy::isBuffered)
+        .def("stop", &BufferAgentProxy::stop)
         .def("read", &BufferAgentProxy::read)
         .def("write", &BufferAgentProxy::write)
         .def("release", &BufferAgentProxy::release);

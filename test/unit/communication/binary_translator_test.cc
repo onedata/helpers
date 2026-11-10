@@ -28,12 +28,17 @@ struct LowerLayer {
     using Callback = std::function<void(const std::error_code &)>;
     LowerLayer &mock = static_cast<LowerLayer &>(*this);
 
+    enum class State { INVALID_PROVIDER };
+
     MOCK_METHOD2(sendProxy, void(std::string, int));
     MOCK_METHOD1(setOnMessageCallback, void(std::function<void(std::string)>));
     MOCK_METHOD3(setHandshake,
         void(std::function<std::string()>,
             std::function<std::error_code(std::string)>,
             std::function<void(std::error_code)>));
+    MOCK_METHOD1(logClientMessage, void(const clproto::ClientMessage &));
+    MOCK_METHOD1(logServerMessage, void(const clproto::ServerMessage &));
+    MOCK_METHOD1(setConnectionState, void(State));
 
     void send(std::string msg, Callback, int i)
     {

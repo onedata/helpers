@@ -9,13 +9,14 @@
 #ifndef HELPERS_S3_HELPER_H
 #define HELPERS_S3_HELPER_H
 
-#include "asioExecutor.h"
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
+#include "s3HelperParams.h"
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/S3Errors.h>
+#include <folly/executors/IOExecutor.h>
 
 #include <map>
 #include <sstream>
@@ -38,48 +39,33 @@ class S3HelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    S3HelperFactory(asio::io_service &service)
-        : m_service{service}
+    explicit S3HelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override { return S3_HELPER_NAME; }
+    folly::fbstring name() const override { return S3_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
-        return {"scheme", "hostname", "timeout"};
+        return {"scheme", "hostname", "timeout", "region",
+            "validateServerCertificate"};
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+        const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto &scheme = getParam(parameters, "scheme", "https");
-        const auto &hostname = getParam(parameters, "hostname");
-        const auto &bucketName = getParam(parameters, "bucketName");
-        const auto &accessKey = getParam(parameters, "accessKey");
-        const auto &secretKey = getParam(parameters, "secretKey");
-        const auto version = getParam<int>(parameters, "signatureVersion", 4);
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-        const auto &blockSize =
-            getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
-
-        if (version != 4)
-            throw std::invalid_argument(
-                "Unsupported S3 signature version: " + std::to_string(version) +
-                ". Currently only supported signature "
-                "version is '4'.");
+        auto params = S3HelperParams::create(parameters);
 
         return std::make_shared<KeyValueAdapter>(
-            std::make_shared<S3Helper>(hostname, bucketName, accessKey,
-                secretKey, scheme == "https", std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize);
+            std::make_shared<S3Helper>(params), params, m_executor,
+            executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 /**
@@ -88,6 +74,8 @@ private:
  */
 class S3Helper : public KeyValueHelper {
 public:
+    using params_type = S3HelperParams;
+
     /**
      * Constructor.
      * @param hostName Hostname of the S3 server.
@@ -98,11 +86,36 @@ public:
      * should be used to sign requests.
      * @param timeout Asynchronous operations timeout.
      */
-    S3Helper(folly::fbstring hostname, folly::fbstring bucketName,
-        folly::fbstring accessKey, folly::fbstring secretKey,
-        const bool useHttps = true, Timeout timeout = ASYNC_OPS_TIMEOUT);
+    explicit S3Helper(std::shared_ptr<S3HelperParams> params);
+
+    S3Helper(const S3Helper &) = delete;
+    S3Helper &operator=(const S3Helper &) = delete;
+    S3Helper(S3Helper &&) = delete;
+    S3Helper &operator=(S3Helper &&) = delete;
+
+    virtual ~S3Helper() = default;
 
     folly::fbstring name() const override { return S3_HELPER_NAME; };
+
+    HELPER_PARAM_GETTER(scheme)
+    HELPER_PARAM_GETTER(hostname)
+    HELPER_PARAM_GETTER(bucketName)
+    HELPER_PARAM_GETTER(accessKey)
+    HELPER_PARAM_GETTER(secretKey)
+    HELPER_PARAM_GETTER(version)
+    HELPER_PARAM_GETTER(verifyServerCertificate)
+    HELPER_PARAM_GETTER(disableExpectHeader)
+    HELPER_PARAM_GETTER(enableClockSkewAdjustment)
+    HELPER_PARAM_GETTER(maxConnections)
+    HELPER_PARAM_GETTER(fileMode)
+    HELPER_PARAM_GETTER(dirMode)
+    HELPER_PARAM_GETTER(region)
+
+    bool supportsBatchDelete() const override { return true; }
+
+    void checkStorageAvailability() override;
+
+    void headBucket();
 
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
@@ -110,16 +123,37 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
         const std::size_t offset) override;
 
+    std::size_t modifyObject(const folly::fbstring &key, folly::IOBufQueue buf,
+        const std::size_t offset) override;
+
+    void deleteObject(const folly::fbstring &key) override;
+
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 
-    const Timeout &timeout() override { return m_timeout; }
+    ListObjectsResult listObjects(const folly::fbstring &prefix,
+        const folly::fbstring &continuationToken, const off_t offset,
+        const size_t size) override;
+
+    ListObjectsResult listAllObjects(const folly::fbstring &prefix);
+
+    void multipartCopy(const folly::fbstring &sourceKey,
+        const folly::fbstring &destinationKey, const std::size_t blockSize,
+        const std::size_t size) override;
+
+    struct stat getObjectInfo(const folly::fbstring &key) override;
 
 private:
-    folly::fbstring getRegion(const folly::fbstring &hostname);
+    folly::fbstring getRegion(const folly::fbstring &hostname) const;
 
+    folly::fbstring toEffectiveKey(const folly::fbstring &key) const;
+    folly::fbstring fromEffectiveKey(const folly::fbstring &key) const;
+
+    // Prefix relative to the S3 bucket, which should be used on all requests
+    // This effectively enables syncing of subdirectories within a bucket
+    // or specifying a specific subdirectory of a bucket as space directory
     folly::fbstring m_bucket;
+    folly::fbstring m_prefix;
     std::unique_ptr<Aws::S3::S3Client> m_client;
-    Timeout m_timeout;
 };
 
 /*
@@ -129,6 +163,11 @@ private:
 class S3HelperApiInit {
 public:
     S3HelperApiInit() { Aws::InitAPI(m_options); }
+
+    S3HelperApiInit(const S3HelperApiInit &) = delete;
+    S3HelperApiInit &operator=(const S3HelperApiInit &) = delete;
+    S3HelperApiInit(S3HelperApiInit &&) = delete;
+    S3HelperApiInit &operator=(S3HelperApiInit &&) = delete;
 
     ~S3HelperApiInit() { Aws::ShutdownAPI(m_options); }
 

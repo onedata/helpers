@@ -9,12 +9,10 @@
 #include "keyValueAdapter.h"
 #include "swiftHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
-#include <folly/ThreadName.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/system/ThreadName.h>
 
 #include <algorithm>
 #include <iostream>
@@ -23,6 +21,8 @@
 #include <vector>
 
 using namespace boost::python;
+using one::helpers::StoragePathType;
+using one::helpers::StorageWorkerFactory;
 
 class ReleaseGIL {
 public:
@@ -38,31 +38,39 @@ private:
 class SwiftHelperProxy {
 public:
     SwiftHelperProxy(std::string authUrl, std::string containerName,
-        std::string tenantName, std::string userName, std::string password,
-        int threadNumber, std::size_t blockSize)
-        : m_service{threadNumber}
-        , m_idleWork{asio::make_work_guard(m_service)}
-        , m_helper{std::make_shared<one::helpers::KeyValueAdapter>(
-              std::make_shared<one::helpers::SwiftHelper>(
-                  std::move(containerName), authUrl, tenantName, userName,
-                  password),
-              std::make_shared<one::AsioExecutor>(m_service), blockSize)}
+        std::string projectName, std::string userName, std::string password,
+        std::string userDomainName, std::string projectDomainName,
+        int threadNumber, std::size_t blockSize, std::string storagePathType)
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              threadNumber, std::make_shared<StorageWorkerFactory>("swift_t"))}
     {
-        std::generate_n(std::back_inserter(m_workers), threadNumber, [=] {
-            std::thread t{[=] {
-                folly::setThreadName("SwiftHelperProxy");
-                m_service.run();
-            }};
+        using namespace one::helpers;
 
-            return t;
-        });
+        Params params;
+        params["containerName"] = containerName;
+        params["authUrl"] = authUrl;
+        params["projectName"] = projectName;
+        params["username"] = userName;
+        params["password"] = password;
+        params["userDomainName"] = userDomainName;
+        params["projectDomainName"] = projectDomainName;
+        params["timeout"] = "20";
+        params["blockSize"] = std::to_string(blockSize);
+        params["storagePathType"] = storagePathType;
+        params["maxConnections"] = "25";
+
+        auto parameters = SwiftHelperParams::create(params);
+
+        m_helper = std::make_shared<KeyValueAdapter>(
+            std::make_shared<SwiftHelper>(parameters), parameters, m_executor);
     }
 
-    ~SwiftHelperProxy()
+    ~SwiftHelperProxy() { }
+
+    void checkStorageAvailability()
     {
-        m_service.stop();
-        for (auto &t : m_workers)
-            t.join();
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
     }
 
     void unlink(std::string fileId, int size)
@@ -71,15 +79,19 @@ public:
         m_helper->unlink(fileId, size).get();
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
+                return handle->read(offset, size)
+                    .thenValue([handle](folly::IOBufQueue &&buf) {
+                        std::string data;
+                        buf.appendToString(data);
+                        return boost::python::api::object(
+                            boost::python::handle<>(PyBytes_FromStringAndSize(
+                                data.c_str(), data.size())));
+                    });
             })
             .get();
     }
@@ -88,10 +100,11 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, 0, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
-                return handle->write(offset, std::move(buf));
+                return handle->write(offset, std::move(buf), {})
+                    .thenValue([handle](auto &&size) { return size; });
             })
             .get();
     }
@@ -103,20 +116,23 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::StorageHelper> m_helper;
 };
 
 namespace {
 boost::shared_ptr<SwiftHelperProxy> create(std::string authUrl,
-    std::string containerName, std::string tenantName, std::string userName,
-    std::string password, std::size_t threadNumber, std::size_t blockSize)
+    std::string containerName, std::string projectName, std::string userName,
+    std::string password, std::string userDomainName,
+    std::string projectDomainName, std::size_t threadNumber,
+    std::size_t blockSize, std::string storagePathType = "flat")
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<SwiftHelperProxy>(std::move(authUrl),
-        std::move(containerName), std::move(tenantName), std::move(userName),
-        std::move(password), threadNumber, blockSize);
+        std::move(containerName), std::move(projectName), std::move(userName),
+        std::move(password), std::move(userDomainName),
+        std::move(projectDomainName), threadNumber, blockSize, storagePathType);
 }
 }
 
@@ -127,5 +143,7 @@ BOOST_PYTHON_MODULE(swift_helper)
         .def("unlink", &SwiftHelperProxy::unlink)
         .def("read", &SwiftHelperProxy::read)
         .def("write", &SwiftHelperProxy::write)
-        .def("truncate", &SwiftHelperProxy::truncate);
+        .def("truncate", &SwiftHelperProxy::truncate)
+        .def("check_storage_availability",
+            &SwiftHelperProxy::checkStorageAvailability);
 }

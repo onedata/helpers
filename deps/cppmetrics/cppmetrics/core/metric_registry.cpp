@@ -15,6 +15,7 @@
 
 #include "cppmetrics/core/metric_registry.h"
 #include <map>
+#include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
@@ -77,9 +78,9 @@ private:
         const MetricSet &metric_set) const;
 };
 
-MetricRegistry::Impl::Impl() {}
+MetricRegistry::Impl::Impl() { }
 
-MetricRegistry::Impl::~Impl() {}
+MetricRegistry::Impl::~Impl() { }
 
 size_t MetricRegistry::Impl::count() const
 {
@@ -237,7 +238,7 @@ MetricRegistry::MetricRegistry()
 {
 }
 
-MetricRegistry::~MetricRegistry() {}
+MetricRegistry::~MetricRegistry() { }
 
 CounterPtr MetricRegistry::counter(const std::string &name)
 {

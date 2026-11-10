@@ -47,7 +47,13 @@ struct LowerLayer {
         setOnMessageCallback, void(std::function<void(ServerMessagePtr)>));
     MOCK_METHOD1(sendProxy, void(const clproto::ClientMessage &));
 
-    void send(ClientMessagePtr cmp, Callback) { sendProxy(*cmp); }
+    folly::Future<folly::Unit> send(ClientMessagePtr cmp, Callback)
+    {
+        sendProxy(*cmp);
+        return folly::makeFuture();
+    }
+
+    bool isConnected() { return true; }
 };
 
 struct SequencerTest : public ::testing::Test {
@@ -169,6 +175,7 @@ TEST_F(SequencerTest,
     EXPECT_CALL(sequencer.mock, connect());
     sequencer.setScheduler(scheduler);
     sequencer.connect();
+    sequencer.schedulePeriodicMessageRequest();
 }
 
 TEST_F(SequencerTest, sequencerShouldSendMessageStreamResetOnInitialization)
@@ -177,6 +184,7 @@ TEST_F(SequencerTest, sequencerShouldSendMessageStreamResetOnInitialization)
     EXPECT_CALL(sequencer.mock, connect());
     sequencer.setScheduler(scheduler);
     sequencer.connect();
+    sequencer.schedulePeriodicMessageRequest();
 }
 
 TEST_F(SequencerTest, sequencerShouldSendMessageRequestMessage)

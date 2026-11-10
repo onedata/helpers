@@ -35,6 +35,8 @@
 namespace one {
 namespace communication {
 
+constexpr auto CLIENT_RECONNECT_DELAYS_COUNT{12UL};
+
 /**
  * CLProto specific wrapper over wangle's ClientBoostrap
  */
@@ -43,16 +45,33 @@ public:
     CLProtoClientBootstrap(
         uint32_t id, bool performCLProtoUpgrade, bool performCLProtoHandshake);
 
-    void makePipeline(std::shared_ptr<folly::AsyncSocket> socket) override;
+    CLProtoClientBootstrap(const CLProtoClientBootstrap &) = delete;
+    CLProtoClientBootstrap(CLProtoClientBootstrap &&) = delete;
+    CLProtoClientBootstrap &operator=(const CLProtoClientBootstrap &) = delete;
+    CLProtoClientBootstrap &operator=(CLProtoClientBootstrap &&) = delete;
+
+    ~CLProtoClientBootstrap() override;
+
+    void makePipeline(std::shared_ptr<folly::AsyncTransport> socket) override;
 
     folly::Future<folly::Unit> connect(
         const folly::fbstring &host, int port, size_t reconnectAttempt = 0);
 
     bool connected();
 
+    void setEOFCallbackCalled(bool v);
+
+    bool handshakeDone() const;
+
     void setEOFCallback(std::function<void(void)> eofCallback);
 
     uint32_t connectionId() const;
+
+    bool idle() const;
+
+    void idle(bool i);
+
+    bool firstConnection() const;
 
 private:
     using wangle::ClientBootstrap<CLProtoPipeline>::connect;
@@ -60,8 +79,13 @@ private:
     const uint32_t m_connectionId;
     const bool m_performCLProtoUpgrade;
     const bool m_performCLProtoHandshake;
+    bool m_handshakeDone{false};
+    bool m_idle{true};
+    bool m_firstConnection{true};
 
     std::function<void(void)> m_eofCallback;
+    bool m_eofCallbackCalled{false};
+    bool m_stopping{false};
 };
 } // namespace communication
 } // namespace one

@@ -11,6 +11,7 @@
 #include "messages/pong.h"
 #include "scheduler_mock.h"
 
+#include <folly/executors/GlobalExecutor.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -24,18 +25,32 @@ class LazyConnectionPool {
 public:
     using Callback = std::function<void(const std::error_code &)>;
 
-    void connect() {}
+    enum class State { INVALID_PROVIDER };
 
-    void setOnMessageCallback(std::function<void(std::string)>) {}
+    void setConnectionState(State s) { }
+    void connect() { }
 
-    void setCertificateData(std::shared_ptr<cert::CertificateData>) {}
+    bool isConnected() { return true; }
 
-    void send(std::string, Callback /*callback*/, const int = int{}) {}
+    std::shared_ptr<folly::Executor> executor()
+    {
+        return folly::getIOExecutor();
+    }
+
+    void setOnMessageCallback(std::function<void(std::string)>) { }
+
+    void setCertificateData(std::shared_ptr<cert::CertificateData>) { }
+
+    folly::Future<folly::Unit> send(
+        std::string, Callback /*callback*/, const int = int{})
+    {
+        return folly::makeFuture();
+    }
 };
 
-using CustomCommunicator =
-    layers::Translator<layers::Replier<layers::Inbox<layers::Sequencer<
-        layers::BinaryTranslator<layers::Retrier<LazyConnectionPool>>,
+using CustomCommunicator = layers::Translator<layers::Replier<
+    layers::Inbox<layers::Sequencer<layers::BinaryTranslator<layers::Logger<
+                                        layers::Retrier<LazyConnectionPool>>>,
         MockScheduler>>>>;
 
 struct CommunicatorTest : public ::testing::Test {

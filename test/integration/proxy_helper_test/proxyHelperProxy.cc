@@ -10,11 +10,11 @@
 
 #include "communication/communicator.h"
 
-#include <asio/buffer.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <string>
 
@@ -37,11 +37,22 @@ public:
         std::string storageId, std::string host, const unsigned short port)
         : m_communicator{1, 1, host, port, false, true, false}
         , m_scheduler{std::make_shared<one::Scheduler>(1)}
-        , m_helper{std::make_shared<one::helpers::ProxyHelper>(
+        , m_helper{std::make_shared<
+              one::helpers::ProxyHelper<one::communication::Communicator>>(
               storageId, m_communicator)}
     {
         m_communicator.setScheduler(m_scheduler);
         m_communicator.connect();
+    }
+
+    ~ProxyHelperProxy() { stop(); }
+
+    void stop()
+    {
+        ReleaseGIL guard;
+        if (!m_stopped.test_and_set()) {
+            m_communicator.stop();
+        }
     }
 
     one::helpers::FileHandlePtr open(std::string fileId,
@@ -56,17 +67,18 @@ public:
         ReleaseGIL guard;
         folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
         buf.append(data);
-        return handle->write(offset, std::move(buf)).get();
+        return handle->write(offset, std::move(buf), {}).get();
     }
 
-    std::string read(one::helpers::FileHandlePtr handle, int offset, int size)
+    auto read(one::helpers::FileHandlePtr handle, int offset, int size)
     {
         ReleaseGIL guard;
         return handle->read(offset, size)
-            .then([&](const folly::IOBufQueue &buf) {
+            .thenValue([&](folly::IOBufQueue &&buf) {
                 std::string data;
                 buf.appendToString(data);
-                return data;
+                return boost::python::api::object(boost::python::handle<>(
+                    PyBytes_FromStringAndSize(data.c_str(), data.size())));
             })
             .get();
     }
@@ -80,7 +92,9 @@ public:
 private:
     one::communication::Communicator m_communicator;
     std::shared_ptr<one::Scheduler> m_scheduler;
-    std::shared_ptr<one::helpers::ProxyHelper> m_helper;
+    std::shared_ptr<one::helpers::ProxyHelper<one::communication::Communicator>>
+        m_helper;
+    std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
 };
 
 namespace {
@@ -114,6 +128,7 @@ BOOST_PYTHON_MODULE(proxy_helper)
     class_<ProxyHelperProxy, boost::noncopyable>("ProxyHelperProxy", no_init)
         .def("__init__", make_constructor(create))
         .def("open", raw_function(raw_open))
+        .def("stop", &ProxyHelperProxy::stop)
         .def("read", &ProxyHelperProxy::read)
         .def("write", &ProxyHelperProxy::write)
         .def("release", &ProxyHelperProxy::release);

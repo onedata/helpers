@@ -17,7 +17,7 @@ namespace messages {
 HandshakeResponse::HandshakeResponse(
     std::unique_ptr<ProtocolServerMessage> serverMessage)
 {
-    auto &msg = serverMessage->handshake_response();
+    const auto &msg = serverMessage->handshake_response();
     m_status = translateStatus(msg);
 }
 
@@ -31,14 +31,14 @@ bool HandshakeResponse::isMacaroonError() const
 
 std::error_code HandshakeResponse::status() const
 {
-    return errors::handshake::makeErrorCode(m_status);
+    return errors::handshake::make_error_code(m_status);
 }
 
 std::string HandshakeResponse::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'HandshakeResponse', status: '" << status().message()
-           << "'";
+    stream << "type: 'HandshakeResponse', status: '" << status().message();
+
     return stream.str();
 }
 

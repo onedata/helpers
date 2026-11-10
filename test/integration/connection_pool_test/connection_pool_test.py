@@ -8,6 +8,7 @@ import os
 import sys
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
@@ -18,18 +19,54 @@ from environment import appmock, common, docker
 import connection_pool
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def endpoint(appmock_client):
-    return appmock_client.tcp_endpoint(443)
+    app = appmock_client.tcp_endpoint(443)
+    yield app
+    appmock_client.reset_tcp_history()
 
 
-@pytest.fixture
+@pytest.yield_fixture
 def cp(endpoint):
-    return connection_pool.ConnectionPoolProxy(5, 2, endpoint.ip, endpoint.port)
+    pool = connection_pool.ConnectionPoolProxy(25, 1, endpoint.ip,
+                                               endpoint.port)
+    yield pool
+    pool.stop()
+
+
+def test_cp_should_ignore_close_while_send(
+        endpoint, msg_num=10, msg_size=1000000, repeats=4):
+    """Send multiple messages and stop the connection pool - ignore pending
+       send errors."""
+
+    for _ in range(repeats):
+        cp = connection_pool.ConnectionPoolProxy(1, 1, endpoint.ip, endpoint.port)
+
+        cp.sendMultipleAsync(random_str(msg_size).encode('utf-8'), msg_num)
+
+        cp.stop()
+
+
+def test_cp_should_stop(endpoint, msg_num=10, msg_size=1000, repeats=20):
+    """Starts and stops connection pool multiple times to ensure the pool
+       stops without deadlock."""
+
+    for _ in range(repeats):
+        msg = random_str(msg_size).encode('utf-8')
+
+        cp = connection_pool.ConnectionPoolProxy(
+            10, 1, endpoint.ip, endpoint.port)
+
+        for _ in range(msg_num):
+            cp.send(msg)
+
+        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
+
+        cp.stop()
 
 
 @pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    parameters=[Parameter.msg_num(10000), Parameter.msg_size(100, 'B')],
     configs={
         'multiple_small_messages': {
             'description': 'Sends multiple small messages using connection '
@@ -39,23 +76,23 @@ def cp(endpoint):
         'multiple_large_messages': {
             'description': 'Sends multiple large messages using connection '
                            'pool.',
-            'parameters': [Parameter.msg_num(10000),
+            'parameters': [Parameter.msg_num(1000),
                            Parameter.msg_size(1, 'MB')]
         }
     })
-def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
+def test_cp_should_send_messages(result, endpoint, cp, msg_num, msg_size):
     """Sends multiple messages using connection pool and checks whether they
     have been received."""
 
-    msg = random_str(msg_size)
+    msg = random_str(msg_size).encode('utf-8')
 
     send_time = Duration()
-    for _ in xrange(msg_num):
+    for _ in range(msg_num):
         with measure(send_time):
             cp.send(msg)
 
     with measure(send_time):
-        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=600)
+        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
 
     result.set([
         Parameter.send_time(send_time),
@@ -64,13 +101,35 @@ def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
     ])
 
 
+def test_cp_should_send_messages_parallel(endpoint, cp, msg_num=10000,
+                                          msg_size=100, workers=100):
+    msg = random_str(msg_size).encode('utf-8')
+
+    def send(m):
+        cp.send(m)
+        return 'ok'
+
+    with timer() as t:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futs = executor.map(send, [msg for _ in range(msg_num)])
+            for fut in futs:
+                assert fut == 'ok'
+
+        endpoint.wait_for_specific_messages(msg, msg_num, timeout_sec=60)
+
+        assert cp.sentMessageCounter() == msg_num
+        assert cp.queuedMessageCounter() == 0
+
+        print(f'Sending {msg_num} messages took {t():.4f} seconds')
+
+
 @pytest.mark.performance(
-    parameters=[Parameter.msg_num(10), Parameter.msg_size(100, 'B')],
+    parameters=[Parameter.msg_num(2000), Parameter.msg_size(100, 'B')],
     configs={
         'multiple_small_messages': {
             'description': 'Receives multiple small messages using '
                            'connection pool.',
-            'parameters': [Parameter.msg_num(10000)]
+            'parameters': [Parameter.msg_num(2500)]
         },
         'multiple_large_messages': {
             'description': 'Receives multiple large messages using '
@@ -78,15 +137,15 @@ def test_cp_should_send_messages(result, msg_num, msg_size, endpoint, cp):
             'parameters': [Parameter.msg_size(1, 'MB')]
         }
     })
-def test_cp_should_receive_messages(result, msg_num, msg_size, endpoint, cp):
+def test_cp_should_receive_messages(result, endpoint, cp, msg_num, msg_size):
     """Receives multiple messages using connection pool."""
 
-    msgs = [random_str(msg_size) for _ in xrange(msg_num)]
+    msgs = [random_str(msg_size) for _ in range(msg_num)]
 
     recv_time = Duration()
     for msg in msgs:
         with measure(recv_time):
-            endpoint.send(msg)
+            endpoint.send(msg.encode('utf-8'))
 
     recv = []
     for _ in msgs:

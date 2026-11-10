@@ -8,14 +8,12 @@
 
 #include "glusterfsHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -50,43 +48,59 @@ public:
     GlusterFSHelperProxy(std::string mountPoint, uid_t uid, gid_t gid,
         std::string hostname, int port, std::string volume,
         std::string transport, std::string xlatorOptions)
-        : m_service{GLUSTERFS_HELPER_WORKER_THREADS}
-        , m_idleWork{asio::make_work_guard(m_service)}
-        , m_helper{std::make_shared<one::helpers::GlusterFSHelper>(mountPoint,
-              uid, gid, hostname, port, volume, transport, xlatorOptions,
-              std::make_shared<one::AsioExecutor>(m_service))}
+        : m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              GLUSTERFS_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("gluster_t"))}
     {
-        for (int i = 0; i < GLUSTERFS_HELPER_WORKER_THREADS; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
+        one::helpers::Params params;
+        params["hostname"] = hostname;
+        params["mountPoint"] = mountPoint;
+        params["uid"] = std::to_string(uid);
+        params["gid"] = std::to_string(gid);
+        params["port"] = std::to_string(port);
+        params["volume"] = volume;
+        params["transport"] = transport;
+        params["xlatorOptions"] = xlatorOptions;
+
+        m_helper = std::make_shared<one::helpers::GlusterFSHelper>(
+            GlusterFSHelperParams::create(params), m_executor,
+            ExecutionContext::ONECLIENT);
     }
 
-    ~GlusterFSHelperProxy()
+    void checkStorageAvailability()
     {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
     }
 
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
-        m_helper->open(fileId, flags, {}).then([&,
-            helper = m_helper ](one::helpers::FileHandlePtr handle) {
-            handle->release();
-        });
+        m_helper->open(fileId, flags, {})
+            .thenValue(
+                [&, helper = m_helper](one::helpers::FileHandlePtr &&handle) {
+                    handle->release();
+                });
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
-            .then([&, helper = m_helper ](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+            .thenValue([&, helper = m_helper](
+                           one::helpers::FileHandlePtr &&handle) {
+                return handle->read(offset, size)
+                    .thenValue([handle](folly::IOBufQueue &&buf) {
+                        return handle->release().thenValue(
+                            [handle, buf = std::move(buf)](auto && /*unit*/) {
+                                std::string data;
+                                buf.appendToString(data);
+                                return boost::python::api::object(
+                                    boost::python::handle<>(
+                                        PyBytes_FromStringAndSize(
+                                            data.c_str(), data.size())));
+                            });
+                    });
             })
             .get();
     }
@@ -95,10 +109,15 @@ public:
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_WRONLY | O_CREAT, {})
-            .then([&, helper = m_helper ](one::helpers::FileHandlePtr handle) {
+            .thenValue([&, helper = m_helper](
+                           one::helpers::FileHandlePtr &&handle) {
                 folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
                 buf.append(data);
-                return handle->write(offset, std::move(buf)).get();
+                return handle->write(offset, std::move(buf), {})
+                    .thenValue([handle](auto &&size) {
+                        return handle->release().thenValue(
+                            [handle, size](auto && /*unit*/) { return size; });
+                    });
             })
             .get();
     }
@@ -222,9 +241,7 @@ public:
     }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
+    std::shared_ptr<folly::IOExecutor> m_executor;
     std::shared_ptr<one::helpers::GlusterFSHelper> m_helper;
 };
 
@@ -233,6 +250,8 @@ boost::shared_ptr<GlusterFSHelperProxy> create(std::string mountPoint,
     uid_t uid, gid_t gid, std::string hostname, int port, std::string volume,
     std::string transport, std::string xlatorOptions)
 {
+    FLAGS_v = 0;
+
     return boost::make_shared<GlusterFSHelperProxy>(std::move(mountPoint), uid,
         gid, std::move(hostname), std::move(port), std::move(volume),
         std::move(transport), std::move(xlatorOptions));
@@ -263,5 +282,7 @@ BOOST_PYTHON_MODULE(glusterfs_helper)
         .def("getxattr", &GlusterFSHelperProxy::getxattr)
         .def("setxattr", &GlusterFSHelperProxy::setxattr)
         .def("removexattr", &GlusterFSHelperProxy::removexattr)
-        .def("listxattr", &GlusterFSHelperProxy::listxattr);
+        .def("listxattr", &GlusterFSHelperProxy::listxattr)
+        .def("check_storage_availability",
+            &GlusterFSHelperProxy::checkStorageAvailability);
 }

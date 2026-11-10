@@ -41,16 +41,29 @@ public:
 
     SubscriptionData() = default;
 
+    const std::function<bool(const ServerMessage &, const bool)> &
+    predicate() const
+    {
+        return m_predicate;
+    }
+
+    const std::function<void(const ServerMessage & /*unused*/)> &
+    callback() const
+    {
+        return m_callback;
+    }
+
+private:
     /**
      * The stored predicate.
      */
-    std::function<bool(const ServerMessage &, const bool)> predicate =
+    std::function<bool(const ServerMessage &, const bool)> m_predicate =
         [](auto & /*unused*/, auto /*unused*/) { return false; };
 
     /**
      * The stored callback.
      */
-    std::function<void(const ServerMessage & /*unused*/)> callback;
+    std::function<void(const ServerMessage & /*unused*/)> m_callback;
 };
 
 } // namespace communication

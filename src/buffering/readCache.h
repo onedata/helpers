@@ -18,12 +18,12 @@
 #include "scheduler.h"
 
 #include <boost/icl/discrete_interval.hpp>
-#include <folly/CallOnce.h>
 #include <folly/FBString.h>
 #include <folly/fibers/TimedMutex.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/SharedPromise.h>
 #include <folly/io/IOBufQueue.h>
+#include <folly/synchronization/CallOnce.h>
 
 #include <atomic>
 #include <chrono>
@@ -201,19 +201,37 @@ private:
         LOG_FCALL() << LOG_FARG(offset) << LOG_FARG(size)
                     << LOG_FARG(isPrefetch);
 
+        using one::logging::log_timer;
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+
+        log_timer<> timer;
+
         m_cache.emplace_back(
             std::make_shared<ReadData>(offset, size, isPrefetch));
         m_handle.read(offset, size)
-            .then([readData = m_cache.back()](folly::IOBufQueue buf) {
-                readData->size = buf.chainLength();
-                readData->buf = std::move(buf);
-                readData->t_ =
-                    std::chrono::steady_clock::now().time_since_epoch();
-                readData->promise.setValue();
-            })
-            .onError([readData = m_cache.back()](folly::exception_wrapper ew) {
-                readData->promise.setException(std::move(ew));
-            });
+            .thenValue(
+                [readData = m_cache.back(), timer, offset, size,
+                    fileId = m_handle.fileId()](folly::IOBufQueue &&buf) {
+                    log<read_write_perf>(fileId, "ReadCache", "prefetch",
+                        offset, size, timer.stop());
+
+                    readData->size = buf.chainLength();
+                    readData->buf = std::move(buf);
+                    readData->t_ =
+                        std::chrono::steady_clock::now().time_since_epoch();
+                    readData->promise.setValue();
+                })
+            .thenError(folly::tag_t<std::system_error>{},
+                [readData = m_cache.back()](auto &&e) {
+                    readData->promise.setException(
+                        std::forward<decltype(e)>(e));
+                })
+            .thenError(folly::tag_t<folly::exception_wrapper>{},
+                [readData = m_cache.back()](auto &&ew) {
+                    readData->promise.setException(
+                        std::forward<decltype(ew)>(ew));
+                });
     }
 
     folly::Future<folly::IOBufQueue> readFromCache(
@@ -244,56 +262,67 @@ private:
                 }));
 #endif
 
+        using one::logging::log_timer;
+        using one::logging::csv::log;
+        using one::logging::csv::read_write_perf;
+
+        log_timer<> timer;
+
         auto readData = m_cache.front();
         const auto startPoint = std::chrono::steady_clock::now();
-        return readData->promise.getFuture().then([ =, s = weak_from_this() ] {
-            folly::call_once(readData->measureLatencyFlag, [&] {
-                if (auto self = s.lock()) {
-                    const auto latency =
-                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+        return readData->promise.getSemiFuture()
+            .via(m_handle.helper()->executor().get())
+            .thenValue([=, s = weak_from_this(), fileId = m_handle.fileId()](
+                           auto && /*unit*/) {
+                folly::call_once(readData->measureLatencyFlag, [&] {
+                    if (auto self = s.lock()) {
+                        const auto latency = std::chrono::duration_cast<
+                            std::chrono::nanoseconds>(
                             std::chrono::steady_clock::now() - startPoint)
-                            .count();
+                                                 .count();
 
+                        LOG_DBG(2) << "Latest measured read latency for "
+                                   << fileId << " is " << m_latency << " ns";
+
+                        m_latency = (m_latency + 2 * latency) / 3;
+
+                        LOG_DBG(2) << "Adjusted average read latency for "
+                                   << fileId << " to " << m_latency << " ns";
+                    }
+                });
+
+                folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
+                if (readData->buf.empty() ||
+                    static_cast<off_t>(readData->offset +
+                        readData->buf.chainLength()) < offset) {
                     LOG_DBG(2)
-                        << "Latest measured read latency for "
-                        << m_handle.fileId() << " is " << m_latency << " ns";
-
-                    m_latency = (m_latency + 2 * latency) / 3;
-
-                    LOG_DBG(2)
-                        << "Adjusted average read latency for "
-                        << m_handle.fileId() << " to " << m_latency << " ns";
+                        << "Latest block in read cache is empty or outside "
+                           "requested range for file "
+                        << m_handle.fileId();
+                    return buf;
                 }
-            });
 
-            folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
-            if (readData->buf.empty() ||
-                static_cast<off_t>(
-                    readData->offset + readData->buf.chainLength()) < offset) {
-                LOG_DBG(2) << "Latest block in read cache is empty or outside "
-                              "requested range for file "
-                           << m_handle.fileId();
+                buf.append(readData->buf.front()->clone());
+                if (offset > readData->offset) {
+                    LOG_DBG(2) << "Trimming latest read cache block for file "
+                               << m_handle.fileId()
+                               << " to start at requested offset by: "
+                               << offset - readData->offset;
+                    buf.trimStart(offset - readData->offset);
+                }
+                if (buf.chainLength() > size) {
+                    LOG_DBG(2)
+                        << "Trimming latest read cache block for file "
+                        << m_handle.fileId() << " to end at requested size by: "
+                        << buf.chainLength() - size;
+                    buf.trimEnd(buf.chainLength() - size);
+                }
+
+                log<read_write_perf>(
+                    fileId, "ReadCache", "read", offset, size, timer.stop());
+
                 return buf;
-            }
-
-            buf.append(readData->buf.front()->clone());
-            if (offset > readData->offset) {
-                LOG_DBG(2) << "Trimming latest read cache block for file "
-                           << m_handle.fileId()
-                           << " to start at requested offset by: "
-                           << offset - readData->offset;
-                buf.trimStart(offset - readData->offset);
-            }
-            if (buf.chainLength() > size) {
-                LOG_DBG(2) << "Trimming latest read cache block for file "
-                           << m_handle.fileId()
-                           << " to end at requested size by: "
-                           << buf.chainLength() - size;
-                buf.trimEnd(buf.chainLength() - size);
-            }
-
-            return buf;
-        });
+            });
     }
 
     bool isCurrentRead(const off_t offset)
@@ -303,7 +332,7 @@ private:
             static_cast<off_t>(m_cache.front()->offset + m_cache.front()->size);
     }
 
-    std::pair<std::size_t, double> resetBlockSize()
+    static std::pair<std::size_t, double> resetBlockSize()
     {
         LOG_FCALL();
         return {0, 1.0};
@@ -349,7 +378,7 @@ private:
     std::chrono::steady_clock::time_point m_lastCacheRefresh{};
 };
 
-} // namespace proxyio
+} // namespace buffering
 } // namespace helpers
 } // namespace one
 

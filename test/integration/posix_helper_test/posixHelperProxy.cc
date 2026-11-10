@@ -6,16 +6,16 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
 #include "posixHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -32,7 +32,7 @@ using namespace one::helpers;
 /*
  * Minimum 4 threads are required to run this helper proxy.
  */
-constexpr int POSIX_HELPER_WORKER_THREADS = 4;
+constexpr int POSIX_HELPER_WORKER_THREADS = 1;
 
 class ReleaseGIL {
 public:
@@ -48,49 +48,61 @@ private:
 class PosixHelperProxy {
 public:
     PosixHelperProxy(std::string mountPoint, uid_t uid, gid_t gid)
-        : m_service{POSIX_HELPER_WORKER_THREADS}
-        , m_idleWork{asio::make_work_guard(m_service)}
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              POSIX_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("posix_t"))}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
-        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        FLAGS_v = 0;
+
+        Params params;
         params["type"] = "posix";
         params["mountPoint"] = mountPoint;
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
 
-        m_helper = std::make_shared<one::helpers::PosixHelper>(
-            PosixHelperParams::create(params),
-            std::make_shared<one::AsioExecutor>(m_service));
+        m_helper = m_helperFactory.getStorageHelper(params, false);
 
-        for (int i = 0; i < POSIX_HELPER_WORKER_THREADS; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
+        assert(std::dynamic_pointer_cast<
+               one::helpers::VersionedStorageHelper<one::helpers::
+                       StorageHelperCreator<one::communication::Communicator>>>(
+            m_helper)
+                   ->getAs<one::helpers::PosixHelper>());
     }
 
-    ~PosixHelperProxy()
+    ~PosixHelperProxy() { m_executor->join(); }
+
+    void checkStorageAvailability()
     {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
     }
 
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
         m_helper->open(fileId, flags, {})
-            .then(
-                [&](one::helpers::FileHandlePtr handle) { handle->release(); });
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
+                handle->release();
+            });
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
+                return handle->read(offset, size)
+                    .thenValue([handle](folly::IOBufQueue &&buf) {
+                        std::string data;
+                        buf.appendToString(data);
+                        return boost::python::api::object(
+                            boost::python::handle<>(PyBytes_FromStringAndSize(
+                                data.c_str(), data.size())));
+                    });
             })
             .get();
     }
@@ -102,31 +114,31 @@ public:
         // PosixHelper does not support creating file with approriate mode,
         // so in case it doesn't exist we have to create it first to be
         // compatible with other helpers' test cases.
-        auto mknodLambda = [&] {
-            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0).get();
+        auto mknodLambda = [&](auto && /*unit*/) {
+            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
-        auto writeLambda = [&] {
+        auto writeLambda = [&](auto && /*unit*/) {
             return m_helper->open(fileId, O_WRONLY, {})
-                .then([&](one::helpers::FileHandlePtr handle) {
+                .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
-                    return handle->write(offset, std::move(buf)).get();
-                })
-                .get();
+                    return handle->write(offset, std::move(buf), {})
+                        .thenValue([handle](auto &&size) { return size; });
+                });
         };
 
         return m_helper->access(fileId, 0)
-            .then(writeLambda)
-            .onError([
-                mknodLambda = std::move(mknodLambda),
-                writeLambda = std::move(writeLambda),
-                executor = std::make_shared<one::AsioExecutor>(m_service)
-            ](std::exception const &e) {
-                return folly::via(executor.get(), mknodLambda)
-                    .then(writeLambda)
-                    .get();
-            })
+            .thenValue(writeLambda)
+            .thenError(folly::tag_t<std::exception>{},
+                [mknodLambda = std::move(mknodLambda),
+                    writeLambda = std::move(writeLambda),
+                    executor = m_executor](auto &&e) {
+                    return folly::makeFuture()
+                        .via(executor.get())
+                        .thenValue(mknodLambda)
+                        .thenValue(writeLambda);
+                })
             .get();
     }
 
@@ -248,41 +260,40 @@ public:
         return res;
     }
 
-    void refreshParams(std::string mountPoint, int uid, int gid)
+    void updateHelper(std::string mountPoint, int uid, int gid)
     {
-        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        Params params;
         params["type"] = "posix";
         params["mountPoint"] = mountPoint;
         params["uid"] = std::to_string(uid);
         params["gid"] = std::to_string(gid);
 
-        auto p = PosixHelperParams::create(params);
-
-        m_helper->refreshParams(std::move(p)).get();
+        m_helper->updateHelper(params).get();
     }
 
-    std::string mountpoint() { return m_helper->mountPoint().c_str(); }
+    std::string mountpoint()
+    {
+        return std::dynamic_pointer_cast<
+            one::helpers::VersionedStorageHelper<one::helpers::
+                    StorageHelperCreator<one::communication::Communicator>>>(
+            m_helper)
+            ->getAs<one::helpers::PosixHelper>()
+            ->mountPoint()
+            .c_str();
+    }
 
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
-    std::shared_ptr<one::helpers::PosixHelper> m_helper;
+    one::communication::Communicator m_communicator;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
+    StorageHelperPtr m_helper;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
-
-namespace {
-boost::shared_ptr<PosixHelperProxy> create(
-    std::string mountPoint, uid_t uid, gid_t gid)
-{
-    return boost::make_shared<PosixHelperProxy>(
-        std::move(mountPoint), uid, gid);
-}
-} // namespace
 
 BOOST_PYTHON_MODULE(posix_helper)
 {
-    class_<PosixHelperProxy, boost::noncopyable>("PosixHelperProxy", no_init)
-        .def("__init__", make_constructor(create))
+    class_<PosixHelperProxy, boost::noncopyable>(
+        "PosixHelperProxy", init<std::string, uid_t, gid_t>())
         .def("open", &PosixHelperProxy::open)
         .def("read", &PosixHelperProxy::read)
         .def("write", &PosixHelperProxy::write)
@@ -303,6 +314,8 @@ BOOST_PYTHON_MODULE(posix_helper)
         .def("setxattr", &PosixHelperProxy::setxattr)
         .def("removexattr", &PosixHelperProxy::removexattr)
         .def("listxattr", &PosixHelperProxy::listxattr)
-        .def("refresh_params", &PosixHelperProxy::refreshParams)
-        .def("mountpoint", &PosixHelperProxy::mountpoint);
+        .def("update_helper", &PosixHelperProxy::updateHelper)
+        .def("mountpoint", &PosixHelperProxy::mountpoint)
+        .def("check_storage_availability",
+            &PosixHelperProxy::checkStorageAvailability);
 }

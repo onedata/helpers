@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "errors/handshakeErrors.h"
+
 #include <folly/io/Cursor.h>
 #include <wangle/channel/Handler.h>
 
@@ -48,8 +50,7 @@ public:
         else {
             LOG(ERROR) << "Error during handshake: " << handshakeResponseError;
             m_onHandshakeDone(handshakeResponseError);
-            m_promise.setException(
-                std::runtime_error("Error during handshake."));
+            m_promise.setException(std::system_error{handshakeResponseError});
             return;
         }
         ctx->fireRead(std::move(message));

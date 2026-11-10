@@ -30,7 +30,13 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
     using LowerLayer::send;
-    virtual ~BinaryTranslator() = default;
+
+    virtual ~BinaryTranslator() = default; // NOLINT
+
+    BinaryTranslator(const BinaryTranslator &) = delete;
+    BinaryTranslator(BinaryTranslator &&) = delete;
+    BinaryTranslator &operator=(const BinaryTranslator &) = delete;
+    BinaryTranslator &operator=(BinaryTranslator &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c BinaryTranslator.
@@ -64,7 +70,7 @@ public:
      * @see ConnectionPool::send()
      */
     auto send(ClientMessagePtr message, Callback callback,
-        const int retries = DEFAULT_RETRY_NUMBER);
+        int retries = DEFAULT_RETRY_NUMBER);
 };
 
 template <class LowerLayer>
@@ -79,7 +85,7 @@ auto BinaryTranslator<LowerLayer>::setHandshake(
         },
 
         [onHandshakeResponse = std::move(onHandshakeResponse)](
-            std::string message) {
+            const std::string &message) {
             /// @todo A potential place for optimization [static serverMsg]
             auto serverMsg = std::make_unique<clproto::ServerMessage>();
 
@@ -100,18 +106,33 @@ template <class LowerLayer>
 auto BinaryTranslator<LowerLayer>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
-    return LowerLayer::setOnMessageCallback([onMessageCallback =
-                                                 std::move(onMessageCallback)](
-        std::string message) {
+    return LowerLayer::setOnMessageCallback([this,
+                                                onMessageCallback = std::move(
+                                                    onMessageCallback)](
+                                                const std::string &message) {
         LOG_DBG(2) << "Received low level message of size: " << message.size();
+
         auto serverMsg = std::make_unique<clproto::ServerMessage>();
         if (serverMsg->ParseFromString(message)) {
             LOG_DBG(3) << "Received clproto message: "
                        << serverMsg->DebugString();
 
+            LowerLayer::logServerMessage(*serverMsg);
+
             if (serverMsg->has_processing_status()) {
                 LOG_DBG(2) << "Received ProcessingStatus heartbeat message - "
                               "ignoring...";
+            }
+            // Typically handshake errors are handled during handshake, but in
+            // case user doesn't have any supported spaces in Oneprovider
+            // this error can appear outside of a handshake exchange
+            else if (serverMsg->has_handshake_response() &&
+                serverMsg->handshake_response().status() ==
+                    one::clproto::HandshakeStatus::INVALID_PROVIDER) {
+                LOG_DBG(2) << "Received INVALID_PROVIDER handshake message";
+
+                LowerLayer::setConnectionState(
+                    LowerLayer::State::INVALID_PROVIDER);
             }
             else {
                 onMessageCallback(std::move(serverMsg));
@@ -129,6 +150,8 @@ auto BinaryTranslator<LowerLayer>::send(
     ClientMessagePtr message, Callback callback, const int retries)
 {
     LOG_DBG(3) << "Sending clproto message: " << message->DebugString();
+
+    LowerLayer::logClientMessage(*message);
 
     /// @todo Possible optimization point here [static thread-local string]
     return LowerLayer::send(

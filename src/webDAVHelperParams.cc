@@ -26,9 +26,9 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     StorageHelperParams::initializeFromParams(parameters);
 
     constexpr auto kDefaultAuthorizationHeader = "Authorization: Bearer {}";
-    constexpr auto kDefaultConnectionPoolSize = 10u;
-    constexpr auto kDefaultMaximumPoolSize = 0u;
-    constexpr auto kDefaultAccessTokenTTL = 0u;
+    constexpr auto kDefaultConnectionPoolSize = 10U;
+    constexpr auto kDefaultMaximumUploadSize = 0U;
+    constexpr auto kDefaultAccessTokenTTL = 0U;
 
     const auto &endpoint = getParam(parameters, "endpoint");
     const auto &verifyServerCertificateStr =
@@ -47,8 +47,8 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     const auto connectionPoolSize = getParam<uint32_t>(
         parameters, "connectionPoolSize", kDefaultConnectionPoolSize);
     const auto maximumUploadSize = getParam<size_t>(
-        parameters, "maximumUploadSize", kDefaultMaximumPoolSize);
-    const auto fileMode = getParam(parameters, "fileMode", "0644");
+        parameters, "maximumUploadSize", kDefaultMaximumUploadSize);
+    const auto fileMode = getParam(parameters, "fileMode", "0664");
     const auto dirMode = getParam(parameters, "dirMode", "0775");
 
     if (authorizationHeader.empty())
@@ -169,24 +169,6 @@ void WebDAVHelperParams::initializeFromParams(const Params &parameters)
     m_testTokenRefreshMode = (testTokenRefreshMode == "true");
     m_fileMode = parsePosixPermissions(fileMode);
     m_dirMode = parsePosixPermissions(dirMode);
-}
-
-mode_t WebDAVHelperParams::parsePosixPermissions(folly::fbstring p)
-{
-    if ((p.length() != 3) && (p.length() != 4)) {
-        throw std::invalid_argument(
-            "Invalid permission string: " + p.toStdString());
-    }
-
-    if (p.length() == 3)
-        p = "0" + p;
-
-    mode_t result = 0;
-
-    for (auto i = 0u; i < 4; i++) {
-        result += (p[i] - '0') << (3 * (3 - i));
-    }
-    return result;
 }
 
 const Poco::URI &WebDAVHelperParams::endpoint() const { return m_endpoint; }

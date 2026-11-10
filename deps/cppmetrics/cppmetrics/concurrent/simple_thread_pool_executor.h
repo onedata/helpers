@@ -19,6 +19,7 @@
 #include <asio/io_service.hpp>
 
 #include <atomic>
+#include <functional>
 #include <thread>
 #include <vector>
 

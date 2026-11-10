@@ -6,7 +6,6 @@ This software is released under the MIT license cited in 'LICENSE.txt'."""
 
 import os
 import sys
-import md5
 
 import pytest
 
@@ -38,7 +37,7 @@ def server(request):
     uid = 0
     gid = 0
     volume = 'data'
-    result = glusterfs.up('gluster/gluster-centos:gluster3u7_centos7',
+    result = glusterfs.up('onedata/glusterfs:v1',
                           [volume], 'storage', common.generate_uid(), 'tcp',
                           random_str()+"/"+random_str())
 
@@ -67,3 +66,48 @@ def helper(server):
         server.volume,
         server.transport,
         server.xlatorOptions)
+
+
+@pytest.fixture
+def helper_invalid_hostname(server):
+    return GlusterFSHelperProxy(
+        server.mountpoint,
+        server.uid,
+        server.gid,
+        "no_such_host.invalid:80800",
+        server.port,
+        server.volume,
+        server.transport,
+        server.xlatorOptions)
+
+
+@pytest.fixture
+def helper_invalid_volume(server):
+    return GlusterFSHelperProxy(
+        server.mountpoint,
+        server.uid,
+        server.gid,
+        server.hostname,
+        server.port,
+        "no_such_volume",
+        server.transport,
+        server.xlatorOptions)
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error_invalid_host(helper_invalid_hostname):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_hostname.check_storage_availability()
+
+    assert "Transport endpoint is not connected" in str(excinfo)
+
+
+def test_helper_check_availability_error_invalid_bucket(helper_invalid_volume):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid_volume.check_storage_availability()
+
+    assert 'No such file or directory' in str(excinfo)
+

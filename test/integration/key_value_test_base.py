@@ -11,13 +11,14 @@ import pytest
 THREAD_NUMBER = 8
 BLOCK_SIZE = 1024
 
+
 def test_write_should_write_multiple_blocks(helper, file_id, server):
     block_num = 20
     seed = random_str(BLOCK_SIZE)
     data = seed * block_num
 
     assert helper.write(file_id, data, 0) == len(data)
-    assert helper.read(file_id, 0, len(data)) == data
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
     assert len(server.list(file_id)) == block_num
 
 
@@ -34,7 +35,7 @@ def test_unlink_should_delete_data(helper, file_id, server):
 def test_truncate_should_create_empty_file(helper, file_id):
     for size in range(random_int(), -1, -1):
         helper.truncate(file_id, size, 0)
-        assert helper.read(file_id, 0, size) == '\0' * size
+        assert helper.read(file_id, 0, size).decode('utf-8') == '\0' * size
 
 
 def test_truncate_should_create_empty_multi_block_file(helper, file_id, server):
@@ -42,7 +43,7 @@ def test_truncate_should_create_empty_multi_block_file(helper, file_id, server):
     size = blocks_num * BLOCK_SIZE
 
     helper.truncate(file_id, size, 0)
-    assert helper.read(file_id, 0, size + 1) == '\0' * size + '\0'
+    assert helper.read(file_id, 0, size + 1).decode('utf-8') == '\0' * size + '\0'
     assert len(server.list(file_id)) == 1
 
 
@@ -52,8 +53,9 @@ def test_truncate_should_pad_block(helper, file_id, server):
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
     assert len(server.list(file_id)) == 1
     helper.truncate(file_id, BLOCK_SIZE, len(data)+BLOCK_SIZE)
-    assert helper.read(file_id, 0, BLOCK_SIZE + 1) == '\0' * BLOCK_SIZE + '\0'
+    assert helper.read(file_id, 0, BLOCK_SIZE + 1).decode('utf-8') == '\0' * BLOCK_SIZE + '\0'
     assert helper.write(file_id, data, BLOCK_SIZE) == len(data)
+
 
 def test_truncate_should_delete_all_blocks(helper, file_id, server):
     blocks_num = 10
@@ -62,7 +64,7 @@ def test_truncate_should_delete_all_blocks(helper, file_id, server):
     assert helper.write(file_id, data, 0) == len(data)
     assert len(server.list(file_id)) == blocks_num
     helper.truncate(file_id, 0, len(data))
-    assert helper.read(file_id, 0, len(data)) == '\0'*len(data)
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == '\0'*len(data)
     assert len(server.list(file_id)) == 0
 
 
@@ -78,7 +80,7 @@ def test_write_should_overwrite_multiple_blocks_part(helper, file_id):
         block = random_str(BLOCK_SIZE)
         data = data[:offset] + block + data[offset + len(block):]
         helper.write(file_id, block, offset) == len(block)
-        assert helper.read(file_id, 0, len(data)) == data
+        assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 
 def test_read_should_read_multi_block_data_with_holes(helper, file_id):
@@ -90,11 +92,32 @@ def test_read_should_read_multi_block_data_with_holes(helper, file_id):
     assert helper.write(file_id, data, block_num * BLOCK_SIZE) == len(data)
 
     data = data + empty_block[len(data):] + (block_num - 1) * empty_block + data
-    assert helper.read(file_id, 0, len(data)) == data
+    assert helper.read(file_id, 0, len(data)).decode('utf-8') == data
 
 
 def test_read_should_read_empty_data(helper, file_id):
     offset = random_int()
     size = random_int()
 
-    assert helper.read(file_id, offset, size) == '\0'*size
+    assert helper.read(file_id, offset, size).decode('utf-8') == '\0'*size
+
+
+def test_truncate_should_throw_with_invalid_storage_params(helper_invalid,
+                                                           file_id):
+    current_size = 1024
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.truncate(file_id, 0, current_size)
+
+
+def test_read_should_throw_with_invalid_storage_params(helper_invalid,
+                                                       file_id):
+    size = 1024
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.read(file_id, 0, size)
+
+
+def test_unlink_should_throw_with_invalid_storage_params(helper_invalid,
+                                                           file_id):
+    current_size = 1024
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.unlink(file_id, current_size)

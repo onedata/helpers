@@ -11,7 +11,11 @@
 
 #include "logging.h"
 
-#include <fuse.h>
+#if FUSE_USE_VERSION > 30
+#include <fuse3/fuse.h>
+#else
+#include <fuse/fuse.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #if defined(__linux__)
@@ -20,12 +24,12 @@
 #define XATTR_SIZE_MAX (64 * 1024)
 #endif
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/lexical_cast.hpp>
 #include <folly/FBString.h>
 #include <folly/FBVector.h>
+#include <folly/executors/IOExecutor.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/SharedPromise.h>
 #include <folly/io/IOBufQueue.h>
@@ -40,8 +44,23 @@
 #include <unordered_set>
 #include <vector>
 
+#define HELPER_PARAM_GETTER(NAME)                                              \
+    decltype(auto) NAME() const                                                \
+    {                                                                          \
+        return std::dynamic_pointer_cast<params_type>(params().get())->NAME(); \
+    }
+
 namespace one {
 namespace helpers {
+
+using ListObjectsResult = std::pair</*NextToken*/ folly::fbstring,
+    /*ObjectsList*/
+    folly::fbvector<
+        std::pair</*key*/ folly::fbstring, /*attributes*/ struct stat>>>;
+
+constexpr auto STORAGE_ROUTER_HELPER_NAME = "storagerouter";
+constexpr auto BUFFERED_STORAGE_HELPER_NAME = "bufferedstorage";
+constexpr auto STORAGE_FANIN_HELPER_NAME = "storagefanin";
 
 #if WITH_CEPH
 constexpr auto CEPH_HELPER_NAME = "ceph";
@@ -49,6 +68,8 @@ constexpr auto CEPHRADOS_HELPER_NAME = "cephrados";
 #endif
 
 constexpr auto POSIX_HELPER_NAME = "posix";
+
+constexpr auto NFS_HELPER_NAME = "nfs";
 
 constexpr auto PROXY_HELPER_NAME = "proxy";
 
@@ -68,16 +89,22 @@ constexpr auto GLUSTERFS_HELPER_NAME = "glusterfs";
 
 #if WITH_WEBDAV
 constexpr auto WEBDAV_HELPER_NAME = "webdav";
+constexpr auto HTTP_HELPER_NAME = "http";
 #endif
 
-namespace {
+#if WITH_XROOTD
+constexpr auto XROOTD_HELPER_NAME = "xrootd";
+#endif
+
+namespace constants {
 constexpr std::chrono::milliseconds ASYNC_OPS_TIMEOUT{120000};
 const std::error_code SUCCESS_CODE{};
 constexpr int IO_RETRY_COUNT{4};
 constexpr std::chrono::milliseconds IO_RETRY_INITIAL_DELAY{10};
 constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
-} // namespace
-
+constexpr std::size_t DEFAULT_BLOCK_SIZE = 10UL * 1024 * 1024;
+constexpr std::size_t MAX_CANONICAL_OBJECT_SIZE = 64UL * 1024 * 1024;
+} // namespace constants
 /**
  * Generic retry function wrapper.
  * @param op Function to repeat.
@@ -90,9 +117,10 @@ constexpr float IO_RETRY_DELAY_BACKOFF_FACTOR{5.0};
  */
 template <typename OpFunc, typename CondFunc>
 inline auto retry(OpFunc &&op, CondFunc &&condition,
-    int retryCount = IO_RETRY_COUNT,
-    std::chrono::milliseconds retryInitialDelay = IO_RETRY_INITIAL_DELAY,
-    float retryBackoff = IO_RETRY_DELAY_BACKOFF_FACTOR)
+    int retryCount = constants::IO_RETRY_COUNT,
+    std::chrono::milliseconds retryInitialDelay =
+        constants::IO_RETRY_INITIAL_DELAY,
+    float retryBackoff = constants::IO_RETRY_DELAY_BACKOFF_FACTOR)
 {
     auto ret = op();
     auto retryIt = 0;
@@ -124,11 +152,26 @@ inline std::system_error makePosixException(const int posixCode)
     return std::system_error{one::helpers::makePosixError(posixCode)};
 }
 
+inline std::system_error makePosixException(
+    const int posixCode, const std::string &description)
+{
+    return std::system_error{
+        one::helpers::makePosixError(posixCode), description};
+}
+
 template <typename T = folly::Unit>
 inline folly::Future<T> makeFuturePosixException(const int posixCode)
 {
     return folly::makeFuture<T>(makePosixException(posixCode));
 }
+
+/**
+ * Convert string octal representation of POSIX permissions, e.g. '0755'
+ * to mode_t value.
+ *
+ * @param p POSIX param string
+ */
+mode_t parsePosixPermissions(folly::fbstring p);
 
 /**
  * Open flags recognized by helpers.
@@ -159,6 +202,21 @@ struct FlagHash {
     }
 };
 
+/**
+ * Determine whether helper is executed within Oneclient or Oneprovider process.
+ */
+enum class ExecutionContext { ONEPROVIDER, ONECLIENT };
+
+/**
+ * Determines between different types of paths under which files are stored on
+ * actual storage with respect to logical paths in virtual file system
+ */
+enum class StoragePathType {
+    CANONICAL, // same as logical paths in virtual file system, relative to
+               // space
+    FLAT       // custom path scheme based on unique file id
+};
+
 class FileHandle;
 class StorageHelper;
 class StorageHelperParams;
@@ -167,6 +225,7 @@ using Params = std::unordered_map<folly::fbstring, folly::fbstring>;
 using StorageHelperPtr = std::shared_ptr<StorageHelper>;
 using FileHandlePtr = std::shared_ptr<FileHandle>;
 using Timeout = std::chrono::milliseconds;
+using WriteCallback = std::function<void(std::size_t)>;
 
 template <class... T>
 using GeneralCallback = std::function<void(T..., std::error_code)>;
@@ -193,7 +252,7 @@ public:
      * Constructor.
      * @param whatArg Name of the missing parameter.
      */
-    MissingParameterException(const folly::fbstring &whatArg)
+    explicit MissingParameterException(const folly::fbstring &whatArg)
         : std::out_of_range{
               "missing helper parameter: '" + whatArg.toStdString() + "'"}
     {
@@ -234,7 +293,7 @@ Ret getParam(const Params &params, const folly::fbstring &key)
     catch (const std::out_of_range &) {
         throw MissingParameterException{key};
     }
-    catch (const boost::bad_lexical_cast) {
+    catch (const boost::bad_lexical_cast &) {
         throw BadParameterException{key, params.at(key)};
     }
 }
@@ -254,7 +313,7 @@ Ret getParam(const Params &params, const folly::fbstring &key, Def &&def)
 
         return std::forward<Def>(def);
     }
-    catch (const boost::bad_lexical_cast) {
+    catch (const boost::bad_lexical_cast &) {
         throw BadParameterException{key, params.at(key)};
     }
 }
@@ -266,6 +325,14 @@ folly::fbstring getParam<folly::fbstring>(
 template <>
 folly::fbstring getParam<folly::fbstring, folly::fbstring>(
     const Params &params, const folly::fbstring &key, folly::fbstring &&def);
+
+template <>
+bool getParam<bool, bool>(
+    const Params &params, const folly::fbstring &key, bool &&def);
+
+template <>
+StoragePathType getParam<StoragePathType>(
+    const Params &params, const folly::fbstring &key);
 
 /**
  * @c StorageHelperFactory is responsible for creating a helper instance from
@@ -285,16 +352,14 @@ public:
      * @param parameters Parameters for helper creation.
      * @returns A new instance of @c StorageHelper .
      */
-    virtual StorageHelperPtr createStorageHelper(const Params &parameters) = 0;
+    virtual StorageHelperPtr createStorageHelper(
+        const Params &parameters, ExecutionContext executionContext) = 0;
 
     /**
      * Returns a list of helper specific parameters which can be overriden on
      * the client side.
      */
-    virtual const std::vector<folly::fbstring> overridableParams() const
-    {
-        return {};
-    };
+    virtual std::vector<folly::fbstring> overridableParams() const;
 
     /**
      * This method allows to create a storage helper by taking into account
@@ -303,29 +368,8 @@ public:
      * @param overrideParameters Client specific parameters, which can override
      *        the common values, if allowed by helper
      */
-    StorageHelperPtr createStorageHelperWithOverride(
-        Params parameters, const Params &overrideParameters)
-    {
-        LOG_FCALL() << LOG_FARGM(overrideParameters);
-
-        const auto &overridable = overridableParams();
-
-        for (const auto &p : overrideParameters) {
-            const auto &parameterName = p.first;
-            if (std::find(overridable.cbegin(), overridable.cend(),
-                    parameterName) != overridable.end()) {
-                LOG_DBG(1) << "Overriding " << name() << " storage parameter "
-                           << parameterName << " with value " << p.second;
-
-                parameters[parameterName] = p.second;
-            }
-            else
-                LOG(WARNING) << "Storage helper " << name() << " parameter "
-                             << parameterName << " cannot be overriden";
-        }
-
-        return createStorageHelper(parameters);
-    }
+    StorageHelperPtr createStorageHelperWithOverride(Params parameters,
+        const Params &overrideParameters, ExecutionContext executionContext);
 };
 
 /**
@@ -337,66 +381,51 @@ public:
      * Constructor.
      * @param fileId Helper-specific ID of the open file.
      */
-    FileHandle(folly::fbstring fileId, std::shared_ptr<StorageHelper> helper)
-        : FileHandle{std::move(fileId), {}, std::move(helper)}
-    {
-    }
+    FileHandle(folly::fbstring fileId, std::shared_ptr<StorageHelper> helper);
 
     /**
      * @copydoc FileHandle(fileId)
      * @param openParams Additional parameters associated with the handle.
      */
     FileHandle(folly::fbstring fileId, Params openParams,
-        std::shared_ptr<StorageHelper> helper)
-        : m_fileId{std::move(fileId)}
-        , m_openParams{std::move(openParams)}
-        , m_helper{std::move(helper)}
-    {
-    }
+        std::shared_ptr<StorageHelper> helper);
 
     virtual ~FileHandle() = default;
 
-    std::shared_ptr<StorageHelper> helper() { return m_helper; }
+    std::shared_ptr<StorageHelper> helper();
 
     virtual folly::Future<folly::IOBufQueue> read(
-        const off_t offset, const std::size_t size) = 0;
+        off_t offset, std::size_t size) = 0;
 
-    virtual folly::Future<folly::IOBufQueue> read(const off_t offset,
-        const std::size_t size, const std::size_t continuousBlock)
-    {
-        return read(offset, size);
-    }
+    virtual folly::Future<folly::IOBufQueue> readContinuous(
+        off_t offset, std::size_t size, std::size_t continuousBlock);
 
     virtual folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) = 0;
+        off_t offset, folly::IOBufQueue buf, WriteCallback &&writeCb) = 0;
 
     virtual folly::Future<std::size_t> multiwrite(
-        folly::fbvector<std::pair<off_t, folly::IOBufQueue>> buffs);
+        folly::fbvector<std::tuple<off_t, folly::IOBufQueue, WriteCallback>>
+            buffs);
 
-    virtual folly::Future<folly::Unit> release() { return folly::makeFuture(); }
+    virtual folly::Future<folly::Unit> release();
 
-    virtual folly::Future<folly::Unit> flush() { return folly::makeFuture(); }
+    virtual folly::Future<folly::Unit> flush();
 
-    virtual folly::Future<folly::Unit> fsync(bool isDataSync)
-    {
-        return folly::makeFuture();
-    }
+    virtual folly::Future<folly::Unit> fsync(bool isDataSync);
 
     virtual const Timeout &timeout() = 0;
 
-    virtual bool needsDataConsistencyCheck() { return false; }
+    virtual bool needsDataConsistencyCheck();
 
-    virtual folly::fbstring fileId() const { return m_fileId; }
+    virtual const folly::fbstring &fileId() const;
 
-    virtual std::size_t wouldPrefetch(
-        const off_t offset, const std::size_t size)
-    {
-        return 0;
-    }
+    virtual std::size_t wouldPrefetch(off_t offset, std::size_t size);
 
-    virtual folly::Future<folly::Unit> flushUnderlying() { return flush(); }
+    virtual folly::Future<folly::Unit> flushUnderlying();
 
-    virtual bool isConcurrencyEnabled() const { return false; }
+    virtual bool isConcurrencyEnabled() const;
+
+    void setOverrideParams(const Params &params);
 
     /**
      * Updates the underlying helper storage parameters. Override in case the
@@ -408,10 +437,15 @@ public:
     virtual folly::Future<folly::Unit> refreshHelperParams(
         std::shared_ptr<StorageHelperParams> params);
 
-protected:
+    const Params &openParams() const { return m_openParams; }
+
+    const Params &paramsOverride() const { return m_paramsOverride; }
+
+private:
     folly::fbstring m_fileId;
     Params m_openParams;
     std::shared_ptr<StorageHelper> m_helper;
+    Params m_paramsOverride;
 };
 
 class StorageHelperParams {
@@ -423,14 +457,60 @@ public:
 
     virtual void initializeFromParams(const Params &parameters)
     {
+        LOG_FCALL();
+
         m_timeout = Timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
+            parameters, "timeout", constants::ASYNC_OPS_TIMEOUT.count())};
+
+        auto storagePathTypeString =
+            getParam<std::string>(parameters, "storagePathType", "canonical");
+        if (storagePathTypeString == "canonical")
+            m_storagePathType = StoragePathType::CANONICAL;
+        else if (storagePathTypeString == "flat")
+            m_storagePathType = StoragePathType::FLAT;
+        else
+            throw BadParameterException{
+                "storagePathType", storagePathTypeString};
+
+        m_blockSize = getParam<std::size_t>(parameters, "blockSize", 0);
     }
 
     const Timeout &timeout() const { return m_timeout; }
 
+    std::size_t blockSize() const { return m_blockSize; }
+
+    StoragePathType storagePathType() const { return m_storagePathType; }
+
 private:
     Timeout m_timeout;
+    std::size_t m_blockSize;
+    StoragePathType m_storagePathType;
+};
+
+class StorageHelperParamsHandler {
+public:
+    using StorageHelperParamsPromise =
+        folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
+
+    StorageHelperParamsHandler()
+        : m_params{std::make_shared<StorageHelperParamsPromise>()}
+    {
+    }
+
+    /**
+     * Returns a future to an instance of storage helper parameters.
+     * It allows for overriding for special helpers such as @c BufferAgent.
+     */
+    virtual folly::Future<std::shared_ptr<StorageHelperParams>> params() const;
+
+protected:
+    std::shared_ptr<StorageHelperParamsPromise> invalidateParams();
+
+    // Pointer to a promise of a shared pointers to helper parameters
+    // This allows the parameters to be safely updated as with
+    // existing handles and parallel read/write operations.
+    std::shared_ptr<StorageHelperParamsPromise> m_params;
+    mutable std::mutex m_paramsMutex;
 };
 
 /**
@@ -439,13 +519,14 @@ private:
  * All callback have their equivalent in FUSE API and should be used in that
  * matter.
  */
-class StorageHelper {
+class StorageHelper : public StorageHelperParamsHandler {
 public:
     using StorageHelperParamsPromise =
         folly::SharedPromise<std::shared_ptr<StorageHelperParams>>;
 
-    StorageHelper()
-        : m_params{std::make_shared<StorageHelperParamsPromise>()}
+    explicit StorageHelper(
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER)
+        : m_executionContext{executionContext}
     {
     }
 
@@ -453,187 +534,189 @@ public:
 
     virtual folly::fbstring name() const = 0;
 
-    virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId)
-    {
-        return folly::makeFuture<struct stat>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+    virtual void id(const folly::fbstring &id);
+
+    virtual const folly::fbstring &id() const;
+
+    virtual folly::Future<folly::Unit> checkStorageAvailability();
+
+    virtual folly::Future<struct stat> getattr(const folly::fbstring &fileId);
 
     virtual folly::Future<folly::Unit> access(
-        const folly::fbstring &fileId, const int mask)
-    {
-        return folly::makeFuture();
-    }
+        const folly::fbstring &fileId, int mask);
 
     virtual folly::Future<folly::fbstring> readlink(
-        const folly::fbstring &fileId)
-    {
-        return folly::makeFuture<folly::fbstring>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &fileId);
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> readdir(
-        const folly::fbstring &fileId, const off_t offset,
-        const std::size_t count)
-    {
-        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
-            std::system_error{
-                std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &fileId, off_t offset, std::size_t count);
 
     virtual folly::Future<folly::Unit> mknod(const folly::fbstring &fileId,
-        const mode_t mode, const FlagsSet &flags, const dev_t rdev)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        mode_t mode, const FlagsSet &flags, dev_t rdev);
 
     virtual folly::Future<folly::Unit> mkdir(
-        const folly::fbstring &fileId, const mode_t mode)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &fileId, mode_t mode);
 
     virtual folly::Future<folly::Unit> unlink(
-        const folly::fbstring &fileId, const size_t currentSize)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &fileId, size_t currentSize);
 
-    virtual folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+    virtual folly::Future<folly::Unit> rmdir(const folly::fbstring &fileId);
 
     virtual folly::Future<folly::Unit> symlink(
-        const folly::fbstring &from, const folly::fbstring &to)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &from, const folly::fbstring &to);
 
     virtual folly::Future<folly::Unit> rename(
-        const folly::fbstring &from, const folly::fbstring &to)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &from, const folly::fbstring &to);
 
     virtual folly::Future<folly::Unit> link(
-        const folly::fbstring &from, const folly::fbstring &to)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &from, const folly::fbstring &to);
 
     virtual folly::Future<folly::Unit> chmod(
-        const folly::fbstring &fileId, const mode_t mode)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &fileId, mode_t mode);
 
     virtual folly::Future<folly::Unit> chown(
-        const folly::fbstring &fileId, const uid_t uid, const gid_t gid)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &fileId, uid_t uid, gid_t gid);
 
-    virtual folly::Future<folly::Unit> truncate(const folly::fbstring &fileId,
-        const off_t size, const size_t currentSize)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+    virtual folly::Future<folly::Unit> truncate(
+        const folly::fbstring &fileId, off_t size, size_t currentSize);
 
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const FlagsSet &flags, const Params &openParams)
-    {
-        return open(fileId, flagsToMask(flags), openParams);
-    }
+        const FlagsSet &flags, const Params &openParams);
 
     virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
-        const int flags, const Params &openParams) = 0;
+        const FlagsSet &flags, const Params &openParams,
+        const Params &helperOverrideParams);
+
+    virtual folly::Future<FileHandlePtr> open(
+        const folly::fbstring &fileId, int flags, const Params &openParams) = 0;
+
+    virtual folly::Future<FileHandlePtr> open(const folly::fbstring &fileId,
+        int flags, const Params &openParams,
+        const Params &helperOverrideParams);
+
+    virtual folly::Future<ListObjectsResult> listobjects(
+        const folly::fbstring &prefix, const folly::fbstring &marker,
+        off_t offset, size_t count);
+
+    virtual folly::Future<folly::Unit> multipartCopy(
+        const folly::fbstring &sourceKey, const folly::fbstring &destinationKey,
+        std::size_t blockSize, std::size_t size);
 
     virtual folly::Future<folly::fbstring> getxattr(
-        const folly::fbstring &uuid, const folly::fbstring &name)
-    {
-        return folly::makeFuture<folly::fbstring>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &uuid, const folly::fbstring &name);
 
     virtual folly::Future<folly::Unit> setxattr(const folly::fbstring &uuid,
         const folly::fbstring &name, const folly::fbstring &value, bool create,
-        bool replace)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        bool replace);
 
     virtual folly::Future<folly::Unit> removexattr(
-        const folly::fbstring &uuid, const folly::fbstring &name)
-    {
-        return folly::makeFuture<folly::Unit>(std::system_error{
-            std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &uuid, const folly::fbstring &name);
 
     virtual folly::Future<folly::fbvector<folly::fbstring>> listxattr(
-        const folly::fbstring &uuid)
-    {
-        return folly::makeFuture<folly::fbvector<folly::fbstring>>(
-            std::system_error{
-                std::make_error_code(std::errc::function_not_supported)});
-    }
+        const folly::fbstring &uuid);
+
+    virtual folly::Future<folly::Unit> loadBuffer(
+        const folly::fbstring &fileId, std::size_t size);
+
+    virtual folly::Future<folly::Unit> flushBuffer(
+        const folly::fbstring &fileId, std::size_t size);
+
+    virtual folly::Future<std::size_t> blockSizeForPath(
+        const folly::fbstring &fileId);
+
+    virtual const Timeout &timeout();
+
+    virtual StoragePathType storagePathType() const;
+
+    bool isFlat() const;
+
+    virtual std::size_t blockSize() const;
+
+    virtual bool isObjectStorage() const;
+
+    virtual std::shared_ptr<folly::Executor> executor();
+
+    ExecutionContext executionContext() const;
 
     /**
-     * Returns a future to an instance of storage helper parameters.
-     * It allows for overriding for special helpers such as @c BufferAgent.
+     * Validates whether the 'params' set of override parameters can be
+     * overriden by a single handle in this helper.
+     *
+     * @param params Override params.
+     * @throws BadParameterException In case any of the params is not supported
+     * for override by handles in this storage helper.
      */
-    virtual folly::Future<std::shared_ptr<StorageHelperParams>> params() const
-    {
-        std::lock_guard<std::mutex> m_lock{m_paramsMutex};
-        return m_params->getFuture();
-    }
+    virtual void validateHandleOverrideParams(const Params &params);
 
     /**
-     * Updates the helper parameters by replacing the parameters promise stored
-     * in storage helper with a new one. In this way requests already created
-     * will be allowed to execute with the old set of parameters while all
-     * new requests will use the new set.
+     * Returns a list of helper specific parameters which can be overriden on
+     * for a single opened file (handle).
+     */
+    virtual std::vector<folly::fbstring> handleOverridableParams() const;
+
+    virtual bool isBuffered() const;
+
+    /**
+     * Updates the helper parameters by replacing the parameters promise
+     * stored in storage helper with a new one. In this way requests already
+     * created will be allowed to execute with the old set of parameters
+     * while all new requests will use the new set.
      *
      * @param params Shared instance of @c StorageHelperParams
      */
     virtual folly::Future<folly::Unit> refreshParams(
-        std::shared_ptr<StorageHelperParams> params)
-    {
-        return folly::via(
-            executor().get(), [ this, params = std::move(params) ]() {
-                invalidateParams()->setValue(std::move(params));
-            });
-    }
+        std::shared_ptr<StorageHelperParams> params);
 
-    virtual const Timeout &timeout() { return params().get()->timeout(); }
-
-    virtual std::shared_ptr<folly::Executor> executor() { return {}; };
-
-protected:
-    std::shared_ptr<StorageHelperParamsPromise> invalidateParams()
-    {
-        std::lock_guard<std::mutex> m_lock{m_paramsMutex};
-        m_params = std::make_shared<StorageHelperParamsPromise>();
-        return m_params;
-    };
+    virtual folly::Future<folly::Unit> updateHelper(const Params &params);
 
 private:
-    // Pointer to a promise of a shared pointers to helper parameters
-    // This allows the parameters to be safely updated as with
-    // existing handles and parallel read/write operations.
-    std::shared_ptr<StorageHelperParamsPromise> m_params;
-    mutable std::mutex m_paramsMutex;
+    const ExecutionContext m_executionContext;
+    folly::fbstring m_id;
+};
+
+/**
+ * Initializer for storage helper workers based on folly ThreadPool.
+ */
+class StorageWorkerFactory : public folly::ThreadFactory {
+public:
+    explicit StorageWorkerFactory(folly::fbstring name)
+        : m_name{std::move(name)}
+        , m_id{0}
+    {
+    }
+
+    std::thread newThread(folly::Func &&func) override
+    {
+        auto t = std::thread(
+            [f = std::move(func),
+                n = fmt::format("{}-{}", m_name, m_id++)]() mutable {
+                folly::setThreadName(n);
+                f();
+            });
+
+        setCPUAffinity(t);
+
+        return t;
+    }
+
+private:
+    /**
+     * Set CPU affinity for a given thread to all available CPU cores.
+     */
+    static void setCPUAffinity(std::thread &t)
+    {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        for (unsigned int cpuid = 0;
+             cpuid < std::thread::hardware_concurrency(); cpuid++) {
+            CPU_SET(cpuid, &cpuset);
+        }
+
+        pthread_setaffinity_np(t.native_handle(), sizeof(cpu_set_t), &cpuset);
+    };
+
+    folly::fbstring m_name;
+    std::atomic<uint64_t> m_id;
 };
 
 } // namespace helpers

@@ -14,6 +14,7 @@
 #include <boost/bimap.hpp>
 #include <boost/bimap/multiset_of.hpp>
 #include <boost/optional/optional_io.hpp>
+#include <folly/json.h>
 
 #include <cassert>
 #include <sstream>
@@ -25,11 +26,11 @@ namespace {
 using Translation = boost::bimap<one::clproto::Status::Code,
     boost::bimaps::multiset_of<std::errc>>;
 
-Translation createTranslation()
+const Translation &GetTranslation()
 {
     using namespace one::clproto; // NOLINT(google-build-using-namespace)
 
-    const std::vector<Translation::value_type> pairs{
+    std::vector<Translation::value_type> pairs{
         {Status_Code_ok, static_cast<std::errc>(0)},
         {Status_Code_eafnosupport, std::errc::address_family_not_supported},
         {Status_Code_eaddrinuse, std::errc::address_in_use},
@@ -110,10 +111,10 @@ Translation createTranslation()
         {Status_Code_eoverflow, std::errc::value_too_large},
         {Status_Code_eprototype, std::errc::wrong_protocol_type}};
 
-    return {pairs.begin(), pairs.end()};
-}
+    static const Translation translation{pairs.begin(), pairs.end()};
 
-const Translation translation = createTranslation();
+    return translation;
+}
 } // namespace
 
 namespace one {
@@ -137,9 +138,9 @@ Status::Status(std::unique_ptr<ProtocolServerMessage> serverMessage)
 
 Status::Status(clproto::Status &status)
 {
-    auto searchResult = translation.left.find(status.code());
+    auto searchResult = GetTranslation().left.find(status.code());
     std::errc errc = std::errc::protocol_error;
-    if (searchResult == translation.left.end()) {
+    if (searchResult == GetTranslation().left.end()) {
         LOG(ERROR) << "Unknown error code received: " << status.code();
     }
     else {
@@ -149,8 +150,8 @@ Status::Status(clproto::Status &status)
     m_code = std::make_error_code(errc);
     if (status.has_description()) {
         m_description = std::move(*status.mutable_description());
-        LOG(INFO) << "Received status with description: " << m_code.message()
-                  << ": " << m_description.get();
+        LOG_DBG(2) << "Received status with description: " << m_code.message()
+                   << ": " << m_description.get();
     }
 }
 
@@ -161,8 +162,24 @@ void Status::throwOnError() const
     if (!m_code)
         return;
 
-    if (m_description)
-        throw std::system_error{m_code, m_description.get()};
+    if (m_description) {
+        bool isJson{false};
+
+        // If description contains Onedata Error in JSON format, pretty print it
+        // and throw just posix code
+        try {
+            auto maybeOnedataError = folly::parseJson(*m_description);
+            isJson = true;
+            const auto debugLevel = m_code.value() == ENOENT ? 2 : 1;
+            LOG_DBG(debugLevel) << "Received error with description: "
+                                << folly::toPrettyJson(maybeOnedataError);
+        }
+        catch (std::exception &e) {
+        }
+
+        if (!isJson)
+            throw std::system_error{m_code, *m_description};
+    }
 
     throw std::system_error{m_code};
 }
@@ -175,20 +192,24 @@ const boost::optional<std::string> &Status::description() const
 std::string Status::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'Status', code: " << m_code
-           << ", description: " << m_description;
+    stream << "type: 'Status', code: " << m_code;
+
+    if (m_description) {
+        stream << ", description: '" << *m_description << "'";
+    }
+
     return stream.str();
 }
 
 std::unique_ptr<ProtocolClientMessage> Status::serializeAndDestroy()
 {
     auto clientMsg = std::make_unique<ProtocolClientMessage>();
-    auto statusMsg = clientMsg->mutable_status();
+    auto *statusMsg = clientMsg->mutable_status();
 
     auto searchResult =
-        translation.right.find(static_cast<std::errc>(m_code.value()));
+        GetTranslation().right.find(static_cast<std::errc>(m_code.value()));
 
-    assert(searchResult != translation.right.end()); // NOLINT
+    assert(searchResult != GetTranslation().right.end()); // NOLINT
 
     statusMsg->set_code(searchResult->second);
 

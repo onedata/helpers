@@ -52,6 +52,24 @@ def helper(server):
     return CephHelperProxy(server.mon_host, server.username, server.key,
                            server.pool_name)
 
+
+@pytest.fixture
+def helper_invalid(server):
+    return CephHelperProxy(server.mon_host, server.username, server.key,
+                           "no_such_pool")
+
+
+def test_helper_check_availability(helper):
+    helper.check_storage_availability()
+
+
+def test_helper_check_availability_error(helper_invalid):
+    with pytest.raises(RuntimeError) as excinfo:
+        helper_invalid.check_storage_availability()
+
+    assert 'No such file or directory' in str(excinfo)
+
+
 def test_helper_creation_should_not_leak_memory(server):
     for i in range(10):
         helper = CephHelperProxy(server.mon_host, server.username, server.key,
@@ -82,7 +100,7 @@ def test_read_should_read_data(helper):
     offset = random_int()
 
     assert helper.write(file_id, data, offset) == len(data)
-    assert helper.read(file_id, offset, len(data)) == data
+    assert helper.read(file_id, offset, len(data)).decode('utf-8') == data
 
 
 @pytest.mark.skip(reason=
@@ -157,7 +175,7 @@ def test_truncate_should_truncate_data(helper):
 
     assert helper.write(file_id, data, 0) == len(data)
     helper.truncate(file_id, size, len(data))
-    assert helper.read(file_id, 0, size) == data[0:size]
+    assert helper.read(file_id, 0, size).decode('utf-8') == data[0:size]
 
 
 def test_truncate_should_truncate_file_with_dangling_shared_locks(helper):
@@ -173,7 +191,7 @@ def test_truncate_should_truncate_file_with_dangling_shared_locks(helper):
     assert helper.lock(file_id, cookie2, False) == 0
     assert helper.lock(file_id, cookie3, False) == 0
     helper.truncate(file_id, size, len(data))
-    assert helper.read(file_id, 0, size) == data[0:size]
+    assert helper.read(file_id, 0, size).decode('utf-8') == data[0:size]
 
 
 def test_truncate_should_truncate_file_with_dangling_exclusive_lock(helper):
@@ -185,4 +203,4 @@ def test_truncate_should_truncate_file_with_dangling_exclusive_lock(helper):
     assert helper.write(file_id, data, 0) == len(data)
     assert helper.lock(file_id, cookie, True) == 0
     helper.truncate(file_id, size, len(data))
-    assert helper.read(file_id, 0, size) == data[0:size]
+    assert helper.read(file_id, 0, size).decode('utf-8') == data[0:size]

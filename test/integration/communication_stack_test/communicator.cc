@@ -10,6 +10,7 @@
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/smart_ptr.hpp>
+#include <glog/logging.h>
 
 #include <chrono>
 #include <memory>
@@ -39,13 +40,14 @@ public:
         std::function<void(std::error_code)> onHandshakeDone)
     {
         m_handshake = getHandshake();
-        return LowerLayer::setHandshake(std::move(getHandshake),
-            [ this, onHandshakeResponse = std::move(onHandshakeResponse) ](
+        return LowerLayer::setHandshake(
+            std::move(getHandshake),
+            [this, onHandshakeResponse = std::move(onHandshakeResponse)](
                 std::string response) {
                 try {
                     m_handshakeResponsePromise.set_value(response);
                 }
-                catch (std::future_error) {
+                catch (std::future_error &) {
                 }
                 return onHandshakeResponse(std::move(response));
             },
@@ -65,9 +67,9 @@ private:
     std::string m_lastMessageSent;
 };
 
-using CustomCommunicator =
-    layers::Translator<layers::Replier<layers::Inbox<layers::Sequencer<
-        layers::BinaryTranslator<Hijacker<layers::Retrier<ConnectionPool>>>>>>>;
+using CustomCommunicator = layers::Translator<
+    layers::Replier<layers::Inbox<layers::Sequencer<layers::BinaryTranslator<
+        layers::Logger<Hijacker<layers::Retrier<ConnectionPool>>>>>>>>;
 
 class ExampleClientMessage : public messages::ClientMessage {
 public:
@@ -117,6 +119,15 @@ public:
         m_communicator.setScheduler(std::make_shared<Scheduler>(1));
     }
 
+    ~CommunicatorProxy() { stop(); }
+
+    void stop()
+    {
+        if (!m_stopped.test_and_set()) {
+            m_communicator.stop();
+        }
+    }
+
     void connect() { m_communicator.connect(); }
 
     std::string send(const std::string &description)
@@ -140,8 +151,8 @@ public:
 
     std::string communicateReceive()
     {
-        return m_future
-            ->within(10s,
+        return std::move(*m_future)
+            .within(10s,
                 std::system_error{std::make_error_code(std::errc::timed_out)})
             .get()
             .protocolMsg()
@@ -168,12 +179,15 @@ public:
 private:
     CustomCommunicator m_communicator;
     folly::Optional<folly::Future<ExampleServerMessage>> m_future;
+    std::atomic_flag m_stopped = ATOMIC_FLAG_INIT;
 };
 
 boost::shared_ptr<CommunicatorProxy> create(
     const unsigned int connectionsNumber, const unsigned int workersNumber,
     std::string host, const unsigned short port, const bool handshake)
 {
+    FLAGS_v = 0;
+
     helpers::init();
 
     return boost::make_shared<CommunicatorProxy>(
@@ -199,6 +213,7 @@ BOOST_PYTHON_MODULE(communication_stack)
 {
     class_<CommunicatorProxy, boost::noncopyable>("Communicator", no_init)
         .def("__init__", make_constructor(create))
+        .def("stop", &CommunicatorProxy::stop)
         .def("connect", &CommunicatorProxy::connect)
         .def("send", &CommunicatorProxy::send)
         .def("sendAsync", &CommunicatorProxy::sendAsync)

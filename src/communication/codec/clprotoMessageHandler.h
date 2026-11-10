@@ -10,6 +10,8 @@
 
 #include <wangle/channel/Handler.h>
 
+#include <utility>
+
 namespace one {
 namespace communication {
 namespace codec {
@@ -27,7 +29,7 @@ public:
 
     void setEOFCallback(std::function<void(void)> eofCallback)
     {
-        m_eofCallback = eofCallback;
+        m_eofCallback = std::move(eofCallback);
     }
 
     void read(Context * /*ctx*/, std::string msg) override
@@ -43,7 +45,7 @@ public:
 
     void readEOF(Context * /*ctx*/) override
     {
-        LOG(ERROR) << "EOF on clproto socket - closing pipeline...";
+        LOG(INFO) << "EOF on clproto socket - closing pipeline...";
         if (m_eofCallback)
             m_eofCallback();
     }

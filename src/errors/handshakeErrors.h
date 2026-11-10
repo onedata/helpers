@@ -19,7 +19,7 @@ namespace handshake {
  * The ErrorCode class enumerates possible handshake errors.
  */
 enum class ErrorCode {
-    ok,
+    ok = 0,
     macaroon_expired,
     macaroon_not_found,
     invalid_macaroon,
@@ -47,7 +47,7 @@ public:
  * @param code an instance of @c ErrorCode
  * @return standard library error code instance
  */
-std::error_code makeErrorCode(ErrorCode e);
+std::error_code make_error_code(ErrorCode e);
 
 } // namespace handshake
 } // namespace errors

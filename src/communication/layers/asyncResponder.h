@@ -12,8 +12,8 @@
 #include "communication/declarations.h"
 #include "helpers/logging.h"
 
-#include <folly/ThreadName.h>
 #include <folly/executors/GlobalExecutor.h>
+#include <folly/system/ThreadName.h>
 
 #include <functional>
 #include <memory>
@@ -31,7 +31,12 @@ public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
 
-    virtual ~AsyncResponder();
+    virtual ~AsyncResponder(); // NOLINT
+
+    AsyncResponder(const AsyncResponder &) = delete;
+    AsyncResponder(AsyncResponder &&) = delete;
+    AsyncResponder &operator=(const AsyncResponder &) = delete;
+    AsyncResponder &operator=(AsyncResponder &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c AsyncResponder.
@@ -53,7 +58,8 @@ public:
         std::function<void(ServerMessagePtr)> onMessageCallback);
 };
 
-template <class LowerLayer> AsyncResponder<LowerLayer>::~AsyncResponder() {}
+template <class LowerLayer>
+AsyncResponder<LowerLayer>::~AsyncResponder() = default;
 
 template <class LowerLayer> auto AsyncResponder<LowerLayer>::connect()
 {
@@ -64,14 +70,14 @@ template <class LowerLayer>
 auto AsyncResponder<LowerLayer>::setOnMessageCallback(
     std::function<void(ServerMessagePtr)> onMessageCallback)
 {
-    return LowerLayer::setOnMessageCallback([onMessageCallback =
-                                                 std::move(onMessageCallback)](
-        ServerMessagePtr serverMsg) mutable {
-        folly::getIOExecutor()->add(
-            [&, serverMsg = std::move(serverMsg) ]() mutable {
+    return LowerLayer::setOnMessageCallback(
+        [onMessageCallback = std::move(onMessageCallback),
+            exec = LowerLayer::executor().get()](
+            ServerMessagePtr serverMsg) mutable {
+            exec->add([&, serverMsg = std::move(serverMsg)]() mutable {
                 onMessageCallback(std::move(serverMsg));
             });
-    });
+        });
 }
 
 } // namespace layers

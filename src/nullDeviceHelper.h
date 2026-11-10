@@ -1,5 +1,5 @@
 /**
- * @file NullDeviceHelper.h
+ * @file nullDeviceHelper.h
  * @author Bartek Kryza
  * @copyright (C) 2018 ACK CYFRONET AGH
  * @copyright This software is released under the MIT license cited in
@@ -13,19 +13,21 @@
 
 #include "flatOpScheduler.h"
 #include "monitoring/monitoring.h"
+#include "nullDeviceHelperParams.h"
 
 #include <boost/thread/once.hpp>
 #include <boost/variant.hpp>
-#include <folly/Executor.h>
-#include <fuse.h>
+#include <folly/executors/IOExecutor.h>
+#if FUSE_USE_VERSION > 30
+#include <fuse3/fuse.h>
+#else
+#include <fuse/fuse.h>
+#endif
 
 #include <chrono>
 #include <random>
 
 #undef signal_set
-
-#include "asioExecutor.h"
-#include <asio.hpp>
 
 namespace one {
 namespace helpers {
@@ -51,10 +53,15 @@ public:
      * @param helper Shared ptr to underlying helper.
      * @param executor Executor for driving async file operations.
      */
-    static std::shared_ptr<NullDeviceFileHandle> create(folly::fbstring fileId,
-        std::shared_ptr<NullDeviceHelper> helper,
+    static std::shared_ptr<NullDeviceFileHandle> create(
+        const folly::fbstring &fileId, std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
+
+    NullDeviceFileHandle(const NullDeviceFileHandle &) = delete;
+    NullDeviceFileHandle &operator=(const NullDeviceFileHandle &) = delete;
+    NullDeviceFileHandle(NullDeviceFileHandle &&) = delete;
+    NullDeviceFileHandle &operator=(NullDeviceFileHandle &&) = delete;
 
     /**
      * Destructor.
@@ -66,8 +73,8 @@ public:
     folly::Future<folly::IOBufQueue> read(
         const off_t offset, const std::size_t size) override;
 
-    folly::Future<std::size_t> write(
-        const off_t offset, folly::IOBufQueue buf) override;
+    folly::Future<std::size_t> write(const off_t offset, folly::IOBufQueue buf,
+        WriteCallback &&writeCb) override;
 
     folly::Future<folly::Unit> release() override;
 
@@ -81,13 +88,19 @@ public:
 
     std::size_t writtenBytes() const { return m_writtenBytes.load(); }
 
+    bool enableDataVerification() const { return m_enableDataVerification; }
+
     bool isConcurrencyEnabled() const override { return true; }
 
 private:
-    NullDeviceFileHandle(folly::fbstring fileId,
+    NullDeviceFileHandle(const folly::fbstring &fileId,
         std::shared_ptr<NullDeviceHelper> helper,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        Timeout timeout = constants::ASYNC_OPS_TIMEOUT);
+
+    template <typename T, typename F>
+    folly::Future<T> simulateStorageIssues(
+        folly::fbstring operationName, F &&func);
 
     void initOpScheduler();
 
@@ -95,6 +108,7 @@ private:
         folly::Promise<folly::IOBufQueue> promise;
         off_t offset;
         std::size_t size;
+        bool enableDataVerification;
         std::shared_ptr<cppmetrics::core::TimerContextBase> timer;
     };
     struct WriteOp {
@@ -117,8 +131,8 @@ private:
 
     friend struct OpExec;
     struct OpExec : public boost::static_visitor<> {
-        OpExec(const std::shared_ptr<NullDeviceFileHandle> &handle);
-        std::unique_ptr<folly::Unit> startDrain();
+        explicit OpExec(const std::shared_ptr<NullDeviceFileHandle> &handle);
+        std::unique_ptr<folly::Unit> startDrain() const;
         void operator()(ReadOp &op) const;
         void operator()(WriteOp &op) const;
         void operator()(FsyncOp &op) const;
@@ -137,10 +151,15 @@ private:
     // The total number of bytes written since the file was opened
     std::atomic<std::size_t> m_writtenBytes;
 
+    const bool m_enableDataVerification;
+
     // Use a preallocated, prefilled buffer for reads to avoid the cost of
     // memset on each read call.
     static std::vector<uint8_t> m_nullReadBuffer;
     static boost::once_flag m_nullReadBufferInitialized;
+
+    static std::vector<uint8_t> m_nullReadPatternBuffer;
+    static boost::once_flag m_nullReadPatternBufferInitialized;
 };
 
 /**
@@ -152,6 +171,8 @@ private:
 class NullDeviceHelper : public StorageHelper,
                          public std::enable_shared_from_this<NullDeviceHelper> {
 public:
+    using params_type = NullDeviceHelperParams;
+
     /**
      * Constructor.
      * @param latencyMin Minimum latency for operations in ms
@@ -165,14 +186,22 @@ public:
      *                                      helper filesystem
      * @param simulatedFilesystemGrowSpeed Simulated filesystem grow speed in
      *                                     files per second
+     * @param simulatedFileSize Simulated file system reported file size in
+     *                          bytes.
+     * @param enableDataVerification Enable data verification based on
+     * predefined data pattern.
      * @param executor Executor for driving async file operations.
      */
-    NullDeviceHelper(int latencyMin, int latencyMax, double timeoutProbability,
-        const folly::fbstring &filter,
-        std::vector<std::pair<int64_t, int64_t>> simulatedFilesystemParameters,
-        double simulatedFilesystemGrowSpeed,
+    NullDeviceHelper(std::shared_ptr<NullDeviceHelperParams> params,
         std::shared_ptr<folly::Executor> executor,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+        ExecutionContext executionContext = ExecutionContext::ONEPROVIDER);
+
+    NullDeviceHelper(const NullDeviceHelper &) = delete;
+    NullDeviceHelper &operator=(const NullDeviceHelper &) = delete;
+    NullDeviceHelper(NullDeviceHelper &&) = delete;
+    NullDeviceHelper &operator=(NullDeviceHelper &&) = delete;
+
+    virtual ~NullDeviceHelper() = default;
 
     folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; };
 
@@ -233,32 +262,21 @@ public:
     folly::Future<folly::fbvector<folly::fbstring>> listxattr(
         const folly::fbstring &fileId) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
     std::shared_ptr<folly::Executor> executor() override { return m_executor; }
 
-    bool applies(const folly::fbstring &operationName);
+    bool applies(const folly::fbstring &operationName) const;
 
     bool randomTimeout();
 
     int randomLatency();
 
-    bool simulateTimeout(const std::string &operationName);
+    folly::Future<folly::Unit> simulateTimeout(
+        const std::string &operationName);
 
-    void simulateLatency(const std::string &operationName);
+    folly::Future<folly::Unit> simulateLatency(
+        const std::string &operationName);
 
     bool isSimulatedFilesystem() const;
-
-    /**
-     * Returns the simulated filesystem parameters
-     */
-    std::vector<std::pair<int64_t, int64_t>>
-    simulatedFilesystemParameters() const;
-
-    /**
-     * Return the simulated filesystem grow speed in files per second.
-     */
-    double simulatedFilesystemGrowSpeed() const;
 
     /**
      * Returns the total number of entries (directories and files) on
@@ -313,30 +331,90 @@ public:
      */
     size_t simulatedFilesystemFileDist(const std::vector<std::string> &path);
 
+    folly::Future<folly::Unit> checkStorageAvailability() override;
+
+    bool storageIssuesEnabled() const noexcept;
+
+    HELPER_PARAM_GETTER(latencyMin)
+    HELPER_PARAM_GETTER(latencyMax)
+    HELPER_PARAM_GETTER(timeoutProbability)
+    HELPER_PARAM_GETTER(filter)
+    HELPER_PARAM_GETTER(simulatedFilesystemParameters)
+    HELPER_PARAM_GETTER(simulatedFilesystemGrowSpeed)
+    HELPER_PARAM_GETTER(simulatedFileSize)
+    HELPER_PARAM_GETTER(enableDataVerification)
+    HELPER_PARAM_GETTER(applyToAllOperations)
+
+    template <typename T, typename F>
+    folly::Future<T> simulateStorageIssues(
+        const folly::fbstring &operationName, F &&func);
+
 private:
+    folly::Future<struct stat> getattrImpl(const folly::fbstring &fileId);
+
+    folly::Future<folly::Unit> accessImpl(
+        const folly::fbstring &fileId, const int mask);
+
+    folly::Future<folly::fbvector<folly::fbstring>> readdirImpl(
+        const folly::fbstring &fileId, off_t offset, size_t count);
+
+    folly::Future<folly::fbstring> readlinkImpl(const folly::fbstring &fileId);
+
+    folly::Future<folly::Unit> mknodImpl(const folly::fbstring &fileId,
+        const mode_t unmaskedMode, const FlagsSet &flags, const dev_t rdev);
+
+    folly::Future<folly::Unit> mkdirImpl(
+        const folly::fbstring &fileId, const mode_t mode);
+
+    folly::Future<folly::Unit> unlinkImpl(
+        const folly::fbstring &fileId, const size_t currentSize);
+
+    folly::Future<folly::Unit> rmdirImpl(const folly::fbstring &fileId);
+
+    folly::Future<folly::Unit> symlinkImpl(
+        const folly::fbstring &from, const folly::fbstring &to);
+
+    folly::Future<folly::Unit> renameImpl(
+        const folly::fbstring &from, const folly::fbstring &to);
+
+    folly::Future<folly::Unit> linkImpl(
+        const folly::fbstring &from, const folly::fbstring &to);
+
+    folly::Future<folly::Unit> chmodImpl(
+        const folly::fbstring &fileId, const mode_t mode);
+
+    folly::Future<folly::Unit> chownImpl(
+        const folly::fbstring &fileId, const uid_t uid, const gid_t gid);
+
+    folly::Future<folly::Unit> truncateImpl(const folly::fbstring &fileId,
+        const off_t size, const size_t currentSize);
+
+    folly::Future<FileHandlePtr> openImpl(const folly::fbstring &fileId,
+        const int flags, const Params &openParams);
+
+    folly::Future<folly::fbstring> getxattrImpl(
+        const folly::fbstring &fileId, const folly::fbstring &name);
+
+    folly::Future<folly::Unit> setxattrImpl(const folly::fbstring &fileId,
+        const folly::fbstring &name, const folly::fbstring &value, bool create,
+        bool replace);
+
+    folly::Future<folly::Unit> removexattrImpl(
+        const folly::fbstring &fileId, const folly::fbstring &name);
+
+    folly::Future<folly::fbvector<folly::fbstring>> listxattrImpl(
+        const folly::fbstring &fileId);
+
     std::mt19937 m_randomGenerator(std::random_device());
     std::function<int()> m_latencyGenerator;
     std::function<double()> m_timeoutGenerator;
-
-    double m_timeoutProbability;
-
-    std::vector<std::string> m_filter;
-
-    std::vector<std::pair<int64_t, int64_t>> m_simulatedFilesystemParameters;
-    double m_simulatedFilesystemGrowSpeed;
-
     bool m_simulatedFilesystemLevelEntryCountReady;
     std::vector<size_t> m_simulatedFilesystemLevelEntryCount;
-
     bool m_simulatedFilesystemEntryCountReady;
     size_t m_simulatedFilesystemEntryCount{};
-
     static std::chrono::time_point<std::chrono::system_clock> m_mountTime;
 
-    bool m_applyToAllOperations = false;
-
     std::shared_ptr<folly::Executor> m_executor;
-    Timeout m_timeout;
 
     static boost::once_flag m_nullMountTimeOnceFlag;
 };
@@ -348,57 +426,32 @@ class NullDeviceHelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    NullDeviceHelperFactory(asio::io_service &service)
-        : m_service{service}
+    explicit NullDeviceHelperFactory(
+        std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override
-    {
-        return NULL_DEVICE_HELPER_NAME;
-    }
+    folly::fbstring name() const override { return NULL_DEVICE_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"latencyMin", "latencyMax", "timeoutProbability", "filter",
-            "timeout"};
+            "timeout", "enableDataVerification"};
     };
 
-    static std::vector<std::pair<int64_t, int64_t>>
-    parseSimulatedFilesystemParameters(const std::string &params);
-
     std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+        const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto latencyMin = getParam<int>(parameters, "latencyMin", 0.0);
-        const auto latencyMax = getParam<int>(parameters, "latencyMax", 0.0);
-        const auto timeoutProbability =
-            getParam<double>(parameters, "timeoutProbability", 0.0);
-        const auto &filter = getParam<folly::fbstring, folly::fbstring>(
-            parameters, "filter", "*");
-        const auto &simulatedFilesystemParameters =
-            getParam<folly::fbstring, folly::fbstring>(
-                parameters, "simulatedFilesystemParameters", "");
-        const auto simulatedFilesystemGrowSpeed =
-            getParam<double>(parameters, "simulatedFilesystemGrowSpeed", 0.0);
-
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-
-        auto simulatedFilesystemParametersParsed =
-            parseSimulatedFilesystemParameters(
-                simulatedFilesystemParameters.toStdString());
-
-        return std::make_shared<NullDeviceHelper>(latencyMin, latencyMax,
-            timeoutProbability, filter, simulatedFilesystemParametersParsed,
-            simulatedFilesystemGrowSpeed,
-            std::make_shared<AsioExecutor>(m_service), std::move(timeout));
+        return std::make_shared<NullDeviceHelper>(
+            NullDeviceHelperParams::create(parameters), m_executor,
+            executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 } // namespace helpers

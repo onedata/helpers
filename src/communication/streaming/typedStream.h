@@ -10,13 +10,16 @@
 #define HELPERS_COMMUNICATION_STREAMING_TYPED_STREAM_H
 
 #include "communication/declarations.h"
+#include "helpers/logging.h"
 #include "messages/clientMessage.h"
 #include "messages/endOfStream.h"
+#include "messages/status.h"
 
 #include <tbb/concurrent_priority_queue.h>
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -43,7 +46,7 @@ using BufferMutexType = std::shared_timed_mutex;
 struct StreamLess {
     bool operator()(const ClientMessagePtr &a, const ClientMessagePtr &b) const
     {
-        return a->message_stream().sequence_number() <
+        return a->message_stream().sequence_number() >
             b->message_stream().sequence_number();
     }
 };
@@ -60,8 +63,15 @@ public:
      * It must at least implement @c send(ClientMessagePtr, const int).
      * @param streamId ID number of this stream.
      */
-    TypedStream(std::shared_ptr<Communicator> communicator,
-        const std::uint64_t streamId, std::function<void()> unregister = [] {});
+    TypedStream(
+        std::shared_ptr<Communicator> communicator, std::uint64_t streamId,
+        std::chrono::seconds providerTimeout,
+        std::function<void()> unregister = [] {});
+
+    TypedStream(TypedStream &&) = delete;
+    TypedStream(const TypedStream &) = delete;
+    TypedStream &operator=(TypedStream &&) = delete;
+    TypedStream &operator=(const TypedStream) = delete;
 
     /**
      * Destructor.
@@ -80,6 +90,8 @@ public:
      * @param msg The message to send through the stream.
      */
     virtual void send(ClientMessagePtr msg);
+
+    virtual void sendSync(ClientMessagePtr msg);
 
     /**
      * Resends messages requested by the remote party.
@@ -105,13 +117,10 @@ public:
      */
     void reset();
 
-    TypedStream(TypedStream &&) = delete;
-    TypedStream(const TypedStream &) = delete;
-    TypedStream &operator=(TypedStream &&) = delete;
-    TypedStream &operator=(const TypedStream) = delete;
-
 private:
     void saveAndPass(ClientMessagePtr msg);
+    void saveAndPassSync(ClientMessagePtr msg);
+    void dropMessagesWithLowerSequenceNumber(size_t sequenceNumber);
 
     std::shared_ptr<Communicator> m_communicator;
     const std::uint64_t m_streamId;
@@ -119,15 +128,18 @@ private:
     std::atomic<std::uint64_t> m_sequenceId{0};
     BufferMutexType m_bufferMutex;
     tbb::concurrent_priority_queue<ClientMessagePtr, StreamLess> m_buffer;
+    const std::chrono::seconds m_providerTimeout;
 };
 
 template <class Communicator>
 TypedStream<Communicator>::TypedStream(
     std::shared_ptr<Communicator> communicator, const uint64_t streamId,
+    const std::chrono::seconds providerTimeout,
     std::function<void()> unregister)
     : m_communicator{std::move(communicator)}
     , m_streamId{streamId}
     , m_unregister{std::move(unregister)}
+    , m_providerTimeout{providerTimeout}
 {
     LOG_FCALL() << LOG_FARG(streamId);
 }
@@ -153,10 +165,29 @@ void TypedStream<Communicator>::send(ClientMessagePtr msg)
 {
     LOG_FCALL();
 
-    auto msgStream = msg->mutable_message_stream();
+    auto *msgStream = msg->mutable_message_stream();
     msgStream->set_stream_id(m_streamId);
     msgStream->set_sequence_number(m_sequenceId++);
     saveAndPass(std::move(msg));
+}
+
+template <class Communicator>
+void TypedStream<Communicator>::sendSync(ClientMessagePtr msg)
+{
+    LOG_FCALL();
+
+    auto *msgStream = msg->mutable_message_stream();
+    msgStream->set_stream_id(m_streamId);
+    const auto messageSequenceId = m_sequenceId++;
+    msgStream->set_sequence_number(messageSequenceId);
+    try {
+        saveAndPassSync(std::move(msg));
+    }
+    catch (std::exception &e) {
+        LOG(ERROR) << "Response to synchronous stream message "
+                   << messageSequenceId << " not received due to " << e.what();
+        throw e;
+    }
 }
 
 template <class Communicator> void TypedStream<Communicator>::close()
@@ -170,15 +201,24 @@ template <class Communicator> void TypedStream<Communicator>::reset()
 {
     LOG_FCALL();
 
+    LOG_DBG(3) << "Renumbering stream message " << m_streamId
+               << " sequence numbers from 0";
+
     std::lock_guard<BufferMutexType> lock{m_bufferMutex};
     m_sequenceId = 0;
+
     std::vector<ClientMessagePtr> processed;
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
+        LOG_DBG(3) << "Resetting stream message sequence number to: "
+                   << m_sequenceId;
         it->mutable_message_stream()->set_sequence_number(m_sequenceId++);
         processed.emplace_back(std::move(it));
     }
-    for (auto &msgStream : processed)
-        saveAndPass(std::move(msgStream));
+
+    for (auto &msgStream : processed) {
+        auto msgCopy = std::make_unique<clproto::ClientMessage>(*msgStream);
+        m_buffer.emplace(std::move(msgStream));
+    }
 }
 
 template <class Communicator>
@@ -193,7 +233,27 @@ void TypedStream<Communicator>::saveAndPass(ClientMessagePtr msg)
         m_buffer.emplace(std::move(msgCopy));
     }
 
-    m_communicator->send(std::move(msg), [](auto) {}, 0);
+    m_communicator->send(
+        std::move(msg), [](auto /*unused*/) {}, 0);
+}
+
+template <class Communicator>
+void TypedStream<Communicator>::saveAndPassSync(ClientMessagePtr msg)
+{
+    LOG_FCALL();
+
+    auto msgCopy = std::make_unique<clproto::ClientMessage>(*msg);
+
+    {
+        std::shared_lock<BufferMutexType> lock{m_bufferMutex};
+        m_buffer.emplace(std::move(msgCopy));
+    }
+
+    m_communicator->template communicateRaw<messages::Status>(std::move(msg))
+        .via(folly::getGlobalCPUExecutor())
+        .within(m_providerTimeout,
+            std::system_error{std::make_error_code(std::errc::timed_out)})
+        .get();
 }
 
 template <class Communicator>
@@ -202,30 +262,63 @@ void TypedStream<Communicator>::handleMessageRequest(
 {
     LOG_FCALL();
 
+    LOG_DBG(3) << "Oneprovider requested messages in stream: "
+               << msg.stream_id() << " in range: ["
+               << msg.lower_sequence_number() << ", "
+               << msg.upper_sequence_number() << "]";
+
     std::vector<ClientMessagePtr> processed;
     processed.reserve(
         msg.upper_sequence_number() - msg.lower_sequence_number() + 1);
 
+    auto messagesFound{false};
+    size_t lastBufferedMessageSeqNum{0};
+
     std::shared_lock<BufferMutexType> lock{m_bufferMutex};
+    // Extract all messages with sequence number lower than requested
+    // upper range limit
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
+        if (it->message_stream().sequence_number() > lastBufferedMessageSeqNum)
+            lastBufferedMessageSeqNum = it->message_stream().sequence_number();
+
         if (it->message_stream().sequence_number() <=
             msg.upper_sequence_number()) {
+            LOG_DBG(4) << "Found requested message with sequence number: "
+                       << it->message_stream().sequence_number();
+
             processed.emplace_back(std::move(it));
         }
         else {
+            LOG_DBG(4) << "Putting back message with sequence number: "
+                       << it->message_stream().sequence_number();
+
             m_buffer.emplace(std::move(it));
             break;
         }
     }
 
-    for (auto &msgStream : processed) {
-        if (msgStream->message_stream().sequence_number() >=
+    for (auto &streamMessage : processed) {
+        if (streamMessage->message_stream().sequence_number() >=
             msg.lower_sequence_number()) {
-            saveAndPass(std::move(msgStream));
+            LOG_DBG(3) << "Sending requested stream " << msg.stream_id()
+                       << "  message "
+                       << streamMessage->message_stream().sequence_number();
+
+            saveAndPass(std::move(streamMessage));
         }
         else {
-            m_buffer.emplace(std::move(msgStream));
+            LOG_DBG(4) << "Putting back message: "
+                       << streamMessage->message_stream().sequence_number();
+
+            m_buffer.emplace(std::move(streamMessage));
         }
+    }
+
+    if (!messagesFound) {
+        LOG_DBG(3) << "No messages found in message buffer for stream "
+                   << msg.stream_id()
+                   << " - last buffered message sequence number: "
+                   << lastBufferedMessageSeqNum;
     }
 }
 
@@ -235,17 +328,35 @@ void TypedStream<Communicator>::handleMessageAcknowledgement(
 {
     LOG_FCALL();
 
+    LOG_DBG(3) << "Received message acknowledgement for stream id: "
+               << msg.stream_id()
+               << " sequence number: " << msg.sequence_number();
+
+    dropMessagesWithLowerSequenceNumber(msg.sequence_number());
+}
+
+template <class Communicator>
+void TypedStream<Communicator>::dropMessagesWithLowerSequenceNumber(
+    const size_t sequenceNumber)
+{
+    LOG_FCALL();
+
     std::shared_lock<BufferMutexType> lock{m_bufferMutex};
     for (ClientMessagePtr it; m_buffer.try_pop(it);) {
-        if (it->message_stream().sequence_number() > msg.sequence_number()) {
+        // Keep the message in the buffer if it's sequence number is larger
+        // than the acknowledgement number
+        if (it->message_stream().sequence_number() > sequenceNumber) {
             m_buffer.emplace(std::move(it));
             break;
         }
+        LOG_DBG(3) << "Dropped acknowledged stream " << m_streamId
+                   << " message with sequence number "
+                   << it->message_stream().sequence_number();
     }
 }
 
 } // namespace streaming
-} // namespace one
 } // namespace communication
+} // namespace one
 
 #endif // HELPERS_COMMUNICATION_STREAMING_TYPED_STREAM_H

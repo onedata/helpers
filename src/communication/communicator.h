@@ -14,6 +14,7 @@
 #include "communication/layers/asyncResponder.h"
 #include "communication/layers/binaryTranslator.h"
 #include "communication/layers/inbox.h"
+#include "communication/layers/logger.h"
 #include "communication/layers/replier.h"
 #include "communication/layers/retrier.h"
 #include "communication/layers/sequencer.h"
@@ -23,9 +24,9 @@
 namespace one {
 namespace communication {
 
-using Communicator = layers::Translator<
-    layers::Replier<layers::Inbox<layers::AsyncResponder<layers::Sequencer<
-        layers::BinaryTranslator<layers::Retrier<ConnectionPool>>>>>>>;
+using Communicator = layers::Translator<layers::Replier<layers::Inbox<
+    layers::AsyncResponder<layers::Sequencer<layers::BinaryTranslator<
+        layers::Logger<layers::Retrier<ConnectionPool>>>>>>>>;
 
 using StreamManager = streaming::StreamManager<Communicator>;
 

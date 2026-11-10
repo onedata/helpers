@@ -9,7 +9,7 @@
 #include "scheduler.h"
 #include "helpers/logging.h"
 
-#include <folly/ThreadName.h>
+#include <folly/system/ThreadName.h>
 
 #include <algorithm>
 

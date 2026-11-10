@@ -15,6 +15,7 @@
 #include "messages/pong.h"
 #include "testUtils.h"
 
+#include <folly/executors/GlobalExecutor.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -37,6 +38,11 @@ struct LowerLayer {
 
     LowerLayer &mock = static_cast<LowerLayer &>(*this);
 
+    std::shared_ptr<folly::Executor> executor()
+    {
+        return folly::getIOExecutor();
+    }
+
     MOCK_METHOD2(sendProxy, void(clproto::ClientMessage, int));
 
     MOCK_METHOD2(communicateProxy, std::string(clproto::ClientMessage, int));
@@ -49,7 +55,12 @@ struct LowerLayer {
     MOCK_METHOD3(replyProxy,
         void(const clproto::ServerMessage, const clproto::ClientMessage, int));
 
-    void send(ClientMessagePtr cmp, Callback, int i) { sendProxy(*cmp, i); }
+    folly::Future<folly::Unit> send(ClientMessagePtr cmp, Callback, int i)
+    {
+        sendProxy(*cmp, i);
+
+        return folly::makeFuture();
+    }
 
     void communicate(ClientMessagePtr cmp, CommunicateCallback callback, int i)
     {
@@ -199,7 +210,7 @@ TEST_F(TranslatorTest, onHandshakeResponseShouldDeserializeProtocolObjects)
     auto domainHandshakeResponseF =
         [&](one::messages::HandshakeResponse msg) mutable {
             called = true;
-            EXPECT_EQ(makeErrorCode(ErrorCode::ok), msg.status());
+            EXPECT_EQ(make_error_code(ErrorCode::ok), msg.status());
             return msg.status();
         };
 

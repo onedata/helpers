@@ -9,20 +9,81 @@
 #ifndef HELPERS_SWIFT_HELPER_H
 #define HELPERS_SWIFT_HELPER_H
 
-#include "asioExecutor.h"
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
+#include "swiftHelperParams.h"
 
-#include "Swift/Account.h"
-#include "Swift/Container.h"
-#include "Swift/HTTPIO.h"
-#include "Swift/Object.h"
+#include <Poco/JSON/Object.h>
+#include <Poco/JSON/Parser.h>
+#include <Poco/Net/HTTPResponse.h>
+#include <folly/executors/IOExecutor.h>
 
 #include <mutex>
 #include <vector>
 
 namespace one {
 namespace helpers {
+template <class T> struct SwiftResult {
+    explicit SwiftResult(T v,
+        Poco::Net::HTTPResponse::HTTPStatus s =
+            Poco::Net::HTTPResponse::HTTPStatus::HTTP_OK)
+        : httpStatus{s}
+        , value{std::move(v)}
+    {
+    }
+
+    explicit SwiftResult(
+        Poco::Net::HTTPResponse::HTTPStatus s, folly::fbstring m = {})
+        : httpStatus{s}
+        , msg{std::move(m)}
+    {
+    }
+
+    Poco::Net::HTTPResponse::HTTPStatus httpStatus;
+    folly::fbstring msg;
+    folly::Optional<T> value;
+};
+
+struct SwiftToken {
+    folly::fbstring token;
+    folly::fbstring swiftEndpoint;
+    std::chrono::system_clock::time_point tokenExpiry;
+};
+
+class SwiftClient {
+public:
+    SwiftClient(folly::fbstring keystoneUrl, folly::fbstring swiftContainer,
+        folly::fbstring username, folly::fbstring password,
+        folly::fbstring projectName, folly::fbstring userDomainName,
+        folly::fbstring projectDomainName);
+
+    SwiftResult<bool> containerExists();
+
+    SwiftResult<std::size_t> putObject(const folly::fbstring &key,
+        folly::IOBufQueue buf, const std::size_t offset);
+
+    SwiftResult<folly::Unit> deleteObject(const folly::fbstring &key);
+
+    SwiftResult<std::vector<SwiftResult<folly::Unit>>> deleteObjects(
+        const folly::fbvector<folly::fbstring> &keys);
+
+    SwiftResult<folly::IOBufQueue> getObject(
+        const folly::fbstring &key, const off_t offset, const std::size_t size);
+
+private:
+    SwiftToken authenticateIfNeeded();
+
+    folly::fbstring m_keystoneUrl;
+    folly::fbstring m_swiftContainer;
+    folly::fbstring m_username;
+    folly::fbstring m_password;
+    folly::fbstring m_projectName;
+    folly::fbstring m_userDomainName;
+    folly::fbstring m_projectDomainName;
+
+    std::mutex m_swiftTokenMutex;
+    SwiftToken m_swiftToken;
+};
 
 class SwiftHelper;
 
@@ -33,41 +94,32 @@ class SwiftHelperFactory : public StorageHelperFactory {
 public:
     /**
      * Constructor.
-     * @param service @c io_service that will be used for some async operations.
+     * @param executor executor that will be used for some async operations.
      */
-    SwiftHelperFactory(asio::io_service &service)
-        : m_service{service}
+    explicit SwiftHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override { return SWIFT_HELPER_NAME; }
+    folly::fbstring name() const override { return SWIFT_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"authUrl", "timeout"};
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+        const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto &authUrl = getParam(parameters, "authUrl");
-        const auto &containerName = getParam(parameters, "containerName");
-        const auto &tenantName = getParam(parameters, "tenantName");
-        const auto &userName = getParam(parameters, "username");
-        const auto &password = getParam(parameters, "password");
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-        const auto &blockSize =
-            getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
+        auto params = SwiftHelperParams::create(parameters);
 
         return std::make_shared<KeyValueAdapter>(
-            std::make_shared<SwiftHelper>(containerName, authUrl, tenantName,
-                userName, password, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize);
+            std::make_shared<SwiftHelper>(params), params, m_executor,
+            executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 /**
@@ -75,6 +127,8 @@ private:
  */
 class SwiftHelper : public KeyValueHelper {
 public:
+    using params_type = SwiftHelperParams;
+
     /**
      * Constructor.
      * @param authUrl The URL for authorization with Swift.
@@ -83,11 +137,37 @@ public:
      * @param userName Name of the Swift user.
      * @param password Password of the Swift user.
      */
-    SwiftHelper(folly::fbstring containerName, const folly::fbstring &authUrl,
-        const folly::fbstring &tenantName, const folly::fbstring &userName,
-        const folly::fbstring &password, Timeout timeout = ASYNC_OPS_TIMEOUT);
+    explicit SwiftHelper(std::shared_ptr<SwiftHelperParams> params);
 
-    folly::fbstring name() const override { return S3_HELPER_NAME; };
+    SwiftHelper(const SwiftHelper &) = delete;
+
+    SwiftHelper &operator=(const SwiftHelper &) = delete;
+
+    SwiftHelper(SwiftHelper &&) = delete;
+
+    SwiftHelper &operator=(SwiftHelper &&) = delete;
+
+    ~SwiftHelper() override = default;
+
+    folly::fbstring name() const override { return SWIFT_HELPER_NAME; };
+
+    void checkStorageAvailability() override;
+
+    HELPER_PARAM_GETTER(authUrl)
+
+    HELPER_PARAM_GETTER(containerName)
+
+    HELPER_PARAM_GETTER(projectName)
+
+    HELPER_PARAM_GETTER(username)
+
+    HELPER_PARAM_GETTER(password)
+
+    HELPER_PARAM_GETTER(userDomainName)
+
+    HELPER_PARAM_GETTER(projectDomainName)
+
+    bool supportsBatchDelete() const override { return true; }
 
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
@@ -95,27 +175,14 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
         const std::size_t offset) override;
 
+    void deleteObject(const folly::fbstring &key) override;
+
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 
-    const Timeout &timeout() override { return m_timeout; }
-
 private:
-    class Authentication {
-    public:
-        Authentication(const folly::fbstring &authUrl,
-            const folly::fbstring &tenantName, const folly::fbstring &userName,
-            const folly::fbstring &password);
-
-        Swift::Account &getAccount();
-
-    private:
-        std::mutex m_authMutex;
-        Swift::AuthenticationInfo m_authInfo;
-        std::shared_ptr<Swift::Account> m_account;
-    } m_auth;
+    std::unique_ptr<SwiftClient> m_client;
 
     folly::fbstring m_containerName;
-    Timeout m_timeout;
 };
 
 } // namespace helpers

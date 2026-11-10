@@ -68,20 +68,17 @@ namespace helpers {
 
 using std::placeholders::_1;
 
-CephRadosHelper::CephRadosHelper(folly::fbstring clusterName,
-    folly::fbstring monHost, folly::fbstring poolName, folly::fbstring userName,
-    folly::fbstring key, Timeout timeout)
-    : KeyValueHelper{true}
-    , m_clusterName{std::move(clusterName)}
-    , m_monHost{std::move(monHost)}
-    , m_poolName{std::move(poolName)}
-    , m_userName{std::move(userName)}
-    , m_key{std::move(key)}
-    , m_timeout{timeout}
+CephRadosHelper::CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params)
+    : KeyValueHelper{params, true}
 {
-    LOG_FCALL() << LOG_FARG(m_clusterName) << LOG_FARG(m_monHost)
-                << LOG_FARG(m_poolName) << LOG_FARG(m_userName)
-                << LOG_FARG(m_timeout.count());
+    invalidateParams()->setValue(std::move(params));
+}
+
+void CephRadosHelper::checkStorageAvailability()
+{
+    LOG_FCALL();
+
+    connect();
 }
 
 folly::IOBufQueue CephRadosHelper::getObject(
@@ -89,22 +86,27 @@ folly::IOBufQueue CephRadosHelper::getObject(
 {
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(offset) << LOG_FARG(size);
 
+    using one::logging::log_timer;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+
+    log_timer<> logTimer;
+
     connect();
 
     folly::IOBufQueue buf{folly::IOBufQueue::cacheChainLength()};
     char *raw = static_cast<char *>(buf.preallocate(size, size).first);
 
     librados::bufferlist data;
-    data.append(ceph::buffer::create_static(size, raw));
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.cephrados.read");
 
-    LOG_DBG(2) << "Attempting to get " << size << "bytes from object " << key
+    LOG_DBG(2) << "Attempting to get " << size << " bytes from object " << key
                << " at offset " << offset;
 
     auto ret = retry(
         [&, this]() {
-            return m_ctx->ioCTX.read(key.toStdString(), data, size, offset);
+            return m_ctx.ioCTX.read(key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "GetObject"));
 
@@ -121,7 +123,11 @@ folly::IOBufQueue CephRadosHelper::getObject(
         throwOnError("GetObject", ret);
     }
 
+    std::memcpy(raw, data.c_str(), static_cast<std::size_t>(ret));
     buf.postallocate(static_cast<std::size_t>(ret));
+
+    log<read_write_perf>(
+        key, "CephRadosHelper", "getObject", offset, size, logTimer.stop());
 
     LOG_DBG(2) << "Read " << ret << " bytes from object " << key;
 
@@ -136,13 +142,19 @@ std::size_t CephRadosHelper::putObject(
     LOG_FCALL() << LOG_FARG(key) << LOG_FARG(buf.chainLength())
                 << LOG_FARG(offset);
 
+    using one::logging::log_timer;
+    using one::logging::csv::log;
+    using one::logging::csv::read_write_perf;
+
+    log_timer<> logTimer;
+
     connect();
 
     auto timer = ONE_METRIC_TIMERCTX_CREATE("comp.helpers.mod.cephrados.write");
 
     auto size = buf.chainLength();
     librados::bufferlist data;
-    for (auto &byteRange : *buf.front())
+    for (const auto &byteRange : *buf.front())
         data.append(ceph::buffer::create_static(byteRange.size(),
             // NOLINTNEXTLINE
             reinterpret_cast<char *>(
@@ -153,7 +165,7 @@ std::size_t CephRadosHelper::putObject(
 
     auto ret = retry(
         [&]() {
-            return m_ctx->ioCTX.write(key.toStdString(), data, size, offset);
+            return m_ctx.ioCTX.write(key.toStdString(), data, size, offset);
         },
         std::bind(CephRadosRetryCondition, _1, "PutObject"));
 
@@ -161,83 +173,113 @@ std::size_t CephRadosHelper::putObject(
 
     throwOnError("PutObject", ret);
 
+    log<read_write_perf>(
+        key, "CephRadosHelper", "putObject", offset, size, logTimer.stop());
+
     LOG_DBG(2) << "Written " << size << " bytes to object " << key;
 
     return size;
 }
 
-void CephRadosHelper::deleteObjects(
-    const folly::fbvector<folly::fbstring> &keys)
+void CephRadosHelper::deleteObject(const folly::fbstring &key)
 {
-    LOG_FCALL() << LOG_FARGV(keys);
+    LOG_FCALL() << LOG_FARG(key);
 
     connect();
 
-    LOG_DBG(2) << "Attempting to delete objects " << LOG_VEC(keys);
+    LOG_DBG(2) << "Attempting to delete object " << key;
 
-    for (auto offset = 0ul; offset < keys.size();
-         offset += MAX_DELETE_OBJECTS) {
-        const std::size_t batchSize =
-            std::min<std::size_t>(keys.size() - offset, MAX_DELETE_OBJECTS);
+    auto ret = retry([&]() { return m_ctx.ioCTX.remove(key.toStdString()); },
+        std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
 
-        for (auto &key : folly::range(keys.begin(), keys.begin() + batchSize)) {
-            auto ret =
-                retry([&]() { return m_ctx->ioCTX.remove(key.toStdString()); },
-                    std::bind(CephRadosRetryCondition, _1, "RemoveObject"));
-
-            // Ignore non-existent object errors
-            if (ret == -ENOENT) {
-                LOG_DBG(2) << "Failed removing object " << key
-                           << " - object does not exist.";
-                ret = 0;
-            }
-
-            if (ret < 0)
-                throwOnError("RemoveObject", ret);
-        }
+    // Ignore non-existent object errors
+    if (ret == -ENOENT) {
+        LOG_DBG(2) << "Failed removing object " << key
+                   << " - object does not exist.";
+        ret = 0;
     }
+
+    if (ret < 0)
+        throwOnError("RemoveObject", ret);
+}
+
+void CephRadosHelper::deleteObjects(
+    const folly::fbvector<folly::fbstring> & /*keys*/)
+{
+    throw std::system_error{
+        std::make_error_code(std::errc::operation_not_supported)};
 }
 
 void CephRadosHelper::connect()
 {
     std::lock_guard<std::mutex> guard{m_connectionMutex};
 
-    if (m_ctx->connected)
+    if (m_ctx.connected)
         return;
 
-    int ret =
-        m_ctx->cluster.init2(m_userName.c_str(), m_clusterName.c_str(), 0);
+    int ret = m_ctx.cluster.init2(username().c_str(), clusterName().c_str(), 0);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't initialize the cluster handle.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't initialize the cluster handle."};
     }
 
-    ret = m_ctx->cluster.conf_set("mon host", m_monHost.c_str());
+    ret = m_ctx.cluster.conf_set("mon host", monitorHostname().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set monitor host configuration "
                       "variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set monitor host configuration variable."};
     }
 
-    ret = m_ctx->cluster.conf_set("key", m_key.c_str());
+    ret = m_ctx.cluster.conf_set("key", key().c_str());
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set key configuration variable.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set key configuration variable."};
     }
 
-    ret = m_ctx->cluster.connect();
+    const auto timeoutStr = std::to_string(timeout().count() / 1000);
+
+    ret = m_ctx.cluster.conf_set("rados_osd_op_timeout", timeoutStr.c_str());
+    if (ret < 0) {
+        LOG(ERROR)
+            << "Couldn't set rados_osd_op_timeout configuration variable.";
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set rados_osd_op_timeout configuration variable."};
+    }
+
+    ret = m_ctx.cluster.conf_set("rados_mon_op_timeout", timeoutStr.c_str());
+    if (ret < 0) {
+        LOG(ERROR)
+            << "Couldn't set rados_mon_op_timeout configuration variable.";
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set rados_mon_op_timeout configuration variable."};
+    }
+
+    ret = m_ctx.cluster.conf_set("client_mount_timeout", timeoutStr.c_str());
+    if (ret < 0) {
+        LOG(ERROR)
+            << "Couldn't set client_mount_timeout configuration variable.";
+        throw std::system_error{one::helpers::makePosixError(ret),
+            "Couldn't set client_mount_timeout configuration variable."};
+    }
+
+    ret = m_ctx.cluster.connect();
     if (ret < 0) {
         LOG(ERROR) << "Couldn't connect to cluster.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED),
+            "Couldn't connect to cluster."};
     }
 
-    ret = m_ctx->cluster.ioctx_create(m_poolName.c_str(), m_ctx->ioCTX);
+    ret = m_ctx.cluster.ioctx_create(poolName().c_str(), m_ctx.ioCTX);
     if (ret < 0) {
         LOG(ERROR) << "Couldn't set up ioCTX.";
-        throw std::system_error{one::helpers::makePosixError(ret)};
+        throw std::system_error{one::helpers::makePosixError(ECONNREFUSED),
+            "Couldn't set up ioCTX."};
     }
 
-    m_ctx->connected = true;
+    m_ctx.connected = true;
 }
 } // namespace helpers
 } // namespace one

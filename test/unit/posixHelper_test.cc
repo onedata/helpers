@@ -12,7 +12,8 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <folly/futures/ManualExecutor.h>
+#include <folly/executors/IOExecutor.h>
+#include <folly/executors/ManualExecutor.h>
 #include <gtest/gtest.h>
 
 #include <errno.h>
@@ -80,7 +81,7 @@ struct PosixHelperTest : public ::testing::Test {
         std::remove((root / p).c_str());
     }
 
-    void SetUp() override {}
+    void SetUp() override { }
 
     void TearDown() override { unlinkOnDIO(testFileId); }
 
@@ -104,7 +105,7 @@ TEST_F(PosixHelperTest, shouldWriteBytes)
     writeBuf.append(stmp);
 
     auto bytes_written =
-        handle->write(5, std::move(writeBuf)).getVia(executor.get());
+        handle->write(5, std::move(writeBuf), {}).getVia(executor.get());
 
     EXPECT_EQ(3, bytes_written);
 
@@ -125,7 +126,7 @@ TEST_F(PosixHelperTest, shouldWrite10MBChunk)
     writeBuf.append(stmp);
 
     auto bytes_written =
-        handle->write(0, std::move(writeBuf)).getVia(executor.get());
+        handle->write(0, std::move(writeBuf), {}).getVia(executor.get());
 
     EXPECT_EQ(size, bytes_written);
 

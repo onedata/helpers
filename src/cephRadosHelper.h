@@ -9,11 +9,11 @@
 #ifndef HELPERS_CEPHRADOS_HELPER_H
 #define HELPERS_CEPHRADOS_HELPER_H
 
-#include "asioExecutor.h"
+#include "cephRadosHelperParams.h"
 #include "keyValueAdapter.h"
 #include "keyValueHelper.h"
 
-#include <folly/ThreadLocal.h>
+#include <folly/executors/IOExecutor.h>
 #include <rados/librados.hpp>
 
 #include <map>
@@ -33,42 +33,30 @@ public:
      * Constructor.
      * @param service @c io_service that will be used for some async operations.
      */
-    CephRadosHelperFactory(asio::io_service &service)
-        : m_service{service}
+    explicit CephRadosHelperFactory(std::shared_ptr<folly::IOExecutor> executor)
+        : m_executor{std::move(executor)}
     {
     }
 
-    virtual folly::fbstring name() const override
-    {
-        return CEPHRADOS_HELPER_NAME;
-    }
+    folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; }
 
-    const std::vector<folly::fbstring> overridableParams() const override
+    std::vector<folly::fbstring> overridableParams() const override
     {
         return {"monitorHostname", "timeout"};
     };
 
     std::shared_ptr<StorageHelper> createStorageHelper(
-        const Params &parameters) override
+        const Params &parameters, ExecutionContext executionContext) override
     {
-        const auto &clusterName = getParam(parameters, "clusterName");
-        const auto &monHost = getParam(parameters, "monitorHostname");
-        const auto &poolName = getParam(parameters, "poolName");
-        const auto &userName = getParam(parameters, "username");
-        const auto &key = getParam(parameters, "key");
-        Timeout timeout{getParam<std::size_t>(
-            parameters, "timeout", ASYNC_OPS_TIMEOUT.count())};
-        const auto &blockSize =
-            getParam<std::size_t>(parameters, "blockSize", DEFAULT_BLOCK_SIZE);
+        auto params = CephRadosHelperParams::create(parameters);
 
         return std::make_shared<KeyValueAdapter>(
-            std::make_shared<CephRadosHelper>(clusterName, monHost, poolName,
-                userName, key, std::move(timeout)),
-            std::make_shared<AsioExecutor>(m_service), blockSize);
+            std::make_shared<CephRadosHelper>(params), params, m_executor,
+            executionContext);
     }
 
 private:
-    asio::io_service &m_service;
+    std::shared_ptr<folly::IOExecutor> m_executor;
 };
 
 struct CephRadosCtx {
@@ -83,6 +71,8 @@ struct CephRadosCtx {
  */
 class CephRadosHelper : public KeyValueHelper {
 public:
+    using params_type = CephRadosHelperParams;
+
     /**
      * Constructor.
      * @param clusterName Name of the Ceph cluster to connect to.
@@ -92,11 +82,20 @@ public:
      * @param key Secret key of the Ceph user.
      * @param timeout Asynchronous operations timeout.
      */
-    CephRadosHelper(folly::fbstring clusterName, folly::fbstring monHost,
-        folly::fbstring poolName, folly::fbstring userName, folly::fbstring key,
-        Timeout timeout = ASYNC_OPS_TIMEOUT);
+    explicit CephRadosHelper(std::shared_ptr<CephRadosHelperParams> params);
+
+    CephRadosHelper(const CephRadosHelper &) = delete;
+    CephRadosHelper &operator=(const CephRadosHelper &) = delete;
+    CephRadosHelper(CephRadosHelper &&) = delete;
+    CephRadosHelper &operator=(CephRadosHelper &&) = delete;
+
+    ~CephRadosHelper() = default;
 
     folly::fbstring name() const override { return CEPHRADOS_HELPER_NAME; };
+
+    void checkStorageAvailability() override;
+
+    bool supportsBatchDelete() const override { return false; }
 
     folly::IOBufQueue getObject(const folly::fbstring &key, const off_t offset,
         const std::size_t size) override;
@@ -104,23 +103,26 @@ public:
     std::size_t putObject(const folly::fbstring &key, folly::IOBufQueue buf,
         const std::size_t offset) override;
 
+    void deleteObject(const folly::fbstring &key) override;
+
     void deleteObjects(const folly::fbvector<folly::fbstring> &keys) override;
 
-    const Timeout &timeout() override { return m_timeout; }
+    HELPER_PARAM_GETTER(clusterName);
+    HELPER_PARAM_GETTER(monitorHostname);
+    HELPER_PARAM_GETTER(poolName);
+    HELPER_PARAM_GETTER(username);
+    HELPER_PARAM_GETTER(key);
 
 private:
+    std::shared_ptr<params_type> P() const
+    {
+        return std::dynamic_pointer_cast<params_type>(params().get());
+    }
+
     void connect();
 
-    folly::fbstring m_clusterName;
-    folly::fbstring m_monHost;
-    folly::fbstring m_poolName;
-    folly::fbstring m_userName;
-    folly::fbstring m_key;
-
-    Timeout m_timeout;
-
     std::mutex m_connectionMutex;
-    folly::ThreadLocal<CephRadosCtx> m_ctx;
+    CephRadosCtx m_ctx;
 };
 } // namespace helpers
 } // namespace one

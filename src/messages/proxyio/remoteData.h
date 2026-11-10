@@ -11,8 +11,6 @@
 
 #include "proxyIOResponse.h"
 
-#include <asio/buffer.hpp>
-
 #include <memory>
 #include <string>
 
@@ -30,7 +28,7 @@ public:
      * @param serverMessage Protocol Buffers message representing
      * @c RemoteData counterpart.
      */
-    RemoteData(std::unique_ptr<ProtocolServerMessage> serverMessage);
+    explicit RemoteData(std::unique_ptr<ProtocolServerMessage> serverMessage);
 
     /**
      * @return The data.

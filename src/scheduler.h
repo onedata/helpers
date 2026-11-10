@@ -33,13 +33,18 @@ public:
      * Creates worker threads.
      * @param threadNumber The number of threads to be spawned.
      */
-    Scheduler(const int threadNumber);
+    explicit Scheduler(int threadNumber);
 
     /**
      * Destructor.
      * Stops the scheduler and joins worker threads.
      */
     virtual ~Scheduler();
+
+    Scheduler(const Scheduler &) = delete;
+    Scheduler(Scheduler &&) = delete;
+    Scheduler &operator=(const Scheduler &) = delete;
+    Scheduler &operator=(Scheduler &&) = delete;
 
     void prepareForDaemonize();
     void restartAfterDaemonize();
@@ -61,12 +66,12 @@ public:
      * @param args Arguments to pass to the member.
      */
     template <class R, class T, class... Args>
-    void post(R(T::*member), std::weak_ptr<T> subject, Args &&... args)
+    void post(R(T::*member), std::weak_ptr<T> subject, Args &&...args)
     {
         auto task = std::bind(
             member, std::placeholders::_1, std::forward<Args>(args)...);
 
-        post([ subject = std::move(subject), task = std::move(task) ] {
+        post([subject = std::move(subject), task = std::move(task)] {
             if (auto s = subject.lock())
                 task(s.get());
         });
@@ -76,7 +81,7 @@ public:
      * A convenience overload for @c post taking a @c std::shared_ptr.
      */
     template <class R, class T, class... Args>
-    void post(R(T::*member), const std::shared_ptr<T> &subject, Args &&... args)
+    void post(R(T::*member), const std::shared_ptr<T> &subject, Args &&...args)
     {
         post(member, std::weak_ptr<T>{subject}, std::forward<Args>(args)...);
     }
@@ -100,8 +105,7 @@ public:
                 task();
         });
 
-        return [timer = std::weak_ptr<asio::steady_timer>{timer}]
-        {
+        return [timer = std::weak_ptr<asio::steady_timer>{timer}] {
             if (auto t = timer.lock())
                 t->cancel();
         };
@@ -119,13 +123,13 @@ public:
     template <typename Rep, typename Period, class R, class T, class... Args>
     std::function<void()> schedule(
         const std::chrono::duration<Rep, Period> after, R(T::*member),
-        std::weak_ptr<T> subject, Args &&... args)
+        std::weak_ptr<T> subject, Args &&...args)
     {
         auto task = std::bind(
             member, std::placeholders::_1, std::forward<Args>(args)...);
 
         return schedule(
-            after, [ subject = std::move(subject), task = std::move(task) ] {
+            after, [subject = std::move(subject), task = std::move(task)] {
                 if (auto s = subject.lock())
                     task(s.get());
             });
@@ -137,7 +141,7 @@ public:
     template <typename Rep, typename Period, class R, class T, class... Args>
     std::function<void()> schedule(
         const std::chrono::duration<Rep, Period> after, R(T::*member),
-        const std::shared_ptr<T> &subject, Args &&... args)
+        const std::shared_ptr<T> &subject, Args &&...args)
     {
         return schedule(after, member, std::weak_ptr<T>{subject},
             std::forward<Args>(args)...);

@@ -30,7 +30,12 @@ template <class LowerLayer> class Retrier : public LowerLayer {
 public:
     using Callback = typename LowerLayer::Callback;
     using LowerLayer::LowerLayer;
-    virtual ~Retrier() = default;
+    virtual ~Retrier() = default; // NOLINT
+
+    Retrier(const Retrier &) = delete;
+    Retrier(Retrier &&) = delete;
+    Retrier &operator=(const Retrier &) = delete;
+    Retrier &operator=(Retrier &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Retrier.
@@ -47,32 +52,38 @@ public:
      * @return same as lower layer's @c send().
      * @see ConnectionPool::send()
      */
-    void send(std::string message, Callback callback, const int retries);
+    folly::Future<folly::Unit> send(
+        std::string message, Callback callback, int retries);
 };
 
 template <class LowerLayer>
-void Retrier<LowerLayer>::send(
+folly::Future<folly::Unit> Retrier<LowerLayer>::send(
     std::string message, Callback callback, const int retries)
 {
-    auto wrappedCallback =
-        [ =, callback = std::move(callback) ](const std::error_code &ec) mutable
-    {
-        if (ec && retries > 0) {
-            LOG_DBG(2) << "Sending message - remaining retry count: "
-                       << retries;
+    auto wrappedCallback = [this, message, retries,
+                               callback = std::move(callback)](
+                               const std::error_code &ec) mutable {
+        if (ec &&
+            (std::string{"handshake"} != ec.category().name() &&
+                ec.value() != ETIMEDOUT && ec.value() != ECONNRESET &&
+                ec.value() != ECONNABORTED) &&
+            retries > 0) {
+            LOG(WARNING) << "Resending message due to error (" << ec.message()
+                         << ") - remaining retry count: " << retries;
             send(std::move(message), std::move(callback), retries - 1);
         }
         else {
             if (!ec)
                 LOG_DBG(3) << "Sending message succeeded";
             else
-                LOG_DBG(1) << "Sending message failed: " << ec.message();
+                LOG_DBG(2) << "Sending message failed: " << ec.message();
 
             callback(ec);
         }
     };
 
-    LowerLayer::send(std::move(message), std::move(wrappedCallback), retries);
+    return LowerLayer::send(
+        std::move(message), std::move(wrappedCallback), retries);
 }
 
 } // namespace layers

@@ -72,7 +72,7 @@
 
 #define ONE_METRIC_TIMERCTX_STOP(timerctxptr, count)                           \
     if (timerctxptr) {                                                         \
-        timerctxptr->stop(count);                                              \
+        (timerctxptr)->stop(count);                                            \
     }
 
 #define ONE_METRIC_TIMERCTX_DESTROY(timerctxptr) timerctxptr.reset();

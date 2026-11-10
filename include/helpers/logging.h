@@ -19,6 +19,11 @@
 #include <map>
 #include <unordered_map>
 
+#include "spdlog/fmt/ostr.h"
+#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/sinks/rotating_file_sink.h"
+#include "spdlog/spdlog.h"
+
 #pragma once
 
 // clang-format off
@@ -55,7 +60,6 @@
  *     * FLAGS_v = n; - where n determines the verbosity level
  */
 // clang-format on
-
 /**
  * Logs a value in binary format
  */
@@ -65,12 +69,12 @@
 /**
  * Logs a value in octal format
  */
-#define LOG_OCT(X) "0" << std::oct << X << std::dec
+#define LOG_OCT(X) "0" << std::oct << (X) << std::dec
 
 /**
  * Logs a value in hexadecimal format
  */
-#define LOG_HEX(X) "0x" << std::hex << X << std::dec
+#define LOG_HEX(X) "0x" << std::hex << (X) << std::dec
 
 /**
  * Appends to stream a serialized vector of strings
@@ -99,7 +103,7 @@
  * method body and log the values of main parameters.
  */
 // clang-format off
-#define LOG_FCALL()                                                            \
+#define LOG_FCALL()                                                             \
     VLOG(3) << "Called " << BOOST_CURRENT_FUNCTION << " with arguments: " // NOLINT
 // clang-format on
 
@@ -113,7 +117,7 @@
  * Logs function argument - must be used in 'stream' context and preceded by
  * LOG_FCALL() or VLOG(n).
  */
-#define LOG_FARG(ARG) " " #ARG "=" << ARG
+#define LOG_FARG(ARG) " " #ARG " = " << ARG
 
 /**
  * Log macros for different numeric bases.
@@ -138,7 +142,7 @@
  * Logs current stack trace, should be used in `catch` blocks.
  */
 #define LOG_STACKTRACE(X, MSG)                                                 \
-    LOG_DBG(X) << MSG << '\n' << ::one::logging::print_stacktrace();
+    LOG_DBG(X) << (MSG) << '\n' << ::one::logging::print_stacktrace();
 
 namespace one {
 namespace logging {
@@ -165,7 +169,8 @@ std::string containerToErlangBinaryString(const TSeq &bytes)
     std::vector<std::string> bytesValues;
 
     std::for_each(bytes.begin(), bytes.end(), [&](const char &byte) {
-        return bytesValues.push_back(std::to_string((uint8_t)byte));
+        return bytesValues.push_back(
+            std::to_string(static_cast<uint8_t>(byte)));
     });
 
     return std::string("<<") + boost::algorithm::join(bytesValues, ",") + ">>";
@@ -198,29 +203,29 @@ static inline std::string print_stacktrace()
     char **symbollist = backtrace_symbols(addrlist, addrlen);
 
     // allocate string which will be filled with the demangled function name
-    size_t funcnamesize = 256;
-    char *funcname = (char *)malloc(funcnamesize);
+    size_t funcnamesize = 256;                     // NOLINT
+    char *funcname = (char *)malloc(funcnamesize); // NOLINT
 
     // iterate over the returned symbol lines. skip the first, it is the
     // address of this function.
     for (int i = 1; i < addrlen; i++) {
-        char *begin_name = 0, *begin_offset = 0, *end_offset = 0;
+        char *begin_name = 0, *begin_offset = 0, *end_offset = 0; // NOLINT
 
         // find parentheses and +address offset surrounding the mangled name:
         // ./module(function+0x15c) [0x8048a6d]
-        for (char *p = symbollist[i]; *p; ++p) {
+        for (char *p = symbollist[i]; *p != 0; ++p) {
             if (*p == '(')
                 begin_name = p;
             else if (*p == '+')
                 begin_offset = p;
-            else if (*p == ')' && begin_offset) {
+            else if ((*p == ')') && (begin_offset != nullptr)) {
                 end_offset = p;
                 break;
             }
         }
 
-        if (begin_name && begin_offset && end_offset &&
-            begin_name < begin_offset) {
+        if ((begin_name != nullptr) && (begin_offset != nullptr) &&
+            (end_offset != nullptr) && begin_name < begin_offset) {
             *begin_name++ = '\0';
             *begin_offset++ = '\0';
             *end_offset = '\0';
@@ -228,7 +233,7 @@ static inline std::string print_stacktrace()
             // mangled name is now in [begin_name, begin_offset) and caller
             // offset in [begin_offset, end_offset). now apply
             // __cxa_demangle():
-            int status;
+            int status = 0;
             char *ret = abi::__cxa_demangle(
                 begin_name, funcname, &funcnamesize, &status);
             if (status == 0) {
@@ -249,10 +254,65 @@ static inline std::string print_stacktrace()
         }
     }
 
-    free(funcname);
-    free(symbollist);
+    free(funcname);   // NOLINT
+    free(symbollist); // NOLINT
 
     return out.str();
 }
+} // namespace logging
+} // namespace one
+
+// Definition of custom spdlog based loggers
+namespace one {
+namespace logging {
+
+template <typename Clock = std::chrono::steady_clock> struct log_timer {
+    log_timer()
+        : startTimePoint(Clock::now())
+    {
+    }
+
+    auto stop() const
+    {
+        using std::chrono::duration_cast;
+        using std::chrono::microseconds;
+
+        return duration_cast<microseconds>(Clock::now() - startTimePoint)
+            .count();
+    }
+
+    const std::chrono::time_point<Clock> startTimePoint;
+};
+
+namespace csv {
+
+struct read_write_perf {
+    static constexpr const char name[] = "read_write_perf"; // NOLINT
+    static constexpr const char header[] =                  // NOLINT
+        "Time,File,Class,Operation,Offset,Size,Duration [us]";
+    static constexpr const char fmt[] = "{},{},{},{},{},{}"; // NOLINT
+};
+
+template <typename Tag> void register_logger(const std::string &path)
+{
+    using namespace std::chrono;
+    auto timestamp =
+        duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+            .count();
+    spdlog::basic_logger_mt(Tag::name,
+        path + "/" + Tag::name + "-" + std::to_string(timestamp) + ".csv");
+    spdlog::get(Tag::name)->set_pattern("%v");
+    spdlog::get(Tag::name)->info(Tag::header);
+    spdlog::get(Tag::name)->set_pattern("%H:%M:%S.%f,%v");
+    spdlog::get(Tag::name)->set_level(spdlog::level::off);
 }
+
+template <typename Tag, typename... Arg> void log(const Arg &...args)
+{
+    auto logger = spdlog::get(Tag::name);
+    if (logger)
+        logger->info(Tag::fmt, args...);
 }
+} // namespace csv
+} // namespace logging
+} // namespace one

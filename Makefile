@@ -4,6 +4,8 @@ all: test
 INSTALL_PREFIX ?= ${HOME}/.local/helpers
 BUILD_PROXY_IO ?= ON
 WITH_COVERAGE  ?= OFF
+# Build unit and integration tests
+WITH_TESTS     ?= ON
 
 # Build with Ceph storge helper by default
 WITH_CEPH    		?= ON
@@ -15,7 +17,17 @@ WITH_S3      		?= ON
 WITH_GLUSTERFS		?= ON
 # Build with WebDAV storage helper by default
 WITH_WEBDAV 		?= ON
+# Build with XRootD storage helper by default
+WITH_XROOTD 		?= ON
+# Build with NFS storage helper by default
+WITH_NFS    		?= ON
 
+
+# Detect compilation on CentOS using Software Collections environment
+ifeq ($(shell awk -F= '/^ID=/{print $$2}' /etc/os-release), "centos")
+		OPENSSL_ROOT_DIR ?= /opt/onedata/onedata25/root/usr
+		TBB_INSTALL_DIR ?= /opt/onedata/onedata25/root/usr
+endif
 
 %/CMakeCache.txt: **/CMakeLists.txt test/integration/* test/integration/**/*
 	mkdir -p $*
@@ -28,8 +40,11 @@ WITH_WEBDAV 		?= ON
 	                       -DWITH_S3=${WITH_S3} \
 	                       -DWITH_GLUSTERFS=${WITH_GLUSTERFS} \
 	                       -DWITH_WEBDAV=${WITH_WEBDAV} \
-	                       -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} \
-	                       -DOPENSSL_LIBRARIES=${OPENSSL_LIBRARIES} ..
+	                       -DWITH_XROOTD=${WITH_XROOTD} \
+	                       -DWITH_NFS=${WITH_NFS} \
+	                       -DWITH_TESTS=${WITH_TESTS} \
+	                       -DTBB_INSTALL_DIR=${TBB_INSTALL_DIR} \
+	                       -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} ..
 	touch $@
 
 ##
@@ -71,8 +86,8 @@ install: release
 
 .PHONY: coverage
 coverage:
-	lcov --directory `pwd`/debug --capture --output-file `pwd`/helpers.info
-	lcov --remove `pwd`/helpers.info 'test/*' '/usr/*' 'asio/*' '**/messages/*' \
+	lcov --base-directory `pwd`/debug --directory `pwd`/debug --capture --output-file `pwd`/helpers.info
+	lcov --base-directory `pwd`/debug --remove `pwd`/helpers.info 'test/*' '/usr/*' 'asio/*' '**/messages/*' \
 	                           'relwithdebinfo/*' 'debug/*' 'release/*' \
 	                           'erlang-tls/*' \
 														 --output-file `pwd`/helpers.info.cleaned
@@ -89,4 +104,4 @@ clang-tidy:
 
 .PHONY: clang-format
 clang-format:
-	docker run --rm -e CHOWNUID=${UID} -v ${PWD}:/root/sources onedata/clang-format-check:1.1
+	docker run --rm -e CHOWNUID=${UID} -v ${PWD}:/root/sources onedata/clang-format-check:1.3

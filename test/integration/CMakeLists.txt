@@ -1,7 +1,8 @@
 file(COPY ${PROJECT_SOURCE_DIR}/appmock DESTINATION ${PROJECT_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/bamboos DESTINATION ${PROJECT_BINARY_DIR})
 file(COPY conftest.py test_common.py common_test_base.py key_value_test_base.py
-          posix_test_base.py xattr_test_base.py io_perf_test_base.py
+          key_value_canonical_test_base.py posix_test_base.py xattr_test_base.py
+          io_perf_test_base.py
           DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 set(APPMOCK_BINARY ${PROJECT_BINARY_DIR}/appmock/rel/appmock/bin/appmock)
@@ -29,12 +30,12 @@ add_custom_target(pythonProto
 if(APPLE)
     # On OSX we have to force Python 2 to run tests using default
     # boost-python library
-    find_package(Boost COMPONENTS python27-mt REQUIRED)
-    find_package(PythonLibs 2 REQUIRED)
-    find_package(PythonInterp 2 REQUIRED)
+    find_package(Boost COMPONENTS python38-mt REQUIRED)
+    find_package(PythonLibs 3 REQUIRED)
+    find_package(PythonInterp 3 REQUIRED)
 else(APPLE)
     find_package(Boost COMPONENTS python REQUIRED)
-    find_package(PythonLibs 2 REQUIRED)
+    find_package(PythonLibs 3 REQUIRED)
 endif(APPLE)
 include_directories(SYSTEM ${PYTHON_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 remove_definitions(-DBOOST_BIND_NO_PLACEHOLDERS)
@@ -60,25 +61,36 @@ if(NOT WITH_GLUSTERFS)
     list(REMOVE_ITEM TEST_DIRS  glusterfs_helper_test)
 endif(NOT WITH_GLUSTERFS)
 
+if(NOT WITH_WEBDAV)
+    list(REMOVE_ITEM TEST_DIRS  webdav_helper_test)
+    list(REMOVE_ITEM TEST_DIRS  http_helper_test)
+endif(NOT WITH_WEBDAV)
+
+if(NOT WITH_XROOTD)
+    list(REMOVE_ITEM TEST_DIRS  xrootd_helper_test)
+endif(NOT WITH_XROOTD)
+
+if(NOT WITH_NFS)
+    list(REMOVE_ITEM TEST_DIRS  nfs_helper_test)
+endif(NOT WITH_NFS)
+
+
+add_library(posix_test_types SHARED posixTestTypes.cc)
+set_target_properties(posix_test_types PROPERTIES
+    PREFIX ""
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    BUILD_WITH_INSTALL_RPATH true
+    INSTALL_RPATH_USE_LINK_PATH true
+    INSTALL_RPATH "\$ORIGIN/../..")
+target_link_libraries(posix_test_types
+    helpersShared
+    ${Boost_LIBRARIES}
+    ${PYTHON_LIBRARIES})
+
 foreach(TEST_DIR ${TEST_DIRS})
     string(REGEX REPLACE "(.*)_test" "\\1" TEST_NAME ${TEST_DIR})
     file(COPY ${TEST_DIR} DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
     file(GLOB_RECURSE TEST_SRC ${TEST_DIR}/*.cc ${TEST_DIR}/*.h)
-
-    # Add Posix types to GlusterFS test
-    if("${TEST_DIR}" MATCHES ".*glusterfs.*")
-        add_library(posix_test_types SHARED ${TEST_DIR}/../posixTestTypes.cc)
-        set_target_properties(posix_test_types PROPERTIES
-            PREFIX ""
-            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-            BUILD_WITH_INSTALL_RPATH true
-            INSTALL_RPATH_USE_LINK_PATH true
-            INSTALL_RPATH "\$ORIGIN/../../..")
-        target_link_libraries(posix_test_types
-            helpersShared
-            ${Boost_LIBRARIES}
-            ${PYTHON_LIBRARIES})
-    endif()
 
     add_library(${TEST_NAME} SHARED ${TEST_SRC})
 
@@ -92,7 +104,8 @@ foreach(TEST_DIR ${TEST_DIRS})
     target_link_libraries(${TEST_NAME}
         helpersShared
         ${Boost_LIBRARIES}
-        ${PYTHON_LIBRARIES})
+        ${PYTHON_LIBRARIES}
+        posix_test_types)
 
     add_dependencies(${TEST_NAME} pythonProto)
 endforeach()

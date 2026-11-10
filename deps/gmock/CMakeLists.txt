@@ -18,6 +18,8 @@ else()
   set(gtest_dir ../gtest)
 endif()
 
+set(CMAKE_CXX_FLAGS "-Wno-pedantic")
+
 # Defines pre_project_set_up_hermetic_build() and set_up_hermetic_build().
 include("${gtest_dir}/cmake/hermetic_build.cmake" OPTIONAL)
 
@@ -38,7 +40,7 @@ endif()
 # ${gmock_BINARY_DIR}.
 # Language "C" is required for find_package(Threads).
 project(gmock CXX C)
-cmake_minimum_required(VERSION 2.6.2)
+cmake_minimum_required(VERSION 2.9.0)
 
 if (COMMAND set_up_hermetic_build)
   set_up_hermetic_build()

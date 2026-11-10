@@ -67,7 +67,8 @@ TEST_F(InboxTest, communicateShouldPassArgumentsToSend)
     auto ping = msg->mutable_ping();
     ping->set_data(data);
 
-    inbox.communicate(std::move(msg), [](auto, auto) {}, retries);
+    inbox.communicate(
+        std::move(msg), [](auto, auto) {}, retries);
 
     ASSERT_EQ(data, sentMsg.ping().data());
 }
@@ -81,12 +82,14 @@ TEST_F(InboxTest, communicateShouldSetMessageId)
         .WillOnce(SaveMessageId(&sentMsgId2));
 
     auto msg = std::make_unique<clproto::ClientMessage>();
-    inbox.communicate(std::move(msg), [](auto, auto) {}, randomInt());
+    inbox.communicate(
+        std::move(msg), [](auto, auto) {}, randomInt());
 
     EXPECT_FALSE(sentMsgId1.empty());
 
     msg = std::make_unique<clproto::ClientMessage>();
-    inbox.communicate(std::move(msg), [](auto, auto) {}, randomInt());
+    inbox.communicate(
+        std::move(msg), [](auto, auto) {}, randomInt());
 
     EXPECT_FALSE(sentMsgId2.empty());
     EXPECT_NE(sentMsgId1, sentMsgId2);

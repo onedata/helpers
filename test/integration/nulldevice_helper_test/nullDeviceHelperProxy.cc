@@ -6,16 +6,16 @@
  * 'LICENSE.txt'
  */
 
+#include "communication/communicator.h"
+#include "helpers/storageHelperCreator.h"
 #include "nullDeviceHelper.h"
 
-#include <asio/buffer.hpp>
-#include <asio/io_service.hpp>
-#include <asio/ts/executor.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/python.hpp>
 #include <boost/python/extract.hpp>
 #include <boost/python/raw_function.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
 #include <chrono>
 #include <future>
@@ -50,46 +50,64 @@ public:
     NullDeviceHelperProxy(const int latencyMin, const int latencyMax,
         const double timeoutProbability, std::string filter,
         std::string simulatedFilesystemParameters,
-        float simulatedFilesystemGrowSpeed)
-        : m_service{NULL_DEVICE_HELPER_WORKER_THREADS}
-        , m_idleWork{asio::make_work_guard(m_service)}
-        , m_helper{std::make_shared<one::helpers::NullDeviceHelper>(latencyMin,
-              latencyMax, timeoutProbability, std::move(filter),
-              NullDeviceHelperFactory::parseSimulatedFilesystemParameters(
-                  simulatedFilesystemParameters),
-              simulatedFilesystemGrowSpeed,
-              std::make_shared<one::AsioExecutor>(m_service))}
+        float simulatedFilesystemGrowSpeed, bool enableDataVerification)
+        : m_communicator{1, 1, "", 8080, false, true, false}
+        , m_executor{std::make_shared<folly::IOThreadPoolExecutor>(
+              NULL_DEVICE_HELPER_WORKER_THREADS,
+              std::make_shared<StorageWorkerFactory>("null_t"))}
+        , m_helperFactory{m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_executor, m_executor, m_executor, m_executor,
+              m_executor, m_communicator}
     {
-        for (int i = 0; i < NULL_DEVICE_HELPER_WORKER_THREADS; i++) {
-            m_workers.push_back(std::thread([=]() { m_service.run(); }));
-        }
+        std::unordered_map<folly::fbstring, folly::fbstring> params;
+        params.emplace("type", "nulldevice");
+        params.emplace("name", "someNullDevice");
+        params.emplace("latencyMin", std::to_string(latencyMin));
+        params.emplace("latencyMax", std::to_string(latencyMax));
+        params.emplace(
+            "timeoutProbability", std::to_string(timeoutProbability));
+        params.emplace("filter", filter);
+        params.emplace(
+            "simulatedFilesystemParameters", simulatedFilesystemParameters);
+        params.emplace("simulatedFilesystemGrowSpeed",
+            std::to_string(simulatedFilesystemGrowSpeed));
+        params.emplace("enableDataVerification",
+            enableDataVerification ? "true" : "false");
+
+        m_helper = m_helperFactory.getStorageHelper(params, false);
     }
 
-    ~NullDeviceHelperProxy()
+    ~NullDeviceHelperProxy() { }
+
+    void checkStorageAvailability()
     {
-        m_service.stop();
-        for (auto &worker : m_workers) {
-            worker.join();
-        }
+        ReleaseGIL guard;
+        m_helper->checkStorageAvailability().get();
     }
 
     void open(std::string fileId, int flags)
     {
         ReleaseGIL guard;
         m_helper->open(fileId, flags, {})
-            .then(
-                [&](one::helpers::FileHandlePtr handle) { handle->release(); });
+            .thenValue([&](one::helpers::FileHandlePtr &&handle) {
+                handle->release();
+            });
     }
 
-    std::string read(std::string fileId, int offset, int size)
+    auto read(std::string fileId, int offset, int size)
     {
         ReleaseGIL guard;
         return m_helper->open(fileId, O_RDONLY, {})
-            .then([&](one::helpers::FileHandlePtr handle) {
-                auto buf = handle->read(offset, size).get();
-                std::string data;
-                buf.appendToString(data);
-                return data;
+            .thenValue([&, helper = m_helper](
+                           one::helpers::FileHandlePtr &&handle) {
+                return handle->read(offset, size)
+                    .thenValue([handle](folly::IOBufQueue &&buf) {
+                        std::string data;
+                        buf.appendToString(data);
+                        return boost::python::api::object(
+                            boost::python::handle<>(PyBytes_FromStringAndSize(
+                                data.c_str(), data.size())));
+                    });
             })
             .get();
     }
@@ -101,30 +119,30 @@ public:
         // NullDeviceHelper does not support creating file with approriate mode,
         // so in case it doesn't exist we have to create it first to be
         // compatible with other helpers' test cases.
-        auto mknodLambda = [&] {
-            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0).get();
+        auto mknodLambda = [&](auto && /*unit*/) {
+            return m_helper->mknod(fileId, S_IFREG | 0666, {}, 0);
         };
-        auto writeLambda = [&] {
+        auto writeLambda = [&](auto && /*unit*/) {
             return m_helper->open(fileId, O_WRONLY, {})
-                .then([&](one::helpers::FileHandlePtr handle) {
+                .thenValue([&](one::helpers::FileHandlePtr &&handle) {
                     folly::IOBufQueue buf{
                         folly::IOBufQueue::cacheChainLength()};
                     buf.append(data);
-                    return handle->write(offset, std::move(buf)).get();
-                })
-                .get();
+                    return handle->write(offset, std::move(buf), {})
+                        .thenValue([handle](auto &&size) { return size; });
+                });
         };
 
         return m_helper->access(fileId, 0)
-            .then(writeLambda)
-            .onError([
-                mknodLambda = mknodLambda, writeLambda = writeLambda,
-                executor = std::make_shared<one::AsioExecutor>(m_service)
-            ](std::exception const &e) {
-                return folly::via(executor.get(), mknodLambda)
-                    .then(writeLambda)
-                    .get();
-            })
+            .thenValue(writeLambda)
+            .thenError(folly::tag_t<std::exception>{},
+                [mknodLambda = mknodLambda, writeLambda = writeLambda,
+                    executor = m_executor, helper = m_helper](auto &&e) {
+                    return folly::makeSemiFuture()
+                        .via(executor.get())
+                        .thenValue(mknodLambda)
+                        .thenValue(writeLambda);
+                })
             .get();
     }
 
@@ -246,22 +264,46 @@ public:
         return res;
     }
 
+    void updateHelper(std::string latencyMin, std::string latencyMax,
+        std::string timeoutProbability, std::string filter,
+        std::string simulatedFilesystemParameters,
+        std::string simulatedFilesystemGrowSpeed,
+        std::string enableDataVerification)
+    {
+        Params params;
+        params.emplace("type", "nulldevice");
+        params.emplace("latencyMin", latencyMin);
+        params.emplace("latencyMax", latencyMax);
+        params.emplace("timeoutProbability", timeoutProbability);
+        params.emplace("filter", filter);
+        params.emplace(
+            "simulatedFilesystemParameters", simulatedFilesystemParameters);
+        params.emplace(
+            "simulatedFilesystemGrowSpeed", simulatedFilesystemGrowSpeed);
+        params.emplace("enableDataVerification", enableDataVerification);
+
+        m_helper->updateHelper(params).get();
+    }
+
 private:
-    asio::io_service m_service;
-    asio::executor_work_guard<asio::io_service::executor_type> m_idleWork;
-    std::vector<std::thread> m_workers;
-    std::shared_ptr<one::helpers::NullDeviceHelper> m_helper;
+    one::communication::Communicator m_communicator;
+    std::shared_ptr<folly::IOThreadPoolExecutor> m_executor;
+    StorageHelperPtr m_helper;
+    one::helpers::StorageHelperCreator<one::communication::Communicator>
+        m_helperFactory;
 };
 
 namespace {
 boost::shared_ptr<NullDeviceHelperProxy> create(const int latencyMin,
     const int latencyMax, const double timeoutProbability, std::string filter,
     std::string simulatedFilesystemParameters = "",
-    float simulatedFilesystemGrowSpeed = 0.0)
+    float simulatedFilesystemGrowSpeed = 0.0,
+    bool enableDataVerification = false)
 {
     return boost::make_shared<NullDeviceHelperProxy>(latencyMin, latencyMax,
         timeoutProbability, std::move(filter),
-        std::move(simulatedFilesystemParameters), simulatedFilesystemGrowSpeed);
+        std::move(simulatedFilesystemParameters), simulatedFilesystemGrowSpeed,
+        enableDataVerification);
 }
 } // namespace
 
@@ -289,5 +331,8 @@ BOOST_PYTHON_MODULE(nulldevice_helper)
         .def("getxattr", &NullDeviceHelperProxy::getxattr)
         .def("setxattr", &NullDeviceHelperProxy::setxattr)
         .def("removexattr", &NullDeviceHelperProxy::removexattr)
-        .def("listxattr", &NullDeviceHelperProxy::listxattr);
+        .def("listxattr", &NullDeviceHelperProxy::listxattr)
+        .def("updateHelper", &NullDeviceHelperProxy::updateHelper)
+        .def("check_storage_availability",
+            &NullDeviceHelperProxy::checkStorageAvailability);
 }

@@ -45,7 +45,12 @@ public:
     using CommunicateCallback =
         std::function<void(const std::error_code &ec, std::unique_ptr<SrvMsg>)>;
 
-    virtual ~Translator() = default;
+    virtual ~Translator() = default; // NOLINT
+
+    Translator(const Translator &) = delete;
+    Translator(Translator &&) = delete;
+    Translator &operator=(const Translator &) = delete;
+    Translator &operator=(Translator &&) = delete;
 
     /**
      * A reference to @c *this typed as a @c Translator.
@@ -59,8 +64,8 @@ public:
      * @param retires The retries argument to pass to the lower layer.
      * @see ConnectionPool::send()
      */
-    auto send(messages::ClientMessage &&msg,
-        const int retries = DEFAULT_RETRY_NUMBER);
+    folly::Future<folly::Unit> send(
+        messages::ClientMessage &&msg, int retries = DEFAULT_RETRY_NUMBER);
 
     /**
      * Wraps lower layer's @c setHandshake.
@@ -147,7 +152,8 @@ public:
      * @return A future representing peer's answer.
      */
     template <class SvrMsg, class CliMsg>
-    auto communicate(CliMsg &&msg, const int retries = DEFAULT_RETRY_NUMBER)
+    folly::Future<SvrMsg> communicate(
+        CliMsg &&msg, const int retries = DEFAULT_RETRY_NUMBER)
     {
         LOG_FCALL() << LOG_FARG(retries);
 
@@ -155,29 +161,68 @@ public:
                    << "}";
 
         auto promise = std::make_shared<folly::Promise<SvrMsg>>();
-        auto future = promise->getFuture();
+        auto future =
+            promise->getSemiFuture().via(LowerLayer::executor().get());
         auto callback = [promise = std::move(promise)](
-            const std::error_code &ec, ServerMessagePtr protoMessage)
-        {
+                            const std::error_code &ec,
+                            ServerMessagePtr protoMessage) {
             if (ec) {
                 LOG(ERROR) << "Communicate error: " << ec.message() << "("
                            << ec.value() << ")";
+
                 promise->setException(std::system_error{ec});
             }
-            else
+            else {
                 promise->setWith(
-                    [&]() mutable { return SvrMsg{std::move(protoMessage)}; });
+                    [protoMessage = std::move(protoMessage)]() mutable {
+                        return SvrMsg{std::move(protoMessage)};
+                    });
+            }
         };
 
+        // NOLINTNEXTLINE
+        LowerLayer::communicate(messages::serialize(std::move(msg)),
+            std::move(callback), retries); // NOLINT
+
+        return future;
+    }
+
+    template <class SvrMsg, class CliMsg>
+    folly::Future<SvrMsg> communicateRaw(
+        CliMsg &&msg, const int retries = DEFAULT_RETRY_NUMBER)
+    {
+        LOG_FCALL() << LOG_FARG(retries);
+
+        auto promise = std::make_shared<folly::Promise<SvrMsg>>();
+        auto future =
+            promise->getSemiFuture().via(LowerLayer::executor().get());
+        auto callback = [promise = std::move(promise)](
+                            const std::error_code &ec,
+                            ServerMessagePtr protoMessage) {
+            if (ec) {
+                LOG(ERROR) << "Communicate error: " << ec.message() << "("
+                           << ec.value() << ")";
+
+                promise->setException(std::system_error{ec});
+            }
+            else {
+                promise->setWith(
+                    [protoMessage = std::move(protoMessage)]() mutable {
+                        return SvrMsg{std::move(protoMessage)};
+                    });
+            }
+        };
+
+        // NOLINTNEXTLINE
         LowerLayer::communicate(
-            messages::serialize(std::move(msg)), std::move(callback), retries);
+            std::move(msg), std::move(callback), retries); // NOLINT
 
         return future;
     }
 };
 
 template <class LowerLayer>
-auto Translator<LowerLayer>::send(
+folly::Future<folly::Unit> Translator<LowerLayer>::send(
     messages::ClientMessage &&msg, const int retries)
 {
     LOG_FCALL() << LOG_FARG(retries);
@@ -196,10 +241,10 @@ auto Translator<LowerLayer>::send(
             promise->setValue();
     };
 
-    LowerLayer::send(
-        messages::serialize(std::move(msg)), std::move(callback), retries);
-
-    return promise->getFuture();
+    return LowerLayer::send(
+        messages::serialize(std::move(msg)), std::move(callback), retries)
+        .thenValue([promise = std::move(promise)](
+                       auto && /*unit*/) { return promise->getFuture(); });
 }
 
 } // namespace layers
@@ -212,8 +257,8 @@ auto Translator<LowerLayer>::send(
  * @returns The value of @c msg.get().
  */
 template <class Future, typename Rep, typename Period>
-auto wait(Future &&future, const std::chrono::duration<Rep, Period> timeout)
-    -> decltype(future.get())
+decltype(auto) wait(
+    Future &&future, const std::chrono::duration<Rep, Period> timeout)
 {
     using namespace std::literals;
     assert(timeout > 0ms);

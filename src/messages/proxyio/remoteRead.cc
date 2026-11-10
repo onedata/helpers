@@ -32,8 +32,8 @@ RemoteRead::RemoteRead(
 std::string RemoteRead::toString() const
 {
     std::stringstream stream;
-    stream << "type: 'RemoteRead', parameters: " << m_parameters
-           << ", storageId: '" << m_storageId << "', fileId: '" << m_fileId
+    stream << "type: 'RemoteRead', parameters: " << parameters()
+           << ", storageId: '" << storageId() << "', fileId: '" << fileId()
            << "', offset: " << m_offset << ", size: " << m_size;
     return stream.str();
 }
@@ -41,7 +41,7 @@ std::string RemoteRead::toString() const
 std::unique_ptr<ProtocolClientMessage> RemoteRead::serializeAndDestroy()
 {
     auto clientMsg = ProxyIORequest::serializeAndDestroy();
-    auto readMsg = clientMsg->mutable_proxyio_request()->mutable_remote_read();
+    auto *readMsg = clientMsg->mutable_proxyio_request()->mutable_remote_read();
 
     readMsg->set_offset(m_offset);
     readMsg->set_size(m_size);
